@@ -116,9 +116,9 @@ class AudioEngine {
     const splitter = ctx.createChannelSplitter(2);
     this.sourceNode.connect(splitter);
 
-    // Channel 0 = left, channel 1 = right
+    // Mirror mono sources into both analysers so panels do not show a dead right channel.
     splitter.connect(this.analyserL!, 0);
-    splitter.connect(this.analyserR!, 1);
+    splitter.connect(this.analyserR!, this.buffer.numberOfChannels > 1 ? 1 : 0);
 
     this.sourceNode.playbackRate.value = this._playbackRate;
     this.sourceNode.start(0, this.offsetAt);
@@ -310,6 +310,10 @@ class AudioEngine {
   setPlaybackRate(r: number): void {
     this._playbackRate = Math.max(0.25, Math.min(2, r));
     if (this.sourceNode) this.sourceNode.playbackRate.value = this._playbackRate;
+  }
+
+  get playbackRate(): number {
+    return this._playbackRate;
   }
 
   /** Decoded AudioBuffer for the currently loaded file, or null. Read-only — do not mutate. */

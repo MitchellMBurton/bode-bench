@@ -9,6 +9,7 @@ import { MetadataDisplay } from './controls/MetadataDisplay';
 import { SessionControls } from './controls/SessionControls';
 import { WaveformOverviewPanel } from './panels/WaveformOverviewPanel';
 import { OscilloscopePanel } from './panels/OscilloscopePanel';
+import { FrequencyResponsePanel } from './panels/FrequencyResponsePanel';
 import { WaveformScrollPanel } from './panels/WaveformScrollPanel';
 import { SpectrogramPanel } from './panels/SpectrogramPanel';
 import { LevelsPanel } from './panels/LevelsPanel';
@@ -47,12 +48,17 @@ export default function App(): React.ReactElement {
       }}
       topRight={{
         category: 'LIVE DIAGNOSTIC',
-        title: 'OVERVIEW / OSCILLOSCOPE / WAVEFORM',
+        title: 'OVERVIEW / WAVEFORM / OSC / RESPONSE',
         content: (
           <div style={splitPanelStyle}>
             <div style={overviewSlotStyle}><WaveformOverviewPanel /></div>
             <div style={waveScrollSlotStyle}><WaveformScrollPanel /></div>
-            <div style={oscSlotStyle}><OscilloscopePanel /></div>
+            <div style={diagLowerSlotStyle}>
+              <div style={diagLowerStackStyle}>
+                <div style={oscSlotStyle}><OscilloscopePanel /></div>
+                <div style={responseSlotStyle}><FrequencyResponsePanel /></div>
+              </div>
+            </div>
           </div>
         ),
       }}
@@ -97,19 +103,38 @@ const splitPanelStyle: React.CSSProperties = {
 };
 
 const overviewSlotStyle: React.CSSProperties = {
-  flex: '0 0 27%',
+  flex: '0 0 22%',
   minHeight: 0,
   overflow: 'hidden',
 };
 
 const waveScrollSlotStyle: React.CSSProperties = {
-  flex: '0 0 38%',
+  flex: '0 0 34%',
   minHeight: 0,
   overflow: 'hidden',
 };
 
+const diagLowerSlotStyle: React.CSSProperties = {
+  flex: 1,
+  minHeight: 0,
+  overflow: 'hidden',
+};
+
+const diagLowerStackStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  height: '100%',
+  gap: SPACING.panelGap,
+};
+
 const oscSlotStyle: React.CSSProperties = {
   flex: 1,
+  minHeight: 0,
+  overflow: 'hidden',
+};
+
+const responseSlotStyle: React.CSSProperties = {
+  flex: 2,
   minHeight: 0,
   overflow: 'hidden',
 };

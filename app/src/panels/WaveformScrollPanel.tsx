@@ -1,9 +1,3 @@
-// ============================================================
-// Waveform Scroll Panel — scrolling amplitude time-history
-// Thin 1px strokes with 1px gaps, each showing min/max of a
-// short (128-sample) window. Produces the "hair" envelope look.
-// ============================================================
-
 import { useEffect, useRef } from 'react';
 import { frameBus } from '../audio/frameBus';
 import { audioEngine } from '../audio/engine';
@@ -11,9 +5,8 @@ import { COLORS, FONTS, CANVAS, SPACING } from '../theme';
 import type { AudioFrame } from '../types';
 
 const PAD = SPACING.panelPad;
-const SCROLL_PX = CANVAS.timelineScrollPx;  // synced with spectrogram
-const COL_W = SCROLL_PX;                    // fill every column (no gaps at 1px/frame)
-const WINDOW = 128;     // samples per column — ~3ms at 44.1kHz
+const BASE_SCROLL_PX = CANVAS.timelineScrollPx;
+const WINDOW = 128;
 
 export function WaveformScrollPanel(): React.ReactElement {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -22,20 +15,26 @@ export function WaveformScrollPanel(): React.ReactElement {
   const rafRef = useRef<number | null>(null);
   const lastFileIdRef = useRef(-1);
   const lastFrameRef = useRef<AudioFrame | null>(null);
+  const scrollCarryRef = useRef(0);
 
   useEffect(() => {
-    const unsub = frameBus.subscribe((f) => { frameRef.current = f; });
-    return unsub;
+    return frameBus.subscribe((frame) => {
+      frameRef.current = frame;
+    });
   }, []);
 
   useEffect(() => {
     return audioEngine.onReset(() => {
       frameRef.current = null;
       lastFrameRef.current = null;
+      scrollCarryRef.current = 0;
       const offscreen = offscreenRef.current;
       if (!offscreen) return;
       const octx = offscreen.getContext('2d');
-      if (octx) { octx.fillStyle = COLORS.bg2; octx.fillRect(0, 0, offscreen.width, offscreen.height); }
+      if (octx) {
+        octx.fillStyle = COLORS.bg2;
+        octx.fillRect(0, 0, offscreen.width, offscreen.height);
+      }
     });
   }, []);
 
@@ -55,8 +54,12 @@ export function WaveformScrollPanel(): React.ReactElement {
         canvas.height = h;
         offscreen.width = w;
         offscreen.height = h;
+        scrollCarryRef.current = 0;
         const octx = offscreen.getContext('2d');
-        if (octx) { octx.fillStyle = COLORS.bg2; octx.fillRect(0, 0, w, h); }
+        if (octx) {
+          octx.fillStyle = COLORS.bg2;
+          octx.fillRect(0, 0, w, h);
+        }
       }
     });
     ro.observe(canvas);
@@ -71,7 +74,6 @@ export function WaveformScrollPanel(): React.ReactElement {
       const W = canvas.width;
       const H = canvas.height;
       const dpr = devicePixelRatio;
-
       const padX = PAD * dpr;
       const padY = PAD * dpr;
       const drawW = W - padX * 2;
@@ -79,50 +81,50 @@ export function WaveformScrollPanel(): React.ReactElement {
       const midY = padY + drawH / 2;
       const halfH = drawH / 2;
 
-      // Clear history only when a new file is loaded
       if (frame && frame.fileId !== lastFileIdRef.current) {
         lastFileIdRef.current = frame.fileId;
+        scrollCarryRef.current = 0;
         octx.fillStyle = COLORS.bg2;
         octx.fillRect(0, 0, W, H);
       }
 
-      // Only scroll and append when a genuinely new frame arrived (freeze on pause)
       const isNewFrame = frame !== null && frame !== lastFrameRef.current;
       lastFrameRef.current = frame;
 
       if (isNewFrame && frame) {
-        // Scroll left
-        octx.drawImage(offscreen, -SCROLL_PX, 0);
-        octx.fillStyle = COLORS.bg2;
-        octx.fillRect(W - SCROLL_PX, 0, SCROLL_PX, H);
+        scrollCarryRef.current += BASE_SCROLL_PX * audioEngine.playbackRate;
+        const scrollPx = Math.max(0, Math.floor(scrollCarryRef.current));
 
-        const td = frame.timeDomain;
-        // Sample from center of the buffer — avoids edge artefacts
-        const center = Math.floor(td.length / 2);
-        const start = Math.max(0, center - WINDOW / 2);
-        const end = Math.min(td.length, center + WINDOW / 2);
+        if (scrollPx > 0) {
+          scrollCarryRef.current -= scrollPx;
 
-        let min = 0;
-        let max = 0;
-        for (let i = start; i < end; i++) {
-          if (td[i] < min) min = td[i];
-          if (td[i] > max) max = td[i];
+          octx.drawImage(offscreen, -scrollPx, 0);
+          octx.fillStyle = COLORS.bg2;
+          octx.fillRect(W - scrollPx, 0, scrollPx, H);
+
+          const td = frame.timeDomain;
+          const center = Math.floor(td.length / 2);
+          const start = Math.max(0, center - WINDOW / 2);
+          const end = Math.min(td.length, center + WINDOW / 2);
+
+          let min = 0;
+          let max = 0;
+          for (let i = start; i < end; i++) {
+            if (td[i] < min) min = td[i];
+            if (td[i] > max) max = td[i];
+          }
+
+          const amp = Math.max(Math.abs(min), Math.abs(max)) * frame.displayGain;
+          const h = Math.max(1, Math.min(amp * halfH, halfH));
+
+          octx.fillStyle = COLORS.waveform;
+          octx.fillRect(W - scrollPx, midY - h, scrollPx, h * 2);
         }
-
-        // Symmetric: use the larger of abs(min) / abs(max), scaled by display gain
-        const amp = Math.max(Math.abs(min), Math.abs(max)) * frame.displayGain;
-        const h = Math.max(COL_W, Math.min(amp * halfH, halfH));
-
-        // Single 1px column at the right edge
-        octx.fillStyle = COLORS.waveform;
-        octx.fillRect(W - COL_W, midY - h, COL_W, h * 2);
       }
 
-      // Blit to main canvas
       ctx.fillStyle = COLORS.bg2;
       ctx.fillRect(0, 0, W, H);
 
-      // Zero line (behind history)
       ctx.strokeStyle = COLORS.waveformGrid;
       ctx.lineWidth = 0.5;
       ctx.setLineDash([2, 4]);
@@ -132,7 +134,6 @@ export function WaveformScrollPanel(): React.ReactElement {
       ctx.stroke();
       ctx.setLineDash([]);
 
-      // Clip to draw area and blit
       ctx.save();
       ctx.beginPath();
       ctx.rect(padX, padY, drawW, drawH);
@@ -140,7 +141,6 @@ export function WaveformScrollPanel(): React.ReactElement {
       ctx.drawImage(offscreen, 0, 0);
       ctx.restore();
 
-      // Labels
       ctx.font = `${9 * dpr}px ${FONTS.mono}`;
       ctx.fillStyle = COLORS.textDim;
       ctx.textAlign = 'left';
@@ -156,7 +156,6 @@ export function WaveformScrollPanel(): React.ReactElement {
     };
 
     rafRef.current = requestAnimationFrame(draw);
-
     return () => {
       ro.disconnect();
       if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);

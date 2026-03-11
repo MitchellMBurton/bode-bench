@@ -39,6 +39,18 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
   const transportRef = useRef(transport);
   transportRef.current = transport;
 
+  const clearVideoPreview = useCallback(() => {
+    if (videoUrlRef.current) {
+      URL.revokeObjectURL(videoUrlRef.current);
+      videoUrlRef.current = null;
+    }
+    setVideoUrl(null);
+  }, []);
+
+  const clearFileInput = useCallback(() => {
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  }, []);
+
   // Sync from engine
   useEffect(() => {
     return audioEngine.onTransport((state) => {
@@ -103,13 +115,17 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
     };
   }, []);
 
+  useEffect(() => {
+    return audioEngine.onReset(() => {
+      clearVideoPreview();
+      clearFileInput();
+      if (videoRef.current) videoRef.current.currentTime = 0;
+    });
+  }, [clearFileInput, clearVideoPreview]);
+
   const handleFile = useCallback(async (file: File) => {
     // Revoke previous object URL
-    if (videoUrlRef.current) {
-      URL.revokeObjectURL(videoUrlRef.current);
-      videoUrlRef.current = null;
-      setVideoUrl(null);
-    }
+    clearVideoPreview();
 
     // Create video preview URL for video files
     if (file.type.startsWith('video/')) {
@@ -123,9 +139,10 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
       await audioEngine.load(file);
       onFileLoaded?.();
     } finally {
+      clearFileInput();
       setIsLoading(false);
     }
-  }, [onFileLoaded]);
+  }, [clearFileInput, clearVideoPreview, onFileLoaded]);
 
   const onDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -136,6 +153,7 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
 
   const onFileInput = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    e.target.value = '';
     if (file) void handleFile(file);
   }, [handleFile]);
 
@@ -176,7 +194,10 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
         onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
         onDragLeave={() => setIsDragging(false)}
         onDrop={onDrop}
-        onClick={() => fileInputRef.current?.click()}
+        onClick={() => {
+          clearFileInput();
+          fileInputRef.current?.click();
+        }}
       >
         <input
           ref={fileInputRef}
