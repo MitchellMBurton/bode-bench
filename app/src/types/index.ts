@@ -35,6 +35,28 @@ export interface AudioFrame {
   readonly displayGain: number;
   /** FFT bin count: frequencyDb.length */
   readonly fftBinCount: number;
+  /** Spectral centroid of left channel power spectrum (Hz).
+   *  Weighted mean frequency: Σ(freq_k × power_k) / Σ(power_k). */
+  readonly spectralCentroid: number;
+}
+
+/** File-level quality analysis computed once from the decoded AudioBuffer on load. */
+export interface FileAnalysis {
+  /** Crest factor: peak dBFS minus integrated RMS dBFS. Higher = more dynamic range.
+   *  Unmastered classical: ~14–20 dB. Moderate mastering: ~9–13 dB. Brick-wall: ~5–8 dB. */
+  readonly crestFactorDb: number;
+  /** Peak amplitude of entire file in dBFS (0 = full scale, negative = below full scale). */
+  readonly peakDb: number;
+  /** Integrated RMS amplitude in dBFS across all channels. */
+  readonly rmsDb: number;
+  /** Number of samples where |x| >= 0.9999 across all channels (hard clipping indicator). */
+  readonly clipCount: number;
+  /** Total duration in seconds. */
+  readonly duration: number;
+  /** Number of audio channels in the source file. */
+  readonly channels: number;
+  /** fileId at the time of analysis — panels can discard stale callbacks. */
+  readonly fileId: number;
 }
 
 /** Coarse frequency band (aggregated from FFT bins). */

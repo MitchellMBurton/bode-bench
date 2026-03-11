@@ -7,6 +7,7 @@ import { ConsoleLayout } from './layout/ConsoleLayout';
 import { TransportControls } from './controls/TransportControls';
 import { MetadataDisplay } from './controls/MetadataDisplay';
 import { SessionControls } from './controls/SessionControls';
+import { WaveformOverviewPanel } from './panels/WaveformOverviewPanel';
 import { OscilloscopePanel } from './panels/OscilloscopePanel';
 import { WaveformScrollPanel } from './panels/WaveformScrollPanel';
 import { SpectrogramPanel } from './panels/SpectrogramPanel';
@@ -46,11 +47,12 @@ export default function App(): React.ReactElement {
       }}
       topRight={{
         category: 'LIVE DIAGNOSTIC',
-        title: 'OSCILLOSCOPE / WAVEFORM',
+        title: 'OVERVIEW / OSCILLOSCOPE / WAVEFORM',
         content: (
           <div style={splitPanelStyle}>
-            <div style={oscSlotStyle}><OscilloscopePanel /></div>
+            <div style={overviewSlotStyle}><WaveformOverviewPanel /></div>
             <div style={waveScrollSlotStyle}><WaveformScrollPanel /></div>
+            <div style={oscSlotStyle}><OscilloscopePanel /></div>
           </div>
         ),
       }}
@@ -94,13 +96,19 @@ const splitPanelStyle: React.CSSProperties = {
   gap: SPACING.panelGap,
 };
 
-const oscSlotStyle: React.CSSProperties = {
-  flex: '0 0 55%',
+const overviewSlotStyle: React.CSSProperties = {
+  flex: '0 0 27%',
   minHeight: 0,
   overflow: 'hidden',
 };
 
 const waveScrollSlotStyle: React.CSSProperties = {
+  flex: '0 0 38%',
+  minHeight: 0,
+  overflow: 'hidden',
+};
+
+const oscSlotStyle: React.CSSProperties = {
   flex: 1,
   minHeight: 0,
   overflow: 'hidden',

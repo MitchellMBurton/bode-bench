@@ -96,7 +96,7 @@ export function OscilloscopePanel(): React.ReactElement {
         ctx.moveTo(padX, midY);
         ctx.lineTo(padX + drawW, midY);
         ctx.stroke();
-        drawLabel(ctx, W, H, dpr);
+        drawLabel(ctx, W, dpr);
         return;
       }
 
@@ -127,7 +127,7 @@ export function OscilloscopePanel(): React.ReactElement {
       }
       ctx.stroke();
 
-      drawLabel(ctx, W, H, dpr);
+      drawLabel(ctx, W, dpr);
     };
 
     rafRef.current = requestAnimationFrame(draw);
@@ -145,7 +145,7 @@ export function OscilloscopePanel(): React.ReactElement {
   );
 }
 
-function drawLabel(ctx: CanvasRenderingContext2D, W: number, H: number, dpr: number): void {
+function drawLabel(ctx: CanvasRenderingContext2D, W: number, dpr: number): void {
   ctx.font = `${9 * dpr}px ${FONTS.mono}`;
   ctx.fillStyle = COLORS.textDim;
   ctx.textAlign = 'right';

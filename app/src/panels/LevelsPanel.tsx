@@ -73,7 +73,7 @@ export function LevelsPanel(): React.ReactElement {
 
       if (!frame) {
         drawDbScale(ctx, scaleW, padY, barH, [-60, -40, -20, -12, -6, -3, 0]);
-        drawLabel(ctx, W, H, dpr);
+        drawLabel(ctx, W, dpr);
         return;
       }
 
@@ -143,7 +143,7 @@ export function LevelsPanel(): React.ReactElement {
         ctx.fillText(ch === 0 ? 'L' : 'R', x + barW / 2, padY + barH + 2 * dpr);
       }
 
-      drawLabel(ctx, W, H, dpr);
+      drawLabel(ctx, W, dpr);
     };
 
     rafRef.current = requestAnimationFrame(draw);
@@ -161,7 +161,7 @@ export function LevelsPanel(): React.ReactElement {
   );
 }
 
-function drawLabel(ctx: CanvasRenderingContext2D, W: number, H: number, dpr: number): void {
+function drawLabel(ctx: CanvasRenderingContext2D, W: number, dpr: number): void {
   ctx.font = `${9 * dpr}px ${FONTS.mono}`;
   ctx.fillStyle = COLORS.textDim;
   ctx.textAlign = 'right';

@@ -6,7 +6,7 @@
 
 import { frameBus } from './frameBus';
 import { CANVAS } from '../theme';
-import type { AudioFrame, TransportState } from '../types';
+import type { AudioFrame, FileAnalysis, TransportState } from '../types';
 
 type TransportListener = (state: TransportState) => void;
 
@@ -28,13 +28,15 @@ class AudioEngine {
   private displayGain = 1; // 0.95 / filePeak — visual scale only, audio unaffected
 
   // Frame data arrays (reused each frame to avoid allocation)
-  private timeDomainData!: Float32Array;
-  private timeDomainDataR!: Float32Array;
-  private frequencyData!: Float32Array;
-  private frequencyDataR!: Float32Array;
+  private timeDomainData!: Float32Array<ArrayBuffer>;
+  private timeDomainDataR!: Float32Array<ArrayBuffer>;
+  private frequencyData!: Float32Array<ArrayBuffer>;
+  private frequencyDataR!: Float32Array<ArrayBuffer>;
 
   private transportListeners = new Set<TransportListener>();
   private resetListeners = new Set<() => void>();
+  private fileReadyListeners = new Set<(a: FileAnalysis) => void>();
+  private _fileAnalysis: FileAnalysis | null = null;
   private _filename: string | null = null;
 
   // ----------------------------------------------------------
@@ -60,10 +62,10 @@ class AudioEngine {
     this.analyserR.fftSize = fftSize;
     this.analyserR.smoothingTimeConstant = CANVAS.smoothingTimeConstant;
 
-    this.timeDomainData = new Float32Array(fftSize);
-    this.timeDomainDataR = new Float32Array(fftSize);
-    this.frequencyData = new Float32Array(fftSize / 2);
-    this.frequencyDataR = new Float32Array(fftSize / 2);
+    this.timeDomainData = new Float32Array(new ArrayBuffer(fftSize * Float32Array.BYTES_PER_ELEMENT));
+    this.timeDomainDataR = new Float32Array(new ArrayBuffer(fftSize * Float32Array.BYTES_PER_ELEMENT));
+    this.frequencyData = new Float32Array(new ArrayBuffer((fftSize / 2) * Float32Array.BYTES_PER_ELEMENT));
+    this.frequencyDataR = new Float32Array(new ArrayBuffer((fftSize / 2) * Float32Array.BYTES_PER_ELEMENT));
 
     // Route both analysers through a master gain node to destination
     this.masterGain = ctx.createGain();
@@ -90,6 +92,8 @@ class AudioEngine {
     this.offsetAt = 0;
     this.fileId++;
     this.displayGain = this.computeDisplayGain(this.buffer);
+    this._fileAnalysis = this.computeFileAnalysis(this.buffer);
+    for (const fn of this.fileReadyListeners) fn(this._fileAnalysis);
     this.emitTransport();
   }
 
@@ -168,6 +172,7 @@ class AudioEngine {
     this.offsetAt = 0;
     this.fileId++;
     this.displayGain = 1;
+    this._fileAnalysis = null;
     this.emitTransport();
     for (const fn of this.resetListeners) fn();  // tell panels to wipe visuals immediately
   }
@@ -264,6 +269,16 @@ class AudioEngine {
     }
     rmsR = Math.sqrt(rmsR / tdR.length);
 
+    // Spectral centroid: weighted mean frequency of left channel power spectrum (Hz)
+    const binHz = this.ctx.sampleRate / (fftBinCount * 2);
+    let centNum = 0, centDen = 0;
+    for (let i = 1; i < fftBinCount; i++) {
+      const power = Math.pow(10, this.frequencyData[i] / 10);
+      centNum += i * binHz * power;
+      centDen += power;
+    }
+    const spectralCentroid = centDen > 0 ? centNum / centDen : 0;
+
     const frame: AudioFrame = {
       currentTime: this.currentTime,
       timeDomain: new Float32Array(tdL),      // copy so panels can hold refs
@@ -278,6 +293,7 @@ class AudioEngine {
       playId: this.playId,
       fileId: this.fileId,
       displayGain: this.displayGain,
+      spectralCentroid,
     };
 
     frameBus.publish(frame);
@@ -296,6 +312,16 @@ class AudioEngine {
     if (this.sourceNode) this.sourceNode.playbackRate.value = this._playbackRate;
   }
 
+  /** Decoded AudioBuffer for the currently loaded file, or null. Read-only — do not mutate. */
+  get audioBuffer(): AudioBuffer | null { return this.buffer; }
+
+  /** Subscribe to file-ready events fired after each successful load().
+   *  Receives a FileAnalysis with quality metrics computed from the full buffer. */
+  onFileReady(fn: (analysis: FileAnalysis) => void): () => void {
+    this.fileReadyListeners.add(fn);
+    return () => { this.fileReadyListeners.delete(fn); };
+  }
+
   onTransport(fn: TransportListener): () => void {
     this.transportListeners.add(fn);
     return () => { this.transportListeners.delete(fn); };
@@ -304,6 +330,35 @@ class AudioEngine {
   onReset(fn: () => void): () => void {
     this.resetListeners.add(fn);
     return () => { this.resetListeners.delete(fn); };
+  }
+
+  private computeFileAnalysis(buffer: AudioBuffer): FileAnalysis {
+    let peak = 0;
+    let rmsSum = 0;
+    let totalSamples = 0;
+    let clipCount = 0;
+    for (let ch = 0; ch < buffer.numberOfChannels; ch++) {
+      const data = buffer.getChannelData(ch);
+      for (let i = 0; i < data.length; i++) {
+        const v = Math.abs(data[i]);
+        if (v > peak) peak = v;
+        rmsSum += data[i] * data[i];
+        totalSamples++;
+        if (v >= 0.9999) clipCount++;
+      }
+    }
+    const rms = Math.sqrt(rmsSum / totalSamples);
+    const peakDb = peak > 0 ? 20 * Math.log10(peak) : -100;
+    const rmsDb = rms > 0 ? 20 * Math.log10(rms) : -100;
+    return {
+      crestFactorDb: peakDb - rmsDb,
+      peakDb,
+      rmsDb,
+      clipCount,
+      duration: buffer.duration,
+      channels: buffer.numberOfChannels,
+      fileId: this.fileId,
+    };
   }
 
   private emitTransport(): void {
