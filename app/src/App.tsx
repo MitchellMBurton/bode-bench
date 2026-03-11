@@ -6,6 +6,7 @@ import { useState, useEffect } from 'react';
 import { ConsoleLayout } from './layout/ConsoleLayout';
 import { TransportControls } from './controls/TransportControls';
 import { MetadataDisplay } from './controls/MetadataDisplay';
+import { SessionControls } from './controls/SessionControls';
 import { OscilloscopePanel } from './panels/OscilloscopePanel';
 import { WaveformScrollPanel } from './panels/WaveformScrollPanel';
 import { SpectrogramPanel } from './panels/SpectrogramPanel';
@@ -16,6 +17,7 @@ import { COLORS, SPACING } from './theme';
 
 export default function App(): React.ReactElement {
   const [filename, setFilename] = useState<string | null>(null);
+  const [grayscale, setGrayscale] = useState(false);
 
   useEffect(() => {
     return audioEngine.onTransport((state) => {
@@ -29,6 +31,7 @@ export default function App(): React.ReactElement {
 
   return (
     <ConsoleLayout
+      grayscale={grayscale}
       topLeft={{
         category: 'SUITE CONSOLE',
         title: panelTitle,
@@ -37,6 +40,7 @@ export default function App(): React.ReactElement {
             <MetadataDisplay filename={filename} />
             <div style={dividerStyle} />
             <TransportControls />
+            <SessionControls grayscale={grayscale} onGrayscale={setGrayscale} />
           </div>
         ),
       }}

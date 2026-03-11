@@ -20,9 +20,10 @@ interface Props {
   topRight: PanelDef;
   bottomLeft: PanelDef;
   bottomRight: PanelDef;
+  grayscale?: boolean;
 }
 
-export function ConsoleLayout({ topLeft, topRight, bottomLeft, bottomRight }: Props): React.ReactElement {
+export function ConsoleLayout({ topLeft, topRight, bottomLeft, bottomRight, grayscale }: Props): React.ReactElement {
   return (
     <div style={shellStyle}>
       {/* Global header */}
@@ -38,7 +39,7 @@ export function ConsoleLayout({ topLeft, topRight, bottomLeft, bottomRight }: Pr
       </div>
 
       {/* Four-quadrant grid */}
-      <div style={gridStyle}>
+      <div style={{ ...gridStyle, filter: grayscale ? 'grayscale(1) contrast(1.05)' : 'none' }}>
         {[topLeft, topRight, bottomLeft, bottomRight].map((panel, i) => (
           <div
             key={i}

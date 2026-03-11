@@ -20,6 +20,9 @@ class AudioEngine {
   private offsetAt = 0;    // buffer offset when play started (seconds)
   private _isPlaying = false;
   private rafId: number | null = null;
+  private masterGain: GainNode | null = null;
+  private _volume = 1;
+  private _playbackRate = 1;
   private playId = 0;  // increments on every play()
   private fileId = 0;  // increments on every load() — panels clear history on new file only
   private displayGain = 1; // 0.95 / filePeak — visual scale only, audio unaffected
@@ -31,6 +34,7 @@ class AudioEngine {
   private frequencyDataR!: Float32Array;
 
   private transportListeners = new Set<TransportListener>();
+  private resetListeners = new Set<() => void>();
   private _filename: string | null = null;
 
   // ----------------------------------------------------------
@@ -61,9 +65,12 @@ class AudioEngine {
     this.frequencyData = new Float32Array(fftSize / 2);
     this.frequencyDataR = new Float32Array(fftSize / 2);
 
-    // Both analysers connect to destination for monitoring
-    this.analyserL.connect(ctx.destination);
-    this.analyserR.connect(ctx.destination);
+    // Route both analysers through a master gain node to destination
+    this.masterGain = ctx.createGain();
+    this.masterGain.gain.value = this._volume;
+    this.analyserL.connect(this.masterGain);
+    this.analyserR.connect(this.masterGain);
+    this.masterGain.connect(ctx.destination);
   }
 
   // ----------------------------------------------------------
@@ -109,8 +116,9 @@ class AudioEngine {
     splitter.connect(this.analyserL!, 0);
     splitter.connect(this.analyserR!, 1);
 
+    this.sourceNode.playbackRate.value = this._playbackRate;
     this.sourceNode.start(0, this.offsetAt);
-    this.startedAt = ctx.currentTime - this.offsetAt;
+    this.startedAt = ctx.currentTime;
     this._isPlaying = true;
     this.playId++;
 
@@ -135,7 +143,7 @@ class AudioEngine {
 
   pause(): void {
     if (!this._isPlaying || !this.ctx) return;
-    this.offsetAt = this.ctx.currentTime - this.startedAt;
+    this.offsetAt = this.offsetAt + (this.ctx.currentTime - this.startedAt) * this._playbackRate;
     this._stopSource();
     this._isPlaying = false;
     this.stopRaf();
@@ -148,6 +156,20 @@ class AudioEngine {
     this._isPlaying = false;
     this.stopRaf();
     this.emitTransport();
+  }
+
+  /** Full reset — stops playback, clears the loaded file, increments fileId so panels wipe history. */
+  reset(): void {
+    this._stopSource();
+    this._isPlaying = false;
+    this.stopRaf();
+    this.buffer = null;
+    this._filename = null;
+    this.offsetAt = 0;
+    this.fileId++;
+    this.displayGain = 1;
+    this.emitTransport();
+    for (const fn of this.resetListeners) fn();  // tell panels to wipe visuals immediately
   }
 
   private _stopSource(): void {
@@ -167,7 +189,7 @@ class AudioEngine {
 
   get currentTime(): number {
     if (!this.ctx) return 0;
-    if (this._isPlaying) return this.ctx.currentTime - this.startedAt;
+    if (this._isPlaying) return this.offsetAt + (this.ctx.currentTime - this.startedAt) * this._playbackRate;
     return this.offsetAt;
   }
 
@@ -264,9 +286,24 @@ class AudioEngine {
   // ----------------------------------------------------------
   // Transport listeners
   // ----------------------------------------------------------
+  setVolume(v: number): void {
+    this._volume = Math.max(0, Math.min(1, v));
+    if (this.masterGain) this.masterGain.gain.value = this._volume;
+  }
+
+  setPlaybackRate(r: number): void {
+    this._playbackRate = Math.max(0.25, Math.min(2, r));
+    if (this.sourceNode) this.sourceNode.playbackRate.value = this._playbackRate;
+  }
+
   onTransport(fn: TransportListener): () => void {
     this.transportListeners.add(fn);
     return () => { this.transportListeners.delete(fn); };
+  }
+
+  onReset(fn: () => void): () => void {
+    this.resetListeners.add(fn);
+    return () => { this.resetListeners.delete(fn); };
   }
 
   private emitTransport(): void {

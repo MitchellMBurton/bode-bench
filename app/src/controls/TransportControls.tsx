@@ -255,6 +255,14 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
         >
           {transport.isPlaying ? '⏸' : '▶'}
         </button>
+        <button
+          style={{ ...btnStyle, ...btnResetStyle }}
+          onClick={() => audioEngine.reset()}
+          disabled={!transport.filename}
+          title="Reset — clear file and all visuals"
+        >
+          ↺ RESET
+        </button>
       </div>
     </div>
   );
@@ -265,9 +273,8 @@ const wrapStyle: React.CSSProperties = {
   flexDirection: 'column',
   gap: SPACING.sm,
   padding: SPACING.md,
-  height: '100%',
+  flexShrink: 0,
   boxSizing: 'border-box',
-  overflow: 'hidden',
 };
 
 const ingestStyle: React.CSSProperties = {
@@ -376,10 +383,19 @@ const btnStyle: React.CSSProperties = {
   cursor: 'pointer',
   borderRadius: 2,
   lineHeight: 1,
+  outline: 'none',
   transition: 'background 0.1s, border-color 0.1s',
 };
 
 const btnActiveStyle: React.CSSProperties = {
   background: COLORS.accentDim,
   borderColor: COLORS.accent,
+};
+
+const btnResetStyle: React.CSSProperties = {
+  marginLeft: 'auto',          // push to the right side of the button row
+  fontSize: FONTS.sizeSm,
+  letterSpacing: '0.06em',
+  color: COLORS.textSecondary,
+  borderColor: COLORS.border,
 };

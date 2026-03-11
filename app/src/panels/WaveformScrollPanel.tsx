@@ -6,6 +6,7 @@
 
 import { useEffect, useRef } from 'react';
 import { frameBus } from '../audio/frameBus';
+import { audioEngine } from '../audio/engine';
 import { COLORS, FONTS, CANVAS, SPACING } from '../theme';
 import type { AudioFrame } from '../types';
 
@@ -25,6 +26,17 @@ export function WaveformScrollPanel(): React.ReactElement {
   useEffect(() => {
     const unsub = frameBus.subscribe((f) => { frameRef.current = f; });
     return unsub;
+  }, []);
+
+  useEffect(() => {
+    return audioEngine.onReset(() => {
+      frameRef.current = null;
+      lastFrameRef.current = null;
+      const offscreen = offscreenRef.current;
+      if (!offscreen) return;
+      const octx = offscreen.getContext('2d');
+      if (octx) { octx.fillStyle = COLORS.bg2; octx.fillRect(0, 0, offscreen.width, offscreen.height); }
+    });
   }, []);
 
   useEffect(() => {

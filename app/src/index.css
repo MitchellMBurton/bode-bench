@@ -22,6 +22,17 @@ html, body, #root {
   color: #d0d0e0;
 }
 
+button {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+button:focus,
+button:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
 button:disabled {
   opacity: 0.35;
   cursor: not-allowed;

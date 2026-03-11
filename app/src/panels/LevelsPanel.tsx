@@ -5,6 +5,7 @@
 
 import { useEffect, useRef } from 'react';
 import { frameBus } from '../audio/frameBus';
+import { audioEngine } from '../audio/engine';
 import { COLORS, FONTS, CANVAS, SPACING } from '../theme';
 import { levelToDb, dbToFraction, drawDbScale } from '../utils/canvas';
 import type { AudioFrame } from '../types';
@@ -26,10 +27,16 @@ export function LevelsPanel(): React.ReactElement {
   const peakR = useRef<PeakHolder>({ fraction: 0, heldAt: 0 });
 
   useEffect(() => {
-    const unsub = frameBus.subscribe((f) => {
-      frameRef.current = f;
-    });
+    const unsub = frameBus.subscribe((f) => { frameRef.current = f; });
     return unsub;
+  }, []);
+
+  useEffect(() => {
+    return audioEngine.onReset(() => {
+      frameRef.current = null;
+      peakL.current = { fraction: 0, heldAt: 0 };
+      peakR.current = { fraction: 0, heldAt: 0 };
+    });
   }, []);
 
   useEffect(() => {

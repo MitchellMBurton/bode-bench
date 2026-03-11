@@ -5,6 +5,7 @@
 
 import { useEffect, useRef } from 'react';
 import { frameBus } from '../audio/frameBus';
+import { audioEngine } from '../audio/engine';
 import { COLORS, FONTS, CANVAS, SPACING } from '../theme';
 import type { AudioFrame, FrequencyBand } from '../types';
 
@@ -15,10 +16,15 @@ export function FrequencyBandsPanel(): React.ReactElement {
   const smoothedRef = useRef<number[]>(CANVAS.frequencyBands.map(() => 0));
 
   useEffect(() => {
-    const unsub = frameBus.subscribe((f) => {
-      frameRef.current = f;
-    });
+    const unsub = frameBus.subscribe((f) => { frameRef.current = f; });
     return unsub;
+  }, []);
+
+  useEffect(() => {
+    return audioEngine.onReset(() => {
+      frameRef.current = null;
+      smoothedRef.current = CANVAS.frequencyBands.map(() => 0);
+    });
   }, []);
 
   useEffect(() => {

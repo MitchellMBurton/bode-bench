@@ -7,6 +7,7 @@
 
 import { useEffect, useRef } from 'react';
 import { frameBus } from '../audio/frameBus';
+import { audioEngine } from '../audio/engine';
 import { COLORS, FONTS, CANVAS, SPACING } from '../theme';
 import { spectroColor } from '../utils/canvas';
 import type { AudioFrame } from '../types';
@@ -41,6 +42,23 @@ export function SpectrogramPanel(): React.ReactElement {
   useEffect(() => {
     const unsub = frameBus.subscribe((f) => { frameRef.current = f; });
     return unsub;
+  }, []);
+
+  useEffect(() => {
+    return audioEngine.onReset(() => {
+      frameRef.current = null;
+      lastFrameRef.current = null;
+      const offL = offLRef.current;
+      const offR = offRRef.current;
+      if (offL) {
+        const ctx = offL.getContext('2d');
+        if (ctx) { ctx.fillStyle = COLORS.bg2; ctx.fillRect(0, 0, offL.width, offL.height); }
+      }
+      if (offR) {
+        const ctx = offR.getContext('2d');
+        if (ctx) { ctx.fillStyle = COLORS.bg2; ctx.fillRect(0, 0, offR.width, offR.height); }
+      }
+    });
   }, []);
 
   useEffect(() => {
