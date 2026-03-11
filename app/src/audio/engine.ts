@@ -2,6 +2,17 @@
 // Audio Engine — Web Audio graph, transport, and frame extraction.
 // Owns all AudioContext and AnalyserNode logic.
 // Publishes typed AudioFrame objects to the frame bus each RAF.
+//
+// Graph topology (per play session):
+//
+//   source ──→ playGain ──→ masterGain ──→ destination
+//          └──→ splitter ──→ analyserL  (dead-end tap, not in audio path)
+//                       └──→ analyserR  (dead-end tap, not in audio path)
+//
+// Analysers are monitoring taps ONLY. They never sit inline in the
+// signal path, which eliminates the ChannelMerger timing artifacts
+// that cause crackling. Per-play gain nodes allow old and new sources
+// to fade independently during seek without touching masterGain.
 // ============================================================
 
 import { frameBus } from './frameBus';
@@ -11,28 +22,30 @@ import type { AudioFrame, FileAnalysis, TransportState } from '../types';
 type TransportListener = (state: TransportState) => void;
 const ANALYSIS_FPS = 20;
 const ANALYSIS_FRAME_MS = 1000 / ANALYSIS_FPS;
+const DECLICK_FADE_S = 0.006;  // 6 ms fade-out on stop/pause
+const DECLICK_IN_S   = 0.008;  // 8 ms fade-in on play
 
 class AudioEngine {
   private ctx: AudioContext | null = null;
   private analyserL: AnalyserNode | null = null;
   private analyserR: AnalyserNode | null = null;
-  private stereoBusL: GainNode | null = null;
-  private stereoBusR: GainNode | null = null;
-  private stereoMerger: ChannelMergerNode | null = null;
+  private masterGain: GainNode | null = null;
+
+  // Per-play nodes — recreated each play(), discarded after stop
   private sourceNode: AudioBufferSourceNode | null = null;
+  private playGainNode: GainNode | null = null;       // de-click gain, isolated per play
   private splitterNode: ChannelSplitterNode | null = null;
-  private mixTapNodes: GainNode[] = [];
+
   private buffer: AudioBuffer | null = null;
   private startedAt = 0;   // AudioContext.currentTime when play started
   private offsetAt = 0;    // buffer offset when play started (seconds)
   private _isPlaying = false;
   private rafId: number | null = null;
-  private masterGain: GainNode | null = null;
   private _volume = 1;
   private _playbackRate = 1;
-  private playId = 0;  // increments on every play()
-  private fileId = 0;  // increments on every load() — panels clear history on new file only
-  private displayGain = 1; // 0.95 / filePeak — visual scale only, audio unaffected
+  private playId = 0;
+  private fileId = 0;
+  private displayGain = 1;
 
   // Frame data arrays (reused each frame to avoid allocation)
   private timeDomainData!: Float32Array<ArrayBuffer>;
@@ -74,22 +87,18 @@ class AudioEngine {
     this.analyserR.minDecibels = CANVAS.dbMin;
     this.analyserR.maxDecibels = CANVAS.dbMax;
 
-    this.timeDomainData = new Float32Array(new ArrayBuffer(fftSize * Float32Array.BYTES_PER_ELEMENT));
-    this.timeDomainDataR = new Float32Array(new ArrayBuffer(fftSize * Float32Array.BYTES_PER_ELEMENT));
-    this.frequencyData = new Float32Array(new ArrayBuffer((fftSize / 2) * Float32Array.BYTES_PER_ELEMENT));
-    this.frequencyDataR = new Float32Array(new ArrayBuffer((fftSize / 2) * Float32Array.BYTES_PER_ELEMENT));
+    this.timeDomainData = new Float32Array(new ArrayBuffer(fftSize * 4));
+    this.timeDomainDataR = new Float32Array(new ArrayBuffer(fftSize * 4));
+    this.frequencyData = new Float32Array(new ArrayBuffer((fftSize / 2) * 4));
+    this.frequencyDataR = new Float32Array(new ArrayBuffer((fftSize / 2) * 4));
 
-    this.stereoBusL = ctx.createGain();
-    this.stereoBusR = ctx.createGain();
-    this.stereoMerger = ctx.createChannelMerger(2);
+    // masterGain is the only persistent node in the signal path
     this.masterGain = ctx.createGain();
     this.masterGain.gain.value = this._volume;
-    this.stereoBusL.connect(this.analyserL);
-    this.stereoBusR.connect(this.analyserR);
-    this.analyserL.connect(this.stereoMerger, 0, 0);
-    this.analyserR.connect(this.stereoMerger, 0, 1);
-    this.stereoMerger.connect(this.masterGain);
     this.masterGain.connect(ctx.destination);
+
+    // Analysers are dead-ends — no output connection needed.
+    // They receive signal via per-play splitter tap.
   }
 
   // ----------------------------------------------------------
@@ -108,10 +117,20 @@ class AudioEngine {
     this._filename = file.name;
     this.offsetAt = 0;
     this.fileId++;
-    this.displayGain = this.computeDisplayGain(this.buffer);
-    this._fileAnalysis = this.computeFileAnalysis(this.buffer);
-    for (const fn of this.fileReadyListeners) fn(this._fileAnalysis);
+
+    // Emit transport immediately so the file is available for playback.
+    // Heavy buffer scans (displayGain, fileAnalysis) are deferred to the next
+    // task to avoid blocking the main thread for ~900 ms on long files.
     this.emitTransport();
+
+    const capturedBuffer = this.buffer;
+    const capturedFileId = this.fileId;
+    setTimeout(() => {
+      if (this.fileId !== capturedFileId) return;
+      this.displayGain = this.computeDisplayGain(capturedBuffer);
+      this._fileAnalysis = this.computeFileAnalysis(capturedBuffer);
+      for (const fn of this.fileReadyListeners) fn(this._fileAnalysis!);
+    }, 0);
   }
 
   // ----------------------------------------------------------
@@ -126,31 +145,46 @@ class AudioEngine {
       void ctx.resume();
     }
 
-    if (!this.buffer) return;
+    if (!this.buffer || !this.masterGain || !this.analyserL || !this.analyserR) return;
 
     this.sourceNode = ctx.createBufferSource();
     this.sourceNode.buffer = this.buffer;
-
-    // Wire: source → splitter → L/R analysers
-    this.configureStereoRouting(this.buffer.numberOfChannels);
-
     this.sourceNode.playbackRate.value = this._playbackRate;
+
+    // Per-play gain for de-click fade-in (isolated from masterGain).
+    // Force explicit stereo so the analysis tap always sees a stable 2-ch signal
+    // regardless of source channel count — eliminates double fan-out from the source buffer.
+    this.playGainNode = ctx.createGain();
+    this.playGainNode.channelCount = 2;
+    this.playGainNode.channelCountMode = 'explicit';
+    const now = ctx.currentTime;
+    this.playGainNode.gain.setValueAtTime(0, now);
+    this.playGainNode.gain.linearRampToValueAtTime(1, now + DECLICK_IN_S);
+
+    // Main audio path: source → playGain → masterGain → destination
+    this.sourceNode.connect(this.playGainNode);
+    this.playGainNode.connect(this.masterGain);
+
+    // Analysis taps — tap from playGain (not source) to avoid a second render-quantum
+    // pull on the large source buffer. Dead-end: never connected to destination.
+    this.splitterNode = ctx.createChannelSplitter(2);
+    this.playGainNode.connect(this.splitterNode);
+    this.splitterNode.connect(this.analyserL, 0);
+    this.splitterNode.connect(this.analyserR, 1);
+
     this.sourceNode.start(0, this.offsetAt);
     this.startedAt = ctx.currentTime;
     this._isPlaying = true;
     this.playId++;
 
-    // Capture the node reference so the handler only fires for THIS play session.
-    // Without this, a seek causes: pause() → stop old node (fires onended async) →
-    // play() sets _isPlaying=true → old onended fires → sees _isPlaying=true → kills RAF.
     const ownSource = this.sourceNode;
     ownSource.onended = () => {
       if (this._isPlaying && this.sourceNode === ownSource) {
-        // Natural playback end — not a seek or stop
         this._isPlaying = false;
         this.offsetAt = 0;
         this.sourceNode = null;
-        this.clearStereoRouting();
+        this.playGainNode = null;
+        this.clearSplitter();
         this.stopRaf();
         this.emitTransport();
       }
@@ -177,7 +211,6 @@ class AudioEngine {
     this.emitTransport();
   }
 
-  /** Full reset — stops playback, clears the loaded file, increments fileId so panels wipe history. */
   reset(): void {
     this._stopSource();
     this._isPlaying = false;
@@ -189,110 +222,32 @@ class AudioEngine {
     this.displayGain = 1;
     this._fileAnalysis = null;
     this.emitTransport();
-    for (const fn of this.resetListeners) fn();  // tell panels to wipe visuals immediately
+    for (const fn of this.resetListeners) fn();
   }
 
   private _stopSource(): void {
-    if (this.sourceNode) {
+    if (this.sourceNode && this.playGainNode && this.ctx) {
+      // De-click: fade the per-play gain to 0, then let the source stop naturally
+      const now = this.ctx.currentTime;
+      this.playGainNode.gain.cancelScheduledValues(now);
+      this.playGainNode.gain.setValueAtTime(this.playGainNode.gain.value, now);
+      this.playGainNode.gain.linearRampToValueAtTime(0, now + DECLICK_FADE_S);
+      try { this.sourceNode.stop(now + DECLICK_FADE_S + 0.001); } catch { /* already ended */ }
+      // Source and playGain will be GC'd after they stop; nulling refs is enough
+    } else if (this.sourceNode) {
       try { this.sourceNode.stop(); } catch { /* already ended */ }
       this.sourceNode.disconnect();
-      this.sourceNode = null;
     }
-    this.clearStereoRouting();
+    this.sourceNode = null;
+    this.playGainNode = null;
+    this.clearSplitter();
   }
 
-  private configureStereoRouting(channelCount: number): void {
-    const ctx = this.ctx;
-    const sourceNode = this.sourceNode;
-    const stereoBusL = this.stereoBusL;
-    const stereoBusR = this.stereoBusR;
-    if (!ctx || !sourceNode || !stereoBusL || !stereoBusR) return;
-
-    this.clearStereoRouting();
-
-    this.splitterNode = ctx.createChannelSplitter(channelCount);
-    sourceNode.connect(this.splitterNode);
-
-    const routes = this.getDownmixRoutes(channelCount);
-    const headroom = this.getDownmixHeadroom(routes);
-
-    routes.forEach((route, outputIndex) => {
-      if (route.left !== 0) {
-        const tap = ctx.createGain();
-        tap.gain.value = route.left * headroom;
-        this.splitterNode!.connect(tap, outputIndex);
-        tap.connect(stereoBusL);
-        this.mixTapNodes.push(tap);
-      }
-      if (route.right !== 0) {
-        const tap = ctx.createGain();
-        tap.gain.value = route.right * headroom;
-        this.splitterNode!.connect(tap, outputIndex);
-        tap.connect(stereoBusR);
-        this.mixTapNodes.push(tap);
-      }
-    });
-  }
-
-  private clearStereoRouting(): void {
+  private clearSplitter(): void {
     if (this.splitterNode) {
       this.splitterNode.disconnect();
       this.splitterNode = null;
     }
-    for (const tap of this.mixTapNodes) tap.disconnect();
-    this.mixTapNodes = [];
-  }
-
-  private getDownmixRoutes(channelCount: number): Array<{ left: number; right: number }> {
-    if (channelCount <= 1) return [{ left: 1, right: 1 }];
-    if (channelCount === 2) return [{ left: 1, right: 0 }, { left: 0, right: 1 }];
-    if (channelCount === 3) {
-      return [
-        { left: 1, right: 0 },
-        { left: 0, right: 1 },
-        { left: 0.707, right: 0.707 },
-      ];
-    }
-    if (channelCount === 4) {
-      return [
-        { left: 1, right: 0 },
-        { left: 0, right: 1 },
-        { left: 0.5, right: 0 },
-        { left: 0, right: 0.5 },
-      ];
-    }
-    if (channelCount === 5) {
-      return [
-        { left: 1, right: 0 },
-        { left: 0, right: 1 },
-        { left: 0.707, right: 0.707 },
-        { left: 0.5, right: 0 },
-        { left: 0, right: 0.5 },
-      ];
-    }
-
-    const routes = [
-      { left: 1, right: 0 },
-      { left: 0, right: 1 },
-      { left: 0.707, right: 0.707 },
-      { left: 0, right: 0 },
-      { left: 0.5, right: 0 },
-      { left: 0, right: 0.5 },
-    ];
-
-    for (let ch = 6; ch < channelCount; ch++) {
-      routes.push(ch % 2 === 0 ? { left: 0.35, right: 0 } : { left: 0, right: 0.35 });
-    }
-
-    return routes;
-  }
-
-  private getDownmixHeadroom(routes: Array<{ left: number; right: number }>): number {
-    const leftSum = routes.reduce((sum, route) => sum + Math.abs(route.left), 0);
-    const rightSum = routes.reduce((sum, route) => sum + Math.abs(route.right), 0);
-    const maxSideSum = Math.max(leftSum, rightSum);
-    if (maxSideSum <= 1) return 1;
-    return Math.min(1, 0.95 / maxSideSum);
   }
 
   seek(seconds: number): void {
@@ -313,7 +268,6 @@ class AudioEngine {
     return this.buffer?.duration ?? 0;
   }
 
-  /** Scan all channels for peak amplitude and return a display gain that brings it to 0.95. */
   private computeDisplayGain(buffer: AudioBuffer): number {
     let peak = 0;
     for (let ch = 0; ch < buffer.numberOfChannels; ch++) {
@@ -356,15 +310,13 @@ class AudioEngine {
     const analyserR = this.analyserR;
     if (!analyserL || !analyserR || !this.ctx) return;
 
-    // Time domain (mono average for oscilloscope display)
     analyserL.getFloatTimeDomainData(this.timeDomainData);
-
-    // Frequency domain: left and right channels
     analyserL.getFloatFrequencyData(this.frequencyData);
+    analyserR.getFloatTimeDomainData(this.timeDomainDataR);
     analyserR.getFloatFrequencyData(this.frequencyDataR);
 
-    // Peak and RMS: use timeDomainData for L, cached buffer for R
     const tdL = this.timeDomainData;
+    const tdR = this.timeDomainDataR;
     const fftBinCount = this.frequencyData.length;
 
     let peakL = 0, rmsL = 0;
@@ -375,9 +327,6 @@ class AudioEngine {
     }
     rmsL = Math.sqrt(rmsL / tdL.length);
 
-    // R channel time domain for separate peak/rms
-    const tdR = this.timeDomainDataR;
-    analyserR.getFloatTimeDomainData(tdR);
     let peakR = 0, rmsR = 0;
     for (let i = 0; i < tdR.length; i++) {
       const v = Math.abs(tdR[i]);
@@ -386,7 +335,6 @@ class AudioEngine {
     }
     rmsR = Math.sqrt(rmsR / tdR.length);
 
-    // Spectral centroid: weighted mean frequency of left channel power spectrum (Hz)
     const binHz = this.ctx.sampleRate / (fftBinCount * 2);
     let centNum = 0, centDen = 0;
     for (let i = 1; i < fftBinCount; i++) {
@@ -398,7 +346,7 @@ class AudioEngine {
 
     const frame: AudioFrame = {
       currentTime: this.currentTime,
-      timeDomain: new Float32Array(tdL),      // copy so panels can hold refs
+      timeDomain: new Float32Array(tdL),
       frequencyDb: new Float32Array(this.frequencyData),
       frequencyDbRight: new Float32Array(this.frequencyDataR),
       peakLeft: Math.min(peakL, 1),
@@ -417,7 +365,7 @@ class AudioEngine {
   }
 
   // ----------------------------------------------------------
-  // Transport listeners
+  // Public controls
   // ----------------------------------------------------------
   setVolume(v: number): void {
     this._volume = Math.max(0, Math.min(1, v));
@@ -430,20 +378,10 @@ class AudioEngine {
     this.emitTransport();
   }
 
-  get playbackRate(): number {
-    return this._playbackRate;
-  }
-
-  get analysisFps(): number {
-    return ANALYSIS_FPS;
-  }
-
-
-  /** Decoded AudioBuffer for the currently loaded file, or null. Read-only — do not mutate. */
+  get playbackRate(): number { return this._playbackRate; }
+  get analysisFps(): number  { return ANALYSIS_FPS; }
   get audioBuffer(): AudioBuffer | null { return this.buffer; }
 
-  /** Subscribe to file-ready events fired after each successful load().
-   *  Receives a FileAnalysis with quality metrics computed from the full buffer. */
   onFileReady(fn: (analysis: FileAnalysis) => void): () => void {
     this.fileReadyListeners.add(fn);
     return () => { this.fileReadyListeners.delete(fn); };

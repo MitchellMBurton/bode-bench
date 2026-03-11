@@ -102,7 +102,7 @@ export const CANVAS = {
   oscTriggerThreshold: 0.01,
 
   spectroScrollSpeed: 1,
-  timelineScrollPx: 1.5,  // px/frame shared by all scrolling panels; tuned for 20 FPS analysis
+  timelineScrollPx: 3.0,  // px/frame shared by all scrolling panels; tuned for 20 FPS analysis
   spectroFreqAxisWidth: 48,
 
   levelBarWidth: 28,
@@ -112,7 +112,7 @@ export const CANVAS = {
   dbMax: 0,
   dbClipThreshold: -3,
 
-  fftSize: 2048,
+  fftSize: 4096,
   smoothingTimeConstant: 0.8,
 
   // Per-band bar colors - indexed parallel to frequencyBands
