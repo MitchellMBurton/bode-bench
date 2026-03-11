@@ -11,6 +11,7 @@ import type { AudioFrame } from '../types';
 
 const PAD = SPACING.panelPad;
 const TRIGGER_THRESHOLD = CANVAS.oscTriggerThreshold;
+const PANEL_DPR_MAX = 1.25;
 
 export function OscilloscopePanel(): React.ReactElement {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -33,8 +34,9 @@ export function OscilloscopePanel(): React.ReactElement {
     const ro = new ResizeObserver((entries) => {
       for (const entry of entries) {
         const { width, height } = entry.contentRect;
-        canvas.width = Math.round(width * devicePixelRatio);
-        canvas.height = Math.round(height * devicePixelRatio);
+        const dpr = Math.min(devicePixelRatio, PANEL_DPR_MAX);
+        canvas.width = Math.round(width * dpr);
+        canvas.height = Math.round(height * dpr);
       }
     });
     ro.observe(canvas);
@@ -47,7 +49,7 @@ export function OscilloscopePanel(): React.ReactElement {
 
       const W = canvas.width;
       const H = canvas.height;
-      const dpr = devicePixelRatio;
+      const dpr = Math.min(devicePixelRatio, PANEL_DPR_MAX);
 
       ctx.clearRect(0, 0, W, H);
       ctx.fillStyle = COLORS.bg2;

@@ -13,9 +13,27 @@ const CHAN_LABEL_W = 14;
 const GRID_HZ = [50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000];
 const AXIS_HZ = [50, 100, 200, 500, '1k', '2k', '5k', '10k', '20k'] as const;
 const AXIS_HZ_VALUES = [50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000];
+const PANEL_DPR_MAX = 1.5;
 
 function hzToT(hz: number): number {
   return Math.log10(hz / 20) / Math.log10(1000);
+}
+
+function bandAverageDb(data: Float32Array, lowHz: number, highHz: number, sampleRate: number): number {
+  const lowBin = Math.max(0, Math.floor((lowHz * data.length * 2) / sampleRate));
+  const highBin = Math.min(data.length - 1, Math.ceil((highHz * data.length * 2) / sampleRate));
+  let powerSum = 0;
+  let count = 0;
+
+  for (let bin = lowBin; bin <= highBin; bin++) {
+    const amplitude = Math.pow(10, data[bin] / 20);
+    powerSum += amplitude * amplitude;
+    count++;
+  }
+
+  if (count === 0) return CANVAS.dbMin;
+  const rms = Math.sqrt(powerSum / count);
+  return rms > 0 ? 20 * Math.log10(rms) : CANVAS.dbMin;
 }
 
 export function SpectrogramPanel(): React.ReactElement {
@@ -66,7 +84,7 @@ export function SpectrogramPanel(): React.ReactElement {
     const ro = new ResizeObserver((entries) => {
       for (const entry of entries) {
         const { width, height } = entry.contentRect;
-        const dpr = devicePixelRatio;
+        const dpr = Math.min(devicePixelRatio, PANEL_DPR_MAX);
         const W = Math.round(width * dpr);
         const H = Math.round(height * dpr);
         canvas.width = W;
@@ -111,7 +129,7 @@ export function SpectrogramPanel(): React.ReactElement {
       const { W, H, axisW, spectroW, halfH, padY } = dimRef.current;
       if (W === 0 || H === 0 || spectroW <= 0 || halfH <= 0) return;
 
-      const dpr = devicePixelRatio;
+      const dpr = Math.min(devicePixelRatio, PANEL_DPR_MAX);
       const divH = Math.round(DIVIDER_H * dpr);
       const chanLabelW = Math.round(CHAN_LABEL_W * dpr);
       const spectroX = axisW + chanLabelW;
@@ -149,21 +167,20 @@ export function SpectrogramPanel(): React.ReactElement {
 
           const freqL = frame.frequencyDb;
           const freqR = frame.frequencyDbRight;
-          const binCount = freqL.length;
           const sampleRate = frame.sampleRate;
 
           for (let y = 0; y < halfH; y++) {
-            const t = 1 - y / halfH;
-            const hz = 20 * Math.pow(1000, t);
-            const bin = Math.min(
-              Math.round((hz * frame.fftBinCount * 2) / sampleRate),
-              binCount - 1,
-            );
+            const topT = 1 - y / halfH;
+            const bottomT = 1 - (y + 1) / halfH;
+            const highHz = 20 * Math.pow(1000, topT);
+            const lowHz = 20 * Math.pow(1000, Math.max(0, bottomT));
+            const avgL = bandAverageDb(freqL, lowHz, highHz, sampleRate);
+            const avgR = bandAverageDb(freqR, lowHz, highHz, sampleRate);
 
-            offLCtx.fillStyle = spectroColor(freqL[Math.max(0, bin)]);
+            offLCtx.fillStyle = spectroColor(avgL);
             offLCtx.fillRect(spectroW - scrollPx, y, scrollPx, 1);
 
-            offRCtx.fillStyle = spectroColor(freqR[Math.max(0, bin)]);
+            offRCtx.fillStyle = spectroColor(avgR);
             offRCtx.fillRect(spectroW - scrollPx, y, scrollPx, 1);
           }
         }

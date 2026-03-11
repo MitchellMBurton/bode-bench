@@ -11,6 +11,7 @@ interface EnvelopeData {
 }
 
 const CLIP_THRESHOLD = 0.9999;
+const PANEL_DPR_MAX = 1.25;
 
 function computeEnvelopeAndClipMap(buffer: AudioBuffer, cols: number): EnvelopeData {
   const left = buffer.getChannelData(0);
@@ -146,8 +147,9 @@ export function WaveformOverviewPanel(): React.ReactElement {
     const ro = new ResizeObserver((entries) => {
       for (const entry of entries) {
         const { width, height } = entry.contentRect;
-        canvas.width = Math.round(width * devicePixelRatio);
-        canvas.height = Math.round(height * devicePixelRatio);
+        const dpr = Math.min(devicePixelRatio, PANEL_DPR_MAX);
+        canvas.width = Math.round(width * dpr);
+        canvas.height = Math.round(height * dpr);
 
         const buffer = audioEngine.audioBuffer;
         if (buffer && canvas.width > 0) {
@@ -174,7 +176,7 @@ export function WaveformOverviewPanel(): React.ReactElement {
 
       const width = canvas.width;
       const height = canvas.height;
-      const dpr = devicePixelRatio;
+      const dpr = Math.min(devicePixelRatio, PANEL_DPR_MAX);
       const clipZoneH = Math.round(18 * dpr);
       const separatorH = 1;
       const waveH = height - clipZoneH - separatorH;

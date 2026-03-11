@@ -7,6 +7,7 @@ import { ConsoleLayout } from './layout/ConsoleLayout';
 import { TransportControls } from './controls/TransportControls';
 import { MetadataDisplay } from './controls/MetadataDisplay';
 import { SessionControls } from './controls/SessionControls';
+import { DiagnosticsLog } from './controls/DiagnosticsLog';
 import { WaveformOverviewPanel } from './panels/WaveformOverviewPanel';
 import { OscilloscopePanel } from './panels/OscilloscopePanel';
 import { FrequencyResponsePanel } from './panels/FrequencyResponsePanel';
@@ -43,6 +44,7 @@ export default function App(): React.ReactElement {
             <div style={dividerStyle} />
             <TransportControls />
             <SessionControls grayscale={grayscale} onGrayscale={setGrayscale} />
+            <DiagnosticsLog />
           </div>
         ),
       }}

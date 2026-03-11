@@ -55,6 +55,10 @@ export interface FileAnalysis {
   readonly duration: number;
   /** Number of audio channels in the source file. */
   readonly channels: number;
+  /** Sample rate of the decoded AudioBuffer after browser decode/resample (Hz). */
+  readonly decodedSampleRate: number;
+  /** AudioContext sample rate used for playback/analysis (Hz). */
+  readonly contextSampleRate: number;
   /** fileId at the time of analysis — panels can discard stale callbacks. */
   readonly fileId: number;
 }
@@ -79,6 +83,7 @@ export interface TransportState {
   readonly currentTime: number; // seconds
   readonly duration: number;    // seconds
   readonly filename: string | null;
+  readonly playbackRate: number;
 }
 
 // ----------------------------------------------------------

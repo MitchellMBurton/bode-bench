@@ -9,6 +9,8 @@ import { audioEngine } from '../audio/engine';
 import { COLORS, FONTS, CANVAS, SPACING } from '../theme';
 import type { AudioFrame, FrequencyBand } from '../types';
 
+const PANEL_DPR_MAX = 1.25;
+
 export function FrequencyBandsPanel(): React.ReactElement {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const frameRef = useRef<AudioFrame | null>(null);
@@ -34,8 +36,9 @@ export function FrequencyBandsPanel(): React.ReactElement {
     const ro = new ResizeObserver((entries) => {
       for (const entry of entries) {
         const { width, height } = entry.contentRect;
-        canvas.width = Math.round(width * devicePixelRatio);
-        canvas.height = Math.round(height * devicePixelRatio);
+        const dpr = Math.min(devicePixelRatio, PANEL_DPR_MAX);
+        canvas.width = Math.round(width * dpr);
+        canvas.height = Math.round(height * dpr);
       }
     });
     ro.observe(canvas);
@@ -48,7 +51,7 @@ export function FrequencyBandsPanel(): React.ReactElement {
 
       const W = canvas.width;
       const H = canvas.height;
-      const dpr = devicePixelRatio;
+      const dpr = Math.min(devicePixelRatio, PANEL_DPR_MAX);
       const padX = SPACING.panelPad * dpr;
       const padY = SPACING.panelPad * dpr;
       const labelH = 16 * dpr;

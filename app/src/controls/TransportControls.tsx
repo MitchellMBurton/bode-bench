@@ -25,6 +25,7 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
     currentTime: 0,
     duration: 0,
     filename: null,
+    playbackRate: 1,
   });
   const [isDragging, setIsDragging] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -38,6 +39,7 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
   const videoUrlRef = useRef<string | null>(null); // tracks current object URL for revocation
   const transportRef = useRef(transport);
   transportRef.current = transport;
+  const lastVideoSyncRef = useRef(0);
 
   const clearVideoPreview = useCallback(() => {
     if (videoUrlRef.current) {
@@ -71,6 +73,7 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
   useEffect(() => {
     const video = videoRef.current;
     if (!video || !videoUrl) return;
+    video.playbackRate = transport.playbackRate;
     if (transport.isPlaying) {
       video.currentTime = audioEngine.currentTime;
       void video.play();
@@ -78,7 +81,13 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
       video.pause();
       if (transport.currentTime === 0) video.currentTime = 0;
     }
-  }, [transport.isPlaying, videoUrl, transport.currentTime]);
+  }, [transport.isPlaying, videoUrl, transport.currentTime, transport.playbackRate]);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !videoUrl) return;
+    video.playbackRate = transport.playbackRate;
+  }, [transport.playbackRate, videoUrl]);
 
   // RAF loop — keeps seek bar and video in sync without React re-renders
   useEffect(() => {
@@ -94,10 +103,19 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
       if (seekFillRef.current && dur > 0) {
         seekFillRef.current.style.width = `${(ct / dur) * 100}%`;
       }
+      const video = videoRef.current;
+      if (video && videoUrl && transportRef.current.isPlaying) {
+        video.playbackRate = audioEngine.playbackRate;
+        const drift = Math.abs(video.currentTime - ct);
+        if (drift > 0.12 && Math.abs(ct - lastVideoSyncRef.current) > 0.05) {
+          video.currentTime = ct;
+          lastVideoSyncRef.current = ct;
+        }
+      }
     };
     rafId = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(rafId);
-  }, []);
+  }, [videoUrl]);
 
   // Throttled time display
   useEffect(() => {
@@ -119,7 +137,12 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
     return audioEngine.onReset(() => {
       clearVideoPreview();
       clearFileInput();
-      if (videoRef.current) videoRef.current.currentTime = 0;
+      if (videoRef.current) {
+        videoRef.current.pause();
+        videoRef.current.currentTime = 0;
+        videoRef.current.playbackRate = 1;
+      }
+      lastVideoSyncRef.current = 0;
     });
   }, [clearFileInput, clearVideoPreview]);
 
@@ -132,6 +155,7 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
       const url = URL.createObjectURL(file);
       videoUrlRef.current = url;
       setVideoUrl(url);
+      lastVideoSyncRef.current = 0;
     }
 
     setIsLoading(true);
@@ -168,6 +192,7 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
     const seekTo = parseFloat(input.value);
     audioEngine.seek(seekTo);
     if (videoRef.current) videoRef.current.currentTime = seekTo;
+    lastVideoSyncRef.current = seekTo;
   }, []);
 
   const onSeekInput = useCallback(() => {
@@ -178,6 +203,7 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
     fill.style.width = `${fraction * 100}%`;
     // Scrub video frame while dragging
     if (videoRef.current) videoRef.current.currentTime = parseFloat(input.value);
+    lastVideoSyncRef.current = parseFloat(input.value);
   }, []);
 
   const seekFraction = transport.duration > 0 ? transport.currentTime / transport.duration : 0;

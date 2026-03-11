@@ -1,6 +1,6 @@
 // ============================================================
 // Session Controls — volume, playback rate, greyscale toggle.
-// Occupies the flex-remainder below the transport buttons.
+// Compact utility controls that sit above the diagnostics log.
 // ============================================================
 
 import { useRef, useState, useCallback } from 'react';
@@ -88,8 +88,7 @@ const wrapStyle: React.CSSProperties = {
   flexDirection: 'column',
   gap: SPACING.sm,
   padding: `${SPACING.sm}px ${SPACING.md}px`,
-  flex: 1,
-  minHeight: 0,
+  flexShrink: 0,
 };
 
 const separatorStyle: React.CSSProperties = {

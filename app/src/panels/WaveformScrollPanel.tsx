@@ -7,6 +7,7 @@ import type { AudioFrame } from '../types';
 const PAD = SPACING.panelPad;
 const BASE_SCROLL_PX = CANVAS.timelineScrollPx;
 const WINDOW = 128;
+const PANEL_DPR_MAX = 1.25;
 
 export function WaveformScrollPanel(): React.ReactElement {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -48,8 +49,9 @@ export function WaveformScrollPanel(): React.ReactElement {
     const ro = new ResizeObserver((entries) => {
       for (const entry of entries) {
         const { width, height } = entry.contentRect;
-        const w = Math.round(width * devicePixelRatio);
-        const h = Math.round(height * devicePixelRatio);
+        const dpr = Math.min(devicePixelRatio, PANEL_DPR_MAX);
+        const w = Math.round(width * dpr);
+        const h = Math.round(height * dpr);
         canvas.width = w;
         canvas.height = h;
         offscreen.width = w;
@@ -73,7 +75,7 @@ export function WaveformScrollPanel(): React.ReactElement {
 
       const W = canvas.width;
       const H = canvas.height;
-      const dpr = devicePixelRatio;
+      const dpr = Math.min(devicePixelRatio, PANEL_DPR_MAX);
       const padX = PAD * dpr;
       const padY = PAD * dpr;
       const drawW = W - padX * 2;

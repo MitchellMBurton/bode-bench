@@ -9,12 +9,19 @@ import { CANVAS } from '../theme';
 import type { AudioFrame, FileAnalysis, TransportState } from '../types';
 
 type TransportListener = (state: TransportState) => void;
+const ANALYSIS_FPS = 20;
+const ANALYSIS_FRAME_MS = 1000 / ANALYSIS_FPS;
 
 class AudioEngine {
   private ctx: AudioContext | null = null;
   private analyserL: AnalyserNode | null = null;
   private analyserR: AnalyserNode | null = null;
+  private stereoBusL: GainNode | null = null;
+  private stereoBusR: GainNode | null = null;
+  private stereoMerger: ChannelMergerNode | null = null;
   private sourceNode: AudioBufferSourceNode | null = null;
+  private splitterNode: ChannelSplitterNode | null = null;
+  private mixTapNodes: GainNode[] = [];
   private buffer: AudioBuffer | null = null;
   private startedAt = 0;   // AudioContext.currentTime when play started
   private offsetAt = 0;    // buffer offset when play started (seconds)
@@ -38,6 +45,7 @@ class AudioEngine {
   private fileReadyListeners = new Set<(a: FileAnalysis) => void>();
   private _fileAnalysis: FileAnalysis | null = null;
   private _filename: string | null = null;
+  private lastAnalysisAt = 0;
 
   // ----------------------------------------------------------
   // Context initialisation
@@ -57,21 +65,30 @@ class AudioEngine {
     this.analyserL = ctx.createAnalyser();
     this.analyserL.fftSize = fftSize;
     this.analyserL.smoothingTimeConstant = CANVAS.smoothingTimeConstant;
+    this.analyserL.minDecibels = CANVAS.dbMin;
+    this.analyserL.maxDecibels = CANVAS.dbMax;
 
     this.analyserR = ctx.createAnalyser();
     this.analyserR.fftSize = fftSize;
     this.analyserR.smoothingTimeConstant = CANVAS.smoothingTimeConstant;
+    this.analyserR.minDecibels = CANVAS.dbMin;
+    this.analyserR.maxDecibels = CANVAS.dbMax;
 
     this.timeDomainData = new Float32Array(new ArrayBuffer(fftSize * Float32Array.BYTES_PER_ELEMENT));
     this.timeDomainDataR = new Float32Array(new ArrayBuffer(fftSize * Float32Array.BYTES_PER_ELEMENT));
     this.frequencyData = new Float32Array(new ArrayBuffer((fftSize / 2) * Float32Array.BYTES_PER_ELEMENT));
     this.frequencyDataR = new Float32Array(new ArrayBuffer((fftSize / 2) * Float32Array.BYTES_PER_ELEMENT));
 
-    // Route both analysers through a master gain node to destination
+    this.stereoBusL = ctx.createGain();
+    this.stereoBusR = ctx.createGain();
+    this.stereoMerger = ctx.createChannelMerger(2);
     this.masterGain = ctx.createGain();
     this.masterGain.gain.value = this._volume;
-    this.analyserL.connect(this.masterGain);
-    this.analyserR.connect(this.masterGain);
+    this.stereoBusL.connect(this.analyserL);
+    this.stereoBusR.connect(this.analyserR);
+    this.analyserL.connect(this.stereoMerger, 0, 0);
+    this.analyserR.connect(this.stereoMerger, 0, 1);
+    this.stereoMerger.connect(this.masterGain);
     this.masterGain.connect(ctx.destination);
   }
 
@@ -101,7 +118,7 @@ class AudioEngine {
   // Transport
   // ----------------------------------------------------------
   play(): void {
-    if (!this.buffer || !this.ctx) return;
+    if (!this.ctx) return;
     if (this._isPlaying) return;
 
     const ctx = this.ensureContext();
@@ -109,16 +126,13 @@ class AudioEngine {
       void ctx.resume();
     }
 
+    if (!this.buffer) return;
+
     this.sourceNode = ctx.createBufferSource();
     this.sourceNode.buffer = this.buffer;
 
     // Wire: source → splitter → L/R analysers
-    const splitter = ctx.createChannelSplitter(2);
-    this.sourceNode.connect(splitter);
-
-    // Mirror mono sources into both analysers so panels do not show a dead right channel.
-    splitter.connect(this.analyserL!, 0);
-    splitter.connect(this.analyserR!, this.buffer.numberOfChannels > 1 ? 1 : 0);
+    this.configureStereoRouting(this.buffer.numberOfChannels);
 
     this.sourceNode.playbackRate.value = this._playbackRate;
     this.sourceNode.start(0, this.offsetAt);
@@ -136,6 +150,7 @@ class AudioEngine {
         this._isPlaying = false;
         this.offsetAt = 0;
         this.sourceNode = null;
+        this.clearStereoRouting();
         this.stopRaf();
         this.emitTransport();
       }
@@ -180,8 +195,104 @@ class AudioEngine {
   private _stopSource(): void {
     if (this.sourceNode) {
       try { this.sourceNode.stop(); } catch { /* already ended */ }
+      this.sourceNode.disconnect();
       this.sourceNode = null;
     }
+    this.clearStereoRouting();
+  }
+
+  private configureStereoRouting(channelCount: number): void {
+    const ctx = this.ctx;
+    const sourceNode = this.sourceNode;
+    const stereoBusL = this.stereoBusL;
+    const stereoBusR = this.stereoBusR;
+    if (!ctx || !sourceNode || !stereoBusL || !stereoBusR) return;
+
+    this.clearStereoRouting();
+
+    this.splitterNode = ctx.createChannelSplitter(channelCount);
+    sourceNode.connect(this.splitterNode);
+
+    const routes = this.getDownmixRoutes(channelCount);
+    const headroom = this.getDownmixHeadroom(routes);
+
+    routes.forEach((route, outputIndex) => {
+      if (route.left !== 0) {
+        const tap = ctx.createGain();
+        tap.gain.value = route.left * headroom;
+        this.splitterNode!.connect(tap, outputIndex);
+        tap.connect(stereoBusL);
+        this.mixTapNodes.push(tap);
+      }
+      if (route.right !== 0) {
+        const tap = ctx.createGain();
+        tap.gain.value = route.right * headroom;
+        this.splitterNode!.connect(tap, outputIndex);
+        tap.connect(stereoBusR);
+        this.mixTapNodes.push(tap);
+      }
+    });
+  }
+
+  private clearStereoRouting(): void {
+    if (this.splitterNode) {
+      this.splitterNode.disconnect();
+      this.splitterNode = null;
+    }
+    for (const tap of this.mixTapNodes) tap.disconnect();
+    this.mixTapNodes = [];
+  }
+
+  private getDownmixRoutes(channelCount: number): Array<{ left: number; right: number }> {
+    if (channelCount <= 1) return [{ left: 1, right: 1 }];
+    if (channelCount === 2) return [{ left: 1, right: 0 }, { left: 0, right: 1 }];
+    if (channelCount === 3) {
+      return [
+        { left: 1, right: 0 },
+        { left: 0, right: 1 },
+        { left: 0.707, right: 0.707 },
+      ];
+    }
+    if (channelCount === 4) {
+      return [
+        { left: 1, right: 0 },
+        { left: 0, right: 1 },
+        { left: 0.5, right: 0 },
+        { left: 0, right: 0.5 },
+      ];
+    }
+    if (channelCount === 5) {
+      return [
+        { left: 1, right: 0 },
+        { left: 0, right: 1 },
+        { left: 0.707, right: 0.707 },
+        { left: 0.5, right: 0 },
+        { left: 0, right: 0.5 },
+      ];
+    }
+
+    const routes = [
+      { left: 1, right: 0 },
+      { left: 0, right: 1 },
+      { left: 0.707, right: 0.707 },
+      { left: 0, right: 0 },
+      { left: 0.5, right: 0 },
+      { left: 0, right: 0.5 },
+    ];
+
+    for (let ch = 6; ch < channelCount; ch++) {
+      routes.push(ch % 2 === 0 ? { left: 0.35, right: 0 } : { left: 0, right: 0.35 });
+    }
+
+    return routes;
+  }
+
+  private getDownmixHeadroom(routes: Array<{ left: number; right: number }>): number {
+    const leftSum = routes.reduce((sum, route) => sum + Math.abs(route.left), 0);
+    const rightSum = routes.reduce((sum, route) => sum + Math.abs(route.right), 0);
+    const maxSideSum = Math.max(leftSum, rightSum);
+    if (maxSideSum <= 1) return 1;
+    return Math.min(1, 0.95 / maxSideSum);
   }
 
   seek(seconds: number): void {
@@ -220,8 +331,13 @@ class AudioEngine {
   // ----------------------------------------------------------
   private startRaf(): void {
     if (this.rafId !== null) return;
+    this.lastAnalysisAt = 0;
     const loop = () => {
-      this.extractFrame();
+      const now = performance.now();
+      if (this.lastAnalysisAt === 0 || now - this.lastAnalysisAt >= ANALYSIS_FRAME_MS) {
+        this.lastAnalysisAt = now;
+        this.extractFrame();
+      }
       this.rafId = requestAnimationFrame(loop);
     };
     this.rafId = requestAnimationFrame(loop);
@@ -232,6 +348,7 @@ class AudioEngine {
       cancelAnimationFrame(this.rafId);
       this.rafId = null;
     }
+    this.lastAnalysisAt = 0;
   }
 
   private extractFrame(): void {
@@ -310,11 +427,17 @@ class AudioEngine {
   setPlaybackRate(r: number): void {
     this._playbackRate = Math.max(0.25, Math.min(2, r));
     if (this.sourceNode) this.sourceNode.playbackRate.value = this._playbackRate;
+    this.emitTransport();
   }
 
   get playbackRate(): number {
     return this._playbackRate;
   }
+
+  get analysisFps(): number {
+    return ANALYSIS_FPS;
+  }
+
 
   /** Decoded AudioBuffer for the currently loaded file, or null. Read-only — do not mutate. */
   get audioBuffer(): AudioBuffer | null { return this.buffer; }
@@ -361,6 +484,8 @@ class AudioEngine {
       clipCount,
       duration: buffer.duration,
       channels: buffer.numberOfChannels,
+      decodedSampleRate: buffer.sampleRate,
+      contextSampleRate: this.ctx?.sampleRate ?? buffer.sampleRate,
       fileId: this.fileId,
     };
   }
@@ -371,6 +496,7 @@ class AudioEngine {
       currentTime: this.currentTime,
       duration: this.duration,
       filename: this._filename,
+      playbackRate: this._playbackRate,
     };
     for (const fn of this.transportListeners) fn(state);
   }

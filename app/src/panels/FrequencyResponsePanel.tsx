@@ -13,6 +13,7 @@ const REL_TICKS = [0, -12, -24, -36, -48];
 const CURVE_SMOOTHING = 0.22;
 const DISPLAY_DB_SPAN = 54;
 const BANDWIDTH_OCTAVES = 1 / 6;
+const PANEL_DPR_MAX = 1.25;
 
 function formatFreqLabel(hz: number): string {
   return hz >= 1000 ? `${hz / 1000}k` : `${hz}`;
@@ -113,8 +114,9 @@ export function FrequencyResponsePanel(): React.ReactElement {
     const ro = new ResizeObserver((entries) => {
       for (const entry of entries) {
         const { width, height } = entry.contentRect;
-        canvas.width = Math.round(width * devicePixelRatio);
-        canvas.height = Math.round(height * devicePixelRatio);
+        const dpr = Math.min(devicePixelRatio, PANEL_DPR_MAX);
+        canvas.width = Math.round(width * dpr);
+        canvas.height = Math.round(height * dpr);
       }
     });
     ro.observe(canvas);
@@ -127,7 +129,7 @@ export function FrequencyResponsePanel(): React.ReactElement {
       const frame = frameRef.current;
       const width = canvas.width;
       const height = canvas.height;
-      const dpr = devicePixelRatio;
+      const dpr = Math.min(devicePixelRatio, PANEL_DPR_MAX);
       const padX = PAD * dpr;
       const padY = PAD * dpr;
       const axisH = 16 * dpr;

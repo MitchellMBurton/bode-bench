@@ -13,6 +13,7 @@ import type { AudioFrame } from '../types';
 const HOLD_MS = CANVAS.levelPeakHoldMs;
 const BAR_W = CANVAS.levelBarWidth;
 const DB_SCALE_W = 40;
+const PANEL_DPR_MAX = 1.25;
 
 interface PeakHolder {
   fraction: number;
@@ -46,8 +47,9 @@ export function LevelsPanel(): React.ReactElement {
     const ro = new ResizeObserver((entries) => {
       for (const entry of entries) {
         const { width, height } = entry.contentRect;
-        canvas.width = Math.round(width * devicePixelRatio);
-        canvas.height = Math.round(height * devicePixelRatio);
+        const dpr = Math.min(devicePixelRatio, PANEL_DPR_MAX);
+        canvas.width = Math.round(width * dpr);
+        canvas.height = Math.round(height * dpr);
       }
     });
     ro.observe(canvas);
@@ -60,7 +62,7 @@ export function LevelsPanel(): React.ReactElement {
 
       const W = canvas.width;
       const H = canvas.height;
-      const dpr = devicePixelRatio;
+      const dpr = Math.min(devicePixelRatio, PANEL_DPR_MAX);
       const padX = SPACING.panelPad * dpr;
       const padY = SPACING.panelPad * dpr;
       const scaleW = DB_SCALE_W * dpr;
