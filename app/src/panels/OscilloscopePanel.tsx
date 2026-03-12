@@ -1,31 +1,28 @@
 // ============================================================
-// Oscilloscope Panel — top-right quadrant
-// Renders time-domain waveform with stable trigger.
+// OscilloscopePanel — triggered time-domain waveform.
+// Reads time-domain samples DIRECTLY from the engine analyser
+// every RAF frame (~60fps) rather than the 20fps frame bus.
+// This eliminates the visible frame-rate stepping on the waveform.
+//
+// NGE mode: phosphor persistence — a semi-transparent fill
+// replaces the hard clear, so previous traces fade like a CRT.
 // ============================================================
 
 import { useEffect, useRef } from 'react';
-import { frameBus } from '../audio/frameBus';
 import { audioEngine } from '../audio/engine';
+import { displayMode } from '../audio/displayMode';
 import { COLORS, FONTS, CANVAS, SPACING } from '../theme';
-import type { AudioFrame } from '../types';
 
 const PAD = SPACING.panelPad;
 const TRIGGER_THRESHOLD = CANVAS.oscTriggerThreshold;
 const PANEL_DPR_MAX = 1.25;
 
+// Allocate once at module level — reused every frame
+const TD_BUF = new Float32Array(CANVAS.fftSize);
+
 export function OscilloscopePanel(): React.ReactElement {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const frameRef = useRef<AudioFrame | null>(null);
   const rafRef = useRef<number | null>(null);
-
-  useEffect(() => {
-    const unsub = frameBus.subscribe((f) => { frameRef.current = f; });
-    return unsub;
-  }, []);
-
-  useEffect(() => {
-    return audioEngine.onReset(() => { frameRef.current = null; });
-  }, []);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -43,16 +40,22 @@ export function OscilloscopePanel(): React.ReactElement {
 
     const draw = () => {
       rafRef.current = requestAnimationFrame(draw);
-      const frame = frameRef.current;
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
 
       const W = canvas.width;
       const H = canvas.height;
       const dpr = Math.min(devicePixelRatio, PANEL_DPR_MAX);
+      const nge = displayMode.nge;
 
-      ctx.clearRect(0, 0, W, H);
-      ctx.fillStyle = COLORS.bg2;
+      // Background — hard clear in normal mode, phosphor persistence in NGE
+      if (nge) {
+        // Fade previous trace: partially transparent fill lets old traces glow
+        ctx.fillStyle = 'rgba(19,19,26,0.22)';
+      } else {
+        ctx.clearRect(0, 0, W, H);
+        ctx.fillStyle = COLORS.bg2;
+      }
       ctx.fillRect(0, 0, W, H);
 
       const padX = PAD * dpr;
@@ -65,12 +68,10 @@ export function OscilloscopePanel(): React.ReactElement {
       ctx.strokeStyle = COLORS.waveformGrid;
       ctx.lineWidth = 0.5;
       ctx.setLineDash([2, 4]);
-      // Zero line
       ctx.beginPath();
       ctx.moveTo(padX, midY);
       ctx.lineTo(padX + drawW, midY);
       ctx.stroke();
-      // +0.5 and -0.5 lines
       for (const amp of [0.5, -0.5]) {
         const y = midY - amp * (drawH / 2);
         ctx.beginPath();
@@ -90,9 +91,21 @@ export function OscilloscopePanel(): React.ReactElement {
         ctx.fillText(label, padX + 2, y);
       }
 
-      if (!frame) {
+      // Pull fresh time-domain data directly at RAF rate — no 20fps stepping
+      audioEngine.getTimeDomainData(TD_BUF);
+      const td = TD_BUF;
+      const gain = audioEngine.displayGain;
+      const len = td.length;
+
+      // Check for meaningful signal
+      let hasSignal = false;
+      for (let i = 0; i < len; i++) {
+        if (Math.abs(td[i]) > 0.001) { hasSignal = true; break; }
+      }
+
+      if (!hasSignal) {
         // Idle: flat line
-        ctx.strokeStyle = COLORS.waveformGrid;
+        ctx.strokeStyle = nge ? 'rgba(144,200,64,0.25)' : COLORS.waveformGrid;
         ctx.lineWidth = CANVAS.oscLineWidth * dpr;
         ctx.beginPath();
         ctx.moveTo(padX, midY);
@@ -101,9 +114,6 @@ export function OscilloscopePanel(): React.ReactElement {
         drawLabel(ctx, W, dpr);
         return;
       }
-
-      const td = frame.timeDomain;
-      const len = td.length;
 
       // Find trigger point: first zero crossing going positive
       let triggerIdx = 0;
@@ -115,21 +125,36 @@ export function OscilloscopePanel(): React.ReactElement {
       }
 
       const samples = Math.min(len - triggerIdx, Math.floor(drawW));
-      const gain = frame.displayGain;
 
-      ctx.strokeStyle = COLORS.waveform;
-      ctx.lineWidth = CANVAS.oscLineWidth * dpr;
+      // NGE: bright phosphor green-amber; normal: instrument amber
+      ctx.strokeStyle = nge ? '#a0d840' : COLORS.waveform;
+      ctx.lineWidth = nge ? 1.2 * dpr : CANVAS.oscLineWidth * dpr;
       ctx.lineJoin = 'round';
+
+      if (nge) {
+        // Glow pass — wide soft stroke underneath
+        ctx.save();
+        ctx.strokeStyle = 'rgba(140,210,40,0.18)';
+        ctx.lineWidth = 5 * dpr;
+        ctx.beginPath();
+        for (let i = 0; i < samples; i++) {
+          const x = padX + (i / (samples - 1)) * drawW;
+          const y = midY - td[triggerIdx + i] * gain * (drawH / 2);
+          if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+        ctx.restore();
+      }
+
       ctx.beginPath();
       for (let i = 0; i < samples; i++) {
         const x = padX + (i / (samples - 1)) * drawW;
         const y = midY - td[triggerIdx + i] * gain * (drawH / 2);
-        if (i === 0) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
       }
       ctx.stroke();
 
-      drawLabel(ctx, W, dpr);
+      drawLabel(ctx, W, dpr, nge);
     };
 
     rafRef.current = requestAnimationFrame(draw);
@@ -147,9 +172,9 @@ export function OscilloscopePanel(): React.ReactElement {
   );
 }
 
-function drawLabel(ctx: CanvasRenderingContext2D, W: number, dpr: number): void {
+function drawLabel(ctx: CanvasRenderingContext2D, W: number, dpr: number, nge = false): void {
   ctx.font = `${9 * dpr}px ${FONTS.mono}`;
-  ctx.fillStyle = COLORS.textDim;
+  ctx.fillStyle = nge ? 'rgba(140,210,40,0.5)' : COLORS.textDim;
   ctx.textAlign = 'right';
   ctx.textBaseline = 'top';
   ctx.fillText('OSCILLOSCOPE', W - 8 * dpr, 6 * dpr);

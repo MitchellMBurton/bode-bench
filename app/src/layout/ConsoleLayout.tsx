@@ -134,7 +134,7 @@ const gridStyle: React.CSSProperties = {
   flex: 1,
   display: 'grid',
   gridTemplateColumns: '340px 1fr',
-  gridTemplateRows: '44% 1fr',
+  gridTemplateRows: '50% 1fr',
   gap: GAP,
   padding: GAP,
   boxSizing: 'border-box',

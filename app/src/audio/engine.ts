@@ -45,7 +45,14 @@ class AudioEngine {
   private _playbackRate = 1;
   private playId = 0;
   private fileId = 0;
-  private displayGain = 1;
+  private _displayGain = 1;
+  private _loopStart: number | null = null;
+  private _loopEnd: number | null = null;
+
+  // Pre-computed waveform peaks — interleaved [min0, max0, min1, max1, ...]
+  // Each bin covers WAVEFORM_BIN_SAMPLES audio samples for phase-accurate envelope.
+  private static readonly WAVEFORM_BIN_SAMPLES = 800;
+  private _waveformPeaks: Float32Array | null = null;
 
   // Frame data arrays (reused each frame to avoid allocation)
   private timeDomainData!: Float32Array<ArrayBuffer>;
@@ -127,8 +134,9 @@ class AudioEngine {
     const capturedFileId = this.fileId;
     setTimeout(() => {
       if (this.fileId !== capturedFileId) return;
-      this.displayGain = this.computeDisplayGain(capturedBuffer);
+      this._displayGain = this.computeDisplayGain(capturedBuffer);
       this._fileAnalysis = this.computeFileAnalysis(capturedBuffer);
+      this._waveformPeaks = this.computeWaveformPeaks(capturedBuffer);
       for (const fn of this.fileReadyListeners) fn(this._fileAnalysis!);
     }, 0);
   }
@@ -219,11 +227,34 @@ class AudioEngine {
     this._filename = null;
     this.offsetAt = 0;
     this.fileId++;
-    this.displayGain = 1;
+    this._displayGain = 1;
     this._fileAnalysis = null;
+    this._waveformPeaks = null;
+    this._loopStart = null;
+    this._loopEnd = null;
     this.emitTransport();
     for (const fn of this.resetListeners) fn();
   }
+
+  setLoop(start: number, end: number): void {
+    const dur = this.buffer?.duration ?? 0;
+    this._loopStart = Math.max(0, Math.min(start, dur));
+    this._loopEnd = Math.max(0, Math.min(end, dur));
+    if (this._loopStart >= this._loopEnd) {
+      this._loopStart = null;
+      this._loopEnd = null;
+    }
+    this.emitTransport();
+  }
+
+  clearLoop(): void {
+    this._loopStart = null;
+    this._loopEnd = null;
+    this.emitTransport();
+  }
+
+  get loopStart(): number | null { return this._loopStart; }
+  get loopEnd(): number | null { return this._loopEnd; }
 
   private _stopSource(): void {
     if (this.sourceNode && this.playGainNode && this.ctx) {
@@ -291,6 +322,12 @@ class AudioEngine {
       if (this.lastAnalysisAt === 0 || now - this.lastAnalysisAt >= ANALYSIS_FRAME_MS) {
         this.lastAnalysisAt = now;
         this.extractFrame();
+        // Loop region: seek back to loopStart when we pass loopEnd
+        if (this._isPlaying && this._loopStart !== null && this._loopEnd !== null) {
+          if (this.currentTime >= this._loopEnd) {
+            this.seek(this._loopStart);
+          }
+        }
       }
       this.rafId = requestAnimationFrame(loop);
     };
@@ -303,6 +340,43 @@ class AudioEngine {
       this.rafId = null;
     }
     this.lastAnalysisAt = 0;
+  }
+
+  // ----------------------------------------------------------
+  // Pitch (F0) detection — normalized autocorrelation, cello range 60–1000 Hz
+  // ----------------------------------------------------------
+  private detectF0(td: Float32Array, sampleRate: number): { f0: number | null; confidence: number } {
+    const N = Math.min(2048, td.length);
+    const minLag = Math.floor(sampleRate / 1000);
+    const maxLag = Math.min(Math.floor(sampleRate / 60), N - 1);
+
+    // Silence check: skip detection if RMS is below threshold
+    let rms = 0;
+    for (let i = 0; i < N; i++) rms += td[i] * td[i];
+    if (Math.sqrt(rms / N) < 0.005) return { f0: null, confidence: 0 };
+
+    let bestLag = -1;
+    let bestCorr = 0;
+
+    for (let lag = minLag; lag <= maxLag; lag++) {
+      let sum = 0, norm1 = 0, norm2 = 0;
+      const lim = N - lag;
+      for (let i = 0; i < lim; i++) {
+        const a = td[i], b = td[i + lag];
+        sum += a * b;
+        norm1 += a * a;
+        norm2 += b * b;
+      }
+      const denom = Math.sqrt(norm1 * norm2);
+      const corr = denom > 0 ? sum / denom : 0;
+      if (corr > bestCorr) {
+        bestCorr = corr;
+        bestLag = lag;
+      }
+    }
+
+    const f0 = bestLag > 0 && bestCorr > 0.4 ? sampleRate / bestLag : null;
+    return { f0, confidence: Math.max(0, bestCorr) };
   }
 
   private extractFrame(): void {
@@ -344,6 +418,8 @@ class AudioEngine {
     }
     const spectralCentroid = centDen > 0 ? centNum / centDen : 0;
 
+    const { f0, confidence } = this.detectF0(tdL, this.ctx.sampleRate);
+
     const frame: AudioFrame = {
       currentTime: this.currentTime,
       timeDomain: new Float32Array(tdL),
@@ -357,8 +433,10 @@ class AudioEngine {
       fftBinCount,
       playId: this.playId,
       fileId: this.fileId,
-      displayGain: this.displayGain,
+      displayGain: this._displayGain,
       spectralCentroid,
+      f0Hz: f0,
+      f0Confidence: confidence,
     };
 
     frameBus.publish(frame);
@@ -378,9 +456,20 @@ class AudioEngine {
     this.emitTransport();
   }
 
-  get playbackRate(): number { return this._playbackRate; }
-  get analysisFps(): number  { return ANALYSIS_FPS; }
+  get isPlaying(): boolean    { return this._isPlaying; }
+  get playbackRate(): number  { return this._playbackRate; }
+  get analysisFps(): number   { return ANALYSIS_FPS; }
   get audioBuffer(): AudioBuffer | null { return this.buffer; }
+  get displayGain(): number   { return this._displayGain; }
+  get waveformPeaks(): Float32Array | null { return this._waveformPeaks; }
+  get waveformBinSamples(): number { return AudioEngine.WAVEFORM_BIN_SAMPLES; }
+
+  /** Read current time-domain samples directly from the analyser at call time.
+   *  Safe to call every RAF frame — pure read, no audio graph mutation. */
+  getTimeDomainData(out: Float32Array): void {
+    if (this.analyserL) this.analyserL.getFloatTimeDomainData(out);
+    else out.fill(0);
+  }
 
   onFileReady(fn: (analysis: FileAnalysis) => void): () => void {
     this.fileReadyListeners.add(fn);
@@ -395,6 +484,26 @@ class AudioEngine {
   onReset(fn: () => void): () => void {
     this.resetListeners.add(fn);
     return () => { this.resetListeners.delete(fn); };
+  }
+
+  private computeWaveformPeaks(buffer: AudioBuffer): Float32Array {
+    const data = buffer.getChannelData(0);
+    const binSamples = AudioEngine.WAVEFORM_BIN_SAMPLES;
+    const numBins = Math.ceil(data.length / binSamples);
+    const peaks = new Float32Array(numBins * 2);
+    for (let bin = 0; bin < numBins; bin++) {
+      const s0 = bin * binSamples;
+      const s1 = Math.min(s0 + binSamples, data.length);
+      let mn = 0, mx = 0;
+      for (let s = s0; s < s1; s++) {
+        const v = data[s];
+        if (v < mn) mn = v;
+        if (v > mx) mx = v;
+      }
+      peaks[bin * 2] = mn;
+      peaks[bin * 2 + 1] = mx;
+    }
+    return peaks;
   }
 
   private computeFileAnalysis(buffer: AudioBuffer): FileAnalysis {
@@ -435,6 +544,8 @@ class AudioEngine {
       duration: this.duration,
       filename: this._filename,
       playbackRate: this._playbackRate,
+      loopStart: this._loopStart,
+      loopEnd: this._loopEnd,
     };
     for (const fn of this.transportListeners) fn(state);
   }

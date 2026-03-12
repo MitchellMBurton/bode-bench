@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { frameBus } from '../audio/frameBus';
 import { audioEngine } from '../audio/engine';
+import { scrollSpeed } from '../audio/scrollSpeed';
 import { COLORS, FONTS, CANVAS, SPACING } from '../theme';
 import { spectroColor } from '../utils/canvas';
 import type { AudioFrame } from '../types';
@@ -10,9 +11,12 @@ const PAD_Y = SPACING.panelPad;
 const BASE_SCROLL_PX = CANVAS.timelineScrollPx;
 const DIVIDER_H = 3;
 const CHAN_LABEL_W = 14;
-const GRID_HZ = [50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000];
-const AXIS_HZ = [50, 100, 200, 500, '1k', '2k', '5k', '10k', '20k'] as const;
+// Major frequency grid lines — labeled on the axis
+const GRID_HZ =      [50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000];
+const AXIS_HZ =      [50, 100, 200, 500, '1k', '2k', '5k', '10k', '20k'] as const;
 const AXIS_HZ_VALUES = [50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000];
+// Minor frequency hairlines — unlabeled, drawn dimmer
+const MINOR_GRID_HZ = [30, 40, 70, 80, 150, 300, 700, 800, 1500, 3000, 7000, 8000, 15000];
 const PANEL_DPR_MAX = 1.5;
 
 function hzToT(hz: number): number {
@@ -151,7 +155,7 @@ export function SpectrogramPanel(): React.ReactElement {
       lastFrameRef.current = frame;
 
       if (isNewFrame && frame) {
-        scrollCarryRef.current += BASE_SCROLL_PX * audioEngine.playbackRate;
+        scrollCarryRef.current += BASE_SCROLL_PX * audioEngine.playbackRate * scrollSpeed.value;
         const scrollPx = Math.max(0, Math.floor(scrollCarryRef.current));
 
         if (scrollPx > 0) {
@@ -199,21 +203,29 @@ export function SpectrogramPanel(): React.ReactElement {
       const yR = yDiv + divH;
       ctx.drawImage(offR, spectroX, yR);
 
+      // Vertical time-grid (subtle dark columns)
       const cellPx = Math.round(8 * dpr);
-      const gridColor = 'rgba(0,0,0,0.45)';
-      ctx.fillStyle = gridColor;
-      for (let gy = yL; gy < yR + halfH; gy += cellPx) {
-        ctx.fillRect(spectroX, gy, spectroW, 1);
-      }
+      ctx.fillStyle = 'rgba(0,0,0,0.30)';
       for (let gx = spectroX; gx < spectroX + spectroW; gx += cellPx) {
         ctx.fillRect(gx, yL, 1, halfH * 2 + divH);
       }
 
+      // Minor frequency hairlines — unlabeled, very dim
+      ctx.fillStyle = 'rgba(0,0,0,0.38)';
+      for (const hz of MINOR_GRID_HZ) {
+        const t = hzToT(hz);
+        const yGridL = yL + halfH - t * halfH;
+        const yGridR = yR + halfH - t * halfH;
+        ctx.fillRect(spectroX, yGridL, spectroW, 1);
+        ctx.fillRect(spectroX, yGridR, spectroW, 1);
+      }
+
+      // Major frequency lines — same as before
+      ctx.fillStyle = 'rgba(0,0,0,0.62)';
       for (const hz of GRID_HZ) {
         const t = hzToT(hz);
         const yGridL = yL + halfH - t * halfH;
         const yGridR = yR + halfH - t * halfH;
-        ctx.fillStyle = 'rgba(0,0,0,0.65)';
         ctx.fillRect(spectroX, yGridL, spectroW, 1);
         ctx.fillRect(spectroX, yGridR, spectroW, 1);
       }

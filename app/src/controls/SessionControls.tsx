@@ -5,18 +5,24 @@
 
 import { useRef, useState, useCallback } from 'react';
 import { audioEngine } from '../audio/engine';
+import { scrollSpeed } from '../audio/scrollSpeed';
+import { displayMode } from '../audio/displayMode';
 import { COLORS, FONTS, SPACING } from '../theme';
 
 interface Props {
   grayscale: boolean;
   onGrayscale: (v: boolean) => void;
+  nge: boolean;
+  onNge: (v: boolean) => void;
 }
 
-export function SessionControls({ grayscale, onGrayscale }: Props): React.ReactElement {
+export function SessionControls({ grayscale, onGrayscale, nge, onNge }: Props): React.ReactElement {
   const [volume, setVolume] = useState(1);
   const [rate, setRate] = useState(1);
+  const [scroll, setScroll] = useState(1);
   const volFillRef = useRef<HTMLDivElement>(null);
   const rateFillRef = useRef<HTMLDivElement>(null);
+  const scrollFillRef = useRef<HTMLDivElement>(null);
 
   const onVolChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const v = parseFloat(e.target.value);
@@ -32,8 +38,16 @@ export function SessionControls({ grayscale, onGrayscale }: Props): React.ReactE
     if (rateFillRef.current) rateFillRef.current.style.width = `${((r - 0.25) / 1.75) * 100}%`;
   }, []);
 
+  const onScrollChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const s = parseFloat(e.target.value);
+    setScroll(s);
+    scrollSpeed.set(s);
+    if (scrollFillRef.current) scrollFillRef.current.style.width = `${((s - 0.25) / 3.75) * 100}%`;
+  }, []);
+
   const volPct = Math.round(volume * 100);
   const rateLabel = rate === 1 ? '1.00×' : `${rate.toFixed(2)}×`;
+  const scrollLabel = scroll === 1 ? '1.00×' : `${scroll.toFixed(2)}×`;
 
   return (
     <div style={wrapStyle}>
@@ -69,16 +83,42 @@ export function SessionControls({ grayscale, onGrayscale }: Props): React.ReactE
         <span style={valueStyle}>{rateLabel}</span>
       </div>
 
+      {/* Scroll speed */}
+      <div style={rowStyle}>
+        <span style={labelStyle}>SCRL</span>
+        <div style={trackStyle}>
+          <div ref={scrollFillRef} style={{ ...fillStyle, width: '20%' /* default 1.0 of 0.25–4.0 */ }} />
+          <input
+            type="range" min={0.25} max={4} step={0.25}
+            defaultValue={1}
+            onChange={onScrollChange}
+            style={rangeStyle}
+          />
+        </div>
+        <span style={valueStyle}>{scrollLabel}</span>
+      </div>
+
       <div style={separatorStyle} />
 
-      {/* Greyscale toggle */}
-      <button
-        style={{ ...toggleStyle, ...(grayscale ? toggleActiveStyle : {}) }}
-        onClick={() => onGrayscale(!grayscale)}
-        title="Toggle greyscale display mode"
-      >
-        ◧ GREYSCALE
-      </button>
+      <div style={toggleRowStyle}>
+        {/* Greyscale toggle */}
+        <button
+          style={{ ...toggleStyle, ...(grayscale ? toggleActiveStyle : {}) }}
+          onClick={() => onGrayscale(!grayscale)}
+          title="Toggle greyscale display mode"
+        >
+          ◧ MONO
+        </button>
+
+        {/* NGE mode toggle */}
+        <button
+          style={{ ...toggleStyle, ...(nge ? ngeActiveStyle : {}) }}
+          onClick={() => { const v = !nge; displayMode.set(v); onNge(v); }}
+          title="NGE phosphor mode — CRT persistence on oscilloscope, scan-line overlay"
+        >
+          ◉ NGE
+        </button>
+      </div>
     </div>
   );
 }
@@ -168,8 +208,19 @@ const toggleStyle: React.CSSProperties = {
   transition: 'background 0.1s, border-color 0.1s, color 0.1s',
 };
 
+const toggleRowStyle: React.CSSProperties = {
+  display: 'flex',
+  gap: SPACING.sm,
+};
+
 const toggleActiveStyle: React.CSSProperties = {
   background: COLORS.accentDim,
   borderColor: COLORS.accent,
   color: COLORS.textPrimary,
+};
+
+const ngeActiveStyle: React.CSSProperties = {
+  background: 'rgba(30,60,10,1)',
+  borderColor: 'rgba(140,210,40,0.7)',
+  color: 'rgba(160,230,60,1)',
 };

@@ -1,12 +1,12 @@
 import { useEffect, useRef } from 'react';
 import { frameBus } from '../audio/frameBus';
 import { audioEngine } from '../audio/engine';
+import { scrollSpeed } from '../audio/scrollSpeed';
 import { COLORS, FONTS, CANVAS, SPACING } from '../theme';
 import type { AudioFrame } from '../types';
 
 const PAD = SPACING.panelPad;
 const BASE_SCROLL_PX = CANVAS.timelineScrollPx;
-const WINDOW = 128;
 const PANEL_DPR_MAX = 1.25;
 
 export function WaveformScrollPanel(): React.ReactElement {
@@ -94,7 +94,7 @@ export function WaveformScrollPanel(): React.ReactElement {
       lastFrameRef.current = frame;
 
       if (isNewFrame && frame) {
-        scrollCarryRef.current += BASE_SCROLL_PX * audioEngine.playbackRate;
+        scrollCarryRef.current += BASE_SCROLL_PX * audioEngine.playbackRate * scrollSpeed.value;
         const scrollPx = Math.max(0, Math.floor(scrollCarryRef.current));
 
         if (scrollPx > 0) {
@@ -104,23 +104,27 @@ export function WaveformScrollPanel(): React.ReactElement {
           octx.fillStyle = COLORS.bg2;
           octx.fillRect(W - scrollPx, 0, scrollPx, H);
 
-          const td = frame.timeDomain;
-          const center = Math.floor(td.length / 2);
-          const start = Math.max(0, center - WINDOW / 2);
-          const end = Math.min(td.length, center + WINDOW / 2);
+          const peaks = audioEngine.waveformPeaks;
+          const binSamples = audioEngine.waveformBinSamples;
+          const gain = frame.displayGain;
 
-          let min = 0;
-          let max = 0;
-          for (let i = start; i < end; i++) {
-            if (td[i] < min) min = td[i];
-            if (td[i] > max) max = td[i];
+          if (peaks) {
+            // Map frame's current audio position to peak bin index.
+            // Each bin = binSamples audio samples, so bin index = sample / binSamples.
+            const currentBin = Math.floor((frame.currentTime * frame.sampleRate) / binSamples);
+
+            octx.fillStyle = COLORS.waveform;
+            for (let col = 0; col < scrollPx; col++) {
+              // col=0 is the leftmost (oldest) new column; col=scrollPx-1 is newest (rightmost).
+              const bin = currentBin - (scrollPx - 1 - col);
+              if (bin < 0 || bin * 2 + 1 >= peaks.length) continue;
+              const mn = peaks[bin * 2] * gain;
+              const mx = peaks[bin * 2 + 1] * gain;
+              const y1 = Math.round(midY - mx * halfH);
+              const y2 = Math.round(midY - mn * halfH);
+              octx.fillRect(W - scrollPx + col, y1, 1, Math.max(1, y2 - y1));
+            }
           }
-
-          const amp = Math.max(Math.abs(min), Math.abs(max)) * frame.displayGain;
-          const h = Math.max(1, Math.min(amp * halfH, halfH));
-
-          octx.fillStyle = COLORS.waveform;
-          octx.fillRect(W - scrollPx, midY - h, scrollPx, h * 2);
         }
       }
 

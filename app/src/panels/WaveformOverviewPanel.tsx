@@ -106,6 +106,8 @@ export function WaveformOverviewPanel(): React.ReactElement {
   const centroidRef = useRef(0);
   const rafRef = useRef<number | null>(null);
   const isDraggingRef = useRef(false);
+  const isShiftDragRef = useRef(false);
+  const loopDragStartRef = useRef<number | null>(null);
 
   useEffect(() => frameBus.subscribe((frame) => {
     centroidRef.current = frame.spectralCentroid;
@@ -131,14 +133,17 @@ export function WaveformOverviewPanel(): React.ReactElement {
     centroidRef.current = 0;
   }), []);
 
-  const seekFromPointer = useCallback((event: React.PointerEvent<HTMLCanvasElement>) => {
+  const fractionFromPointer = useCallback((event: React.PointerEvent<HTMLCanvasElement>): number => {
     const canvas = canvasRef.current;
-    if (!canvas) return;
+    if (!canvas) return 0;
     const rect = canvas.getBoundingClientRect();
-    const fraction = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
-    const duration = audioEngine.duration;
-    if (duration > 0) audioEngine.seek(fraction * duration);
+    return Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
   }, []);
+
+  const seekFromPointer = useCallback((event: React.PointerEvent<HTMLCanvasElement>) => {
+    const duration = audioEngine.duration;
+    if (duration > 0) audioEngine.seek(fractionFromPointer(event) * duration);
+  }, [fractionFromPointer]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -283,6 +288,26 @@ export function WaveformOverviewPanel(): React.ReactElement {
         ctx.lineTo(playX, waveH);
         ctx.stroke();
 
+        // Loop region overlay
+        const loopStart = audioEngine.loopStart;
+        const loopEnd = audioEngine.loopEnd;
+        if (loopStart !== null && loopEnd !== null) {
+          const lx1 = (loopStart / duration) * width;
+          const lx2 = (loopEnd / duration) * width;
+          ctx.fillStyle = 'rgba(80, 200, 120, 0.10)';
+          ctx.fillRect(lx1, 0, lx2 - lx1, waveH);
+          ctx.strokeStyle = 'rgba(80, 200, 120, 0.60)';
+          ctx.lineWidth = 1.5 * dpr;
+          ctx.beginPath(); ctx.moveTo(lx1, 0); ctx.lineTo(lx1, waveH); ctx.stroke();
+          ctx.beginPath(); ctx.moveTo(lx2, 0); ctx.lineTo(lx2, waveH); ctx.stroke();
+          // Loop label
+          ctx.font = `${7 * dpr}px ${FONTS.mono}`;
+          ctx.fillStyle = 'rgba(80, 200, 120, 0.70)';
+          ctx.textAlign = 'left';
+          ctx.textBaseline = 'top';
+          ctx.fillText('LOOP', lx1 + 3 * dpr, 3 * dpr);
+        }
+
         if (analysis) {
           const dr = analysis.crestFactorDb;
           const drColor =
@@ -333,14 +358,31 @@ export function WaveformOverviewPanel(): React.ReactElement {
         style={canvasStyle}
         onPointerDown={(event) => {
           isDraggingRef.current = true;
+          isShiftDragRef.current = event.shiftKey;
           event.currentTarget.setPointerCapture(event.pointerId);
-          seekFromPointer(event);
+          if (event.shiftKey) {
+            const t = fractionFromPointer(event) * audioEngine.duration;
+            loopDragStartRef.current = t;
+          } else {
+            loopDragStartRef.current = null;
+            seekFromPointer(event);
+          }
         }}
         onPointerMove={(event) => {
-          if (isDraggingRef.current) seekFromPointer(event);
+          if (!isDraggingRef.current) return;
+          if (isShiftDragRef.current && loopDragStartRef.current !== null) {
+            const t2 = fractionFromPointer(event) * audioEngine.duration;
+            const start = Math.min(loopDragStartRef.current, t2);
+            const end = Math.max(loopDragStartRef.current, t2);
+            if (end - start > 0.1) audioEngine.setLoop(start, end);
+          } else {
+            seekFromPointer(event);
+          }
         }}
         onPointerUp={() => {
           isDraggingRef.current = false;
+          isShiftDragRef.current = false;
+          loopDragStartRef.current = null;
         }}
       />
     </div>

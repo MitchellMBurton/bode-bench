@@ -26,6 +26,8 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
     duration: 0,
     filename: null,
     playbackRate: 1,
+    loopStart: null,
+    loopEnd: null,
   });
   const [isDragging, setIsDragging] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -284,6 +286,23 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
         />
       </div>
 
+      {/* Loop region indicator */}
+      {transport.loopStart !== null && transport.loopEnd !== null && (
+        <div style={loopRowStyle}>
+          <span style={loopLabelStyle}>LOOP</span>
+          <span style={loopTimeStyle}>
+            {formatTime(transport.loopStart)} → {formatTime(transport.loopEnd)}
+          </span>
+          <button
+            style={loopClearStyle}
+            onClick={() => audioEngine.clearLoop()}
+            title="Clear loop region"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
       {/* Transport buttons */}
       <div style={buttonRowStyle}>
         <button
@@ -445,4 +464,43 @@ const btnResetStyle: React.CSSProperties = {
   letterSpacing: '0.06em',
   color: COLORS.textSecondary,
   borderColor: COLORS.border,
+};
+
+const loopRowStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: SPACING.xs,
+  padding: `2px ${SPACING.xs}px`,
+  background: 'rgba(40, 120, 60, 0.15)',
+  border: '1px solid rgba(80, 200, 120, 0.25)',
+  borderRadius: 2,
+  flexShrink: 0,
+};
+
+const loopLabelStyle: React.CSSProperties = {
+  fontFamily: FONTS.mono,
+  fontSize: FONTS.sizeXs,
+  color: 'rgba(80, 200, 120, 0.80)',
+  letterSpacing: '0.08em',
+  flexShrink: 0,
+};
+
+const loopTimeStyle: React.CSSProperties = {
+  fontFamily: FONTS.mono,
+  fontSize: FONTS.sizeXs,
+  color: COLORS.textSecondary,
+  flex: 1,
+};
+
+const loopClearStyle: React.CSSProperties = {
+  background: 'none',
+  border: 'none',
+  color: 'rgba(80, 200, 120, 0.60)',
+  fontFamily: FONTS.mono,
+  fontSize: FONTS.sizeSm,
+  cursor: 'pointer',
+  padding: '0 2px',
+  lineHeight: 1,
+  outline: 'none',
+  flexShrink: 0,
 };

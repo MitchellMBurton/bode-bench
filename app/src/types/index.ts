@@ -38,6 +38,11 @@ export interface AudioFrame {
   /** Spectral centroid of left channel power spectrum (Hz).
    *  Weighted mean frequency: Σ(freq_k × power_k) / Σ(power_k). */
   readonly spectralCentroid: number;
+  /** Estimated fundamental frequency (Hz) from autocorrelation, or null if no pitch detected.
+   *  Covers cello range: ~60–1000 Hz. */
+  readonly f0Hz: number | null;
+  /** Autocorrelation confidence for f0Hz in range 0–1. Values below ~0.4 indicate noise/silence. */
+  readonly f0Confidence: number;
 }
 
 /** File-level quality analysis computed once from the decoded AudioBuffer on load. */
@@ -84,6 +89,10 @@ export interface TransportState {
   readonly duration: number;    // seconds
   readonly filename: string | null;
   readonly playbackRate: number;
+  /** Loop region start time in seconds, or null if no loop is set. */
+  readonly loopStart: number | null;
+  /** Loop region end time in seconds, or null if no loop is set. */
+  readonly loopEnd: number | null;
 }
 
 // ----------------------------------------------------------

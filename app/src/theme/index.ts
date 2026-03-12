@@ -112,7 +112,7 @@ export const CANVAS = {
   dbMax: 0,
   dbClipThreshold: -3,
 
-  fftSize: 4096,
+  fftSize: 8192,
   smoothingTimeConstant: 0.8,
 
   // Per-band bar colors - indexed parallel to frequencyBands
