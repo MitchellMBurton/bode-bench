@@ -5,7 +5,7 @@
 // ============================================================
 
 import { useEffect, useRef } from 'react';
-import { audioEngine } from '../audio/engine';
+import { useAudioEngine } from '../core/session';
 import { COLORS, FONTS, SPACING } from '../theme';
 import type { NoteEvent } from '../types';
 
@@ -37,6 +37,7 @@ function isBlackKey(midi: number): boolean {
 }
 
 export function PianoRollPanel({ noteEvents }: Props): React.ReactElement {
+  const audioEngine = useAudioEngine();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rafRef = useRef<number | null>(null);
   const noteEventsRef = useRef<NoteEvent[] | null>(noteEvents);
@@ -206,7 +207,7 @@ export function PianoRollPanel({ noteEvents }: Props): React.ReactElement {
     return () => {
       if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
     };
-  }, []);
+  }, [audioEngine]);
 
   return (
     <div style={panelStyle}>

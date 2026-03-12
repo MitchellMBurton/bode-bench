@@ -1,8 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { frameBus } from '../audio/frameBus';
-import { displayMode } from '../audio/displayMode';
-import { audioEngine } from '../audio/engine';
-import { scrollSpeed } from '../audio/scrollSpeed';
+import { useAudioEngine, useDisplayMode, useFrameBus, useScrollSpeed } from '../core/session';
 import { COLORS, FONTS, CANVAS, SPACING } from '../theme';
 import { spectroColor } from '../utils/canvas';
 import type { AudioFrame } from '../types';
@@ -156,6 +153,10 @@ function remapSpectroCanvas(
 }
 
 export function SpectrogramPanel(): React.ReactElement {
+  const frameBus = useFrameBus();
+  const displayMode = useDisplayMode();
+  const audioEngine = useAudioEngine();
+  const scrollSpeed = useScrollSpeed();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const offLRef = useRef<HTMLCanvasElement | null>(null);
   const offRRef = useRef<HTMLCanvasElement | null>(null);
@@ -171,7 +172,7 @@ export function SpectrogramPanel(): React.ReactElement {
     return frameBus.subscribe((frame) => {
       frameRef.current = frame;
     });
-  }, []);
+  }, [frameBus]);
 
   useEffect(() => {
     return audioEngine.onReset(() => {
@@ -195,7 +196,7 @@ export function SpectrogramPanel(): React.ReactElement {
         }
       }
     });
-  }, []);
+  }, [audioEngine, displayMode]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -421,7 +422,7 @@ export function SpectrogramPanel(): React.ReactElement {
       ro.disconnect();
       if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
     };
-  }, []);
+  }, [audioEngine, displayMode, scrollSpeed]);
 
   return (
     <div style={panelStyle}>

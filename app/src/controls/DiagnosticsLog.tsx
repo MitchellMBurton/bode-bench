@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { audioEngine } from '../audio/engine';
+import { useAudioEngine } from '../core/session';
 import { CANVAS, COLORS, FONTS, SPACING } from '../theme';
 import type { FileAnalysis, TransportState } from '../types';
 
@@ -34,6 +34,7 @@ function formatKhz(hz: number): string {
 const SCRUB_SETTLE_MS = 500;
 
 export function DiagnosticsLog(): React.ReactElement {
+  const audioEngine = useAudioEngine();
   const [entries, setEntries] = useState<LogEntry[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const nextIdRef = useRef(1);
@@ -136,7 +137,7 @@ export function DiagnosticsLog(): React.ReactElement {
       unsubReset();
       if (scrubTimerRef.current) clearTimeout(scrubTimerRef.current);
     };
-  }, [pushEntry]);
+  }, [audioEngine, pushEntry]);
 
   useEffect(() => {
     const node = scrollRef.current;

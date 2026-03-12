@@ -4,7 +4,7 @@
 // ============================================================
 
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { audioEngine } from '../audio/engine';
+import { useAudioEngine } from '../core/session';
 import { COLORS, FONTS, SPACING } from '../theme';
 import type { TransportState } from '../types';
 
@@ -20,6 +20,7 @@ interface Props {
 }
 
 export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
+  const audioEngine = useAudioEngine();
   const [transport, setTransport] = useState<TransportState>({
     isPlaying: false,
     currentTime: 0,
@@ -69,7 +70,7 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
         }
       }
     });
-  }, []);
+  }, [audioEngine]);
 
   // Play/pause the video element in sync with the audio engine
   useEffect(() => {
@@ -83,7 +84,7 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
       video.pause();
       if (transport.currentTime === 0) video.currentTime = 0;
     }
-  }, [transport.isPlaying, videoUrl, transport.currentTime, transport.playbackRate]);
+  }, [audioEngine, transport.isPlaying, videoUrl, transport.currentTime, transport.playbackRate]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -117,7 +118,7 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
     };
     rafId = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(rafId);
-  }, [videoUrl]);
+  }, [audioEngine, videoUrl]);
 
   // Throttled time display
   useEffect(() => {
@@ -126,7 +127,7 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
       setTransport((prev) => ({ ...prev, currentTime: audioEngine.currentTime }));
     }, 100);
     return () => clearInterval(id);
-  }, [transport.isPlaying]);
+  }, [audioEngine, transport.isPlaying]);
 
   // Revoke object URL on unmount
   useEffect(() => {
@@ -146,7 +147,7 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
       }
       lastVideoSyncRef.current = 0;
     });
-  }, [clearFileInput, clearVideoPreview]);
+  }, [audioEngine, clearFileInput, clearVideoPreview]);
 
   const handleFile = useCallback(async (file: File) => {
     // Revoke previous object URL
@@ -168,7 +169,7 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
       clearFileInput();
       setIsLoading(false);
     }
-  }, [clearFileInput, clearVideoPreview, onFileLoaded]);
+  }, [audioEngine, clearFileInput, clearVideoPreview, onFileLoaded]);
 
   const onDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -195,7 +196,7 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
     audioEngine.seek(seekTo);
     if (videoRef.current) videoRef.current.currentTime = seekTo;
     lastVideoSyncRef.current = seekTo;
-  }, []);
+  }, [audioEngine]);
 
   const onSeekInput = useCallback(() => {
     const input = seekInputRef.current;

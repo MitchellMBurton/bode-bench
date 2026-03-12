@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef } from 'react';
-import { frameBus } from '../audio/frameBus';
-import { audioEngine } from '../audio/engine';
+import { useAudioEngine, useFrameBus } from '../core/session';
 import { COLORS, FONTS, SPACING } from '../theme';
 import type { FileAnalysis } from '../types';
 
@@ -98,6 +97,8 @@ function drawBadge(
 }
 
 export function WaveformOverviewPanel(): React.ReactElement {
+  const frameBus = useFrameBus();
+  const audioEngine = useAudioEngine();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const peakEnvRef = useRef<Float32Array | null>(null);
   const rmsEnvRef = useRef<Float32Array | null>(null);
@@ -111,7 +112,7 @@ export function WaveformOverviewPanel(): React.ReactElement {
 
   useEffect(() => frameBus.subscribe((frame) => {
     centroidRef.current = frame.spectralCentroid;
-  }), []);
+  }), [frameBus]);
 
   useEffect(() => audioEngine.onFileReady((analysis) => {
     analysisRef.current = analysis;
@@ -123,7 +124,7 @@ export function WaveformOverviewPanel(): React.ReactElement {
     peakEnvRef.current = data.peakEnv;
     rmsEnvRef.current = data.rmsEnv;
     clipMapRef.current = data.clipMap;
-  }), []);
+  }), [audioEngine]);
 
   useEffect(() => audioEngine.onReset(() => {
     peakEnvRef.current = null;
@@ -131,7 +132,7 @@ export function WaveformOverviewPanel(): React.ReactElement {
     clipMapRef.current = null;
     analysisRef.current = null;
     centroidRef.current = 0;
-  }), []);
+  }), [audioEngine]);
 
   const fractionFromPointer = useCallback((event: React.PointerEvent<HTMLCanvasElement>): number => {
     const canvas = canvasRef.current;
@@ -143,7 +144,7 @@ export function WaveformOverviewPanel(): React.ReactElement {
   const seekFromPointer = useCallback((event: React.PointerEvent<HTMLCanvasElement>) => {
     const duration = audioEngine.duration;
     if (duration > 0) audioEngine.seek(fractionFromPointer(event) * duration);
-  }, [fractionFromPointer]);
+  }, [audioEngine, fractionFromPointer]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -168,7 +169,7 @@ export function WaveformOverviewPanel(): React.ReactElement {
 
     ro.observe(canvas);
     return () => ro.disconnect();
-  }, []);
+  }, [audioEngine]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -349,7 +350,7 @@ export function WaveformOverviewPanel(): React.ReactElement {
     return () => {
       if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
     };
-  }, []);
+  }, [audioEngine]);
 
   return (
     <div style={panelStyle}>

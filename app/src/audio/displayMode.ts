@@ -3,9 +3,14 @@
 // Read in RAF draw loops; no React re-renders needed.
 // ============================================================
 
-let _nge = false;
+export class DisplayModeStore {
+  private ngeEnabled = false;
 
-export const displayMode = {
-  get nge(): boolean { return _nge; },
-  set(nge: boolean): void { _nge = nge; },
-};
+  get nge(): boolean {
+    return this.ngeEnabled;
+  }
+
+  set(nge: boolean): void {
+    this.ngeEnabled = nge;
+  }
+}

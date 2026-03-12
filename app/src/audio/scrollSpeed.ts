@@ -3,9 +3,14 @@
 // scrolling panels. Read in RAF loops; no React re-renders.
 // ============================================================
 
-let _speed = 1.0;
+export class ScrollSpeedStore {
+  private speed = 1.0;
 
-export const scrollSpeed = {
-  get value(): number { return _speed; },
-  set(v: number): void { _speed = Math.max(0.25, Math.min(4, v)); },
-};
+  get value(): number {
+    return this.speed;
+  }
+
+  set(v: number): void {
+    this.speed = Math.max(0.25, Math.min(4, v));
+  }
+}

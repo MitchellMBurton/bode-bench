@@ -5,8 +5,7 @@
 // ============================================================
 
 import { useEffect, useRef } from 'react';
-import { frameBus } from '../audio/frameBus';
-import { audioEngine } from '../audio/engine';
+import { useAudioEngine, useFrameBus } from '../core/session';
 import { COLORS, FONTS, SPACING, CANVAS } from '../theme';
 import type { AudioFrame } from '../types';
 
@@ -43,7 +42,7 @@ function getPartialDb(
   const binIndex = Math.round(targetHz / binHz);
   if (binIndex < 0 || binIndex >= frequencyDb.length) return CANVAS.dbMin;
   // Average ±3 bins around the peak bin
-  let best = CANVAS.dbMin;
+  let best: number = CANVAS.dbMin;
   for (let d = -3; d <= 3; d++) {
     const idx = binIndex + d;
     if (idx >= 0 && idx < frequencyDb.length && frequencyDb[idx] > best) {
@@ -54,17 +53,19 @@ function getPartialDb(
 }
 
 export function HarmonicLadderPanel(): React.ReactElement {
+  const frameBus = useFrameBus();
+  const audioEngine = useAudioEngine();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const frameRef = useRef<AudioFrame | null>(null);
-  const smoothedRef = useRef<Float32Array>(new Float32Array(NUM_PARTIALS).fill(CANVAS.dbMin));
+  const smoothedRef = useRef<Float32Array>(new Float32Array(NUM_PARTIALS).fill(Number(CANVAS.dbMin)));
   const rafRef = useRef<number | null>(null);
 
-  useEffect(() => frameBus.subscribe((frame) => { frameRef.current = frame; }), []);
+  useEffect(() => frameBus.subscribe((frame) => { frameRef.current = frame; }), [frameBus]);
 
   useEffect(() => audioEngine.onReset(() => {
     frameRef.current = null;
-    smoothedRef.current.fill(CANVAS.dbMin);
-  }), []);
+    smoothedRef.current.fill(Number(CANVAS.dbMin));
+  }), [audioEngine]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -116,7 +117,7 @@ export function HarmonicLadderPanel(): React.ReactElement {
       }
 
       // Normalize relative to the strongest partial
-      let peakDb = CANVAS.dbMin;
+      let peakDb: number = CANVAS.dbMin;
       for (let i = 0; i < NUM_PARTIALS; i++) {
         if (smoothed[i] > peakDb) peakDb = smoothed[i];
       }

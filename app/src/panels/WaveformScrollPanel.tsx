@@ -1,8 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { frameBus } from '../audio/frameBus';
-import { audioEngine } from '../audio/engine';
-import { displayMode } from '../audio/displayMode';
-import { scrollSpeed } from '../audio/scrollSpeed';
+import { useAudioEngine, useDisplayMode, useFrameBus, useScrollSpeed } from '../core/session';
 import { COLORS, FONTS, CANVAS, SPACING } from '../theme';
 import type { AudioFrame } from '../types';
 
@@ -65,6 +62,10 @@ function remapMonochromeCanvas(
 }
 
 export function WaveformScrollPanel(): React.ReactElement {
+  const frameBus = useFrameBus();
+  const audioEngine = useAudioEngine();
+  const displayMode = useDisplayMode();
+  const scrollSpeed = useScrollSpeed();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const offscreenRef = useRef<HTMLCanvasElement | null>(null);
   const frameRef = useRef<AudioFrame | null>(null);
@@ -78,7 +79,7 @@ export function WaveformScrollPanel(): React.ReactElement {
     return frameBus.subscribe((frame) => {
       frameRef.current = frame;
     });
-  }, []);
+  }, [frameBus]);
 
   useEffect(() => {
     return audioEngine.onReset(() => {
@@ -93,7 +94,7 @@ export function WaveformScrollPanel(): React.ReactElement {
         octx.fillRect(0, 0, offscreen.width, offscreen.height);
       }
     });
-  }, []);
+  }, [audioEngine, displayMode]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -243,7 +244,7 @@ export function WaveformScrollPanel(): React.ReactElement {
       ro.disconnect();
       if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
     };
-  }, []);
+  }, [audioEngine, displayMode, scrollSpeed]);
 
   return (
     <div style={panelStyle}>

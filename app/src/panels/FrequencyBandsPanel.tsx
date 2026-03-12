@@ -4,14 +4,15 @@
 // ============================================================
 
 import { useEffect, useRef } from 'react';
-import { frameBus } from '../audio/frameBus';
-import { audioEngine } from '../audio/engine';
+import { useAudioEngine, useFrameBus } from '../core/session';
 import { COLORS, FONTS, CANVAS, SPACING } from '../theme';
 import type { AudioFrame, FrequencyBand } from '../types';
 
 const PANEL_DPR_MAX = 1.25;
 
 export function FrequencyBandsPanel(): React.ReactElement {
+  const frameBus = useFrameBus();
+  const audioEngine = useAudioEngine();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const frameRef = useRef<AudioFrame | null>(null);
   const rafRef = useRef<number | null>(null);
@@ -20,14 +21,14 @@ export function FrequencyBandsPanel(): React.ReactElement {
   useEffect(() => {
     const unsub = frameBus.subscribe((f) => { frameRef.current = f; });
     return unsub;
-  }, []);
+  }, [frameBus]);
 
   useEffect(() => {
     return audioEngine.onReset(() => {
       frameRef.current = null;
       smoothedRef.current = CANVAS.frequencyBands.map(() => 0);
     });
-  }, []);
+  }, [audioEngine]);
 
   useEffect(() => {
     const canvas = canvasRef.current;

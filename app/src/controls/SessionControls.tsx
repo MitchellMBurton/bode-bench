@@ -4,9 +4,7 @@
 // ============================================================
 
 import { useRef, useState, useCallback } from 'react';
-import { audioEngine } from '../audio/engine';
-import { scrollSpeed } from '../audio/scrollSpeed';
-import { displayMode } from '../audio/displayMode';
+import { useAudioEngine, useDisplayMode, useScrollSpeed } from '../core/session';
 import { COLORS, FONTS, SPACING } from '../theme';
 
 interface Props {
@@ -17,6 +15,9 @@ interface Props {
 }
 
 export function SessionControls({ grayscale, onGrayscale, nge, onNge }: Props): React.ReactElement {
+  const audioEngine = useAudioEngine();
+  const scrollSpeed = useScrollSpeed();
+  const displayMode = useDisplayMode();
   const [volume, setVolume] = useState(1);
   const [rate, setRate] = useState(1);
   const [scroll, setScroll] = useState(1);
@@ -29,21 +30,21 @@ export function SessionControls({ grayscale, onGrayscale, nge, onNge }: Props): 
     setVolume(v);
     audioEngine.setVolume(v);
     if (volFillRef.current) volFillRef.current.style.width = `${v * 100}%`;
-  }, []);
+  }, [audioEngine]);
 
   const onRateChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const r = parseFloat(e.target.value);
     setRate(r);
     audioEngine.setPlaybackRate(r);
     if (rateFillRef.current) rateFillRef.current.style.width = `${((r - 0.25) / 1.75) * 100}%`;
-  }, []);
+  }, [audioEngine]);
 
   const onScrollChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const s = parseFloat(e.target.value);
     setScroll(s);
     scrollSpeed.set(s);
     if (scrollFillRef.current) scrollFillRef.current.style.width = `${((s - 0.25) / 3.75) * 100}%`;
-  }, []);
+  }, [scrollSpeed]);
 
   const volPct = Math.round(volume * 100);
   const rateLabel = rate === 1 ? '1.00×' : `${rate.toFixed(2)}×`;

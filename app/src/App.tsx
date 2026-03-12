@@ -18,12 +18,13 @@ import { FrequencyBandsPanel } from './panels/FrequencyBandsPanel';
 import { PitchTrackerPanel } from './panels/PitchTrackerPanel';
 import { HarmonicLadderPanel } from './panels/HarmonicLadderPanel';
 import { LoudnessHistoryPanel } from './panels/LoudnessHistoryPanel';
-import { audioEngine } from './audio/engine';
+import { useAudioEngine } from './core/session';
 import { COLORS, SPACING } from './theme';
 
 const SEEK_STEP = 5; // seconds per arrow key press
 
 export default function App(): React.ReactElement {
+  const audioEngine = useAudioEngine();
   const [filename, setFilename] = useState<string | null>(null);
   const [grayscale, setGrayscale] = useState(false);
   const [nge, setNge] = useState(false);
@@ -32,7 +33,7 @@ export default function App(): React.ReactElement {
     return audioEngine.onTransport((state) => {
       setFilename(state.filename);
     });
-  }, []);
+  }, [audioEngine]);
 
   // Global keyboard shortcuts
   useEffect(() => {
@@ -64,7 +65,7 @@ export default function App(): React.ReactElement {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, []);
+  }, [audioEngine]);
 
   const fileTitle = filename ? filename.replace(/\.[^/.]+$/, '') : null;
   const panelTitle = fileTitle ?? 'NO SESSION';

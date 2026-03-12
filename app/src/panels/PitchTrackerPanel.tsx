@@ -6,10 +6,7 @@
 // ============================================================
 
 import { useEffect, useRef } from 'react';
-import { frameBus } from '../audio/frameBus';
-import { audioEngine } from '../audio/engine';
-import { displayMode } from '../audio/displayMode';
-import { scrollSpeed } from '../audio/scrollSpeed';
+import { useAudioEngine, useDisplayMode, useFrameBus, useScrollSpeed } from '../core/session';
 import { COLORS, FONTS, SPACING, CANVAS } from '../theme';
 import type { AudioFrame } from '../types';
 
@@ -47,6 +44,10 @@ function f0ToLabel(f0: number): { name: string; hz: string; tuning: string } {
 interface Entry { f0: number | null; confidence: number }
 
 export function PitchTrackerPanel(): React.ReactElement {
+  const frameBus = useFrameBus();
+  const audioEngine = useAudioEngine();
+  const displayMode = useDisplayMode();
+  const scrollSpeed = useScrollSpeed();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const historyRef = useRef<Entry[]>([]);
   const currentRef = useRef<AudioFrame | null>(null);
@@ -63,14 +64,14 @@ export function PitchTrackerPanel(): React.ReactElement {
     if (historyRef.current.length > HISTORY_MAX) historyRef.current.shift();
     currentRef.current = frame;
     lastDataTimeRef.current = performance.now();
-  }), []);
+  }), [frameBus]);
 
   useEffect(() => audioEngine.onReset(() => {
     historyRef.current = [];
     currentRef.current = null;
     lastFileIdRef.current = -1;
     lastDataTimeRef.current = performance.now();
-  }), []);
+  }), [audioEngine]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -217,7 +218,7 @@ export function PitchTrackerPanel(): React.ReactElement {
 
     rafRef.current = requestAnimationFrame(draw);
     return () => { if (rafRef.current !== null) cancelAnimationFrame(rafRef.current); };
-  }, []);
+  }, [displayMode, scrollSpeed]);
 
   return (
     <div style={panelStyle}>

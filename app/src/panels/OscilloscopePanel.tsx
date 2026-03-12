@@ -9,8 +9,7 @@
 // ============================================================
 
 import { useEffect, useRef } from 'react';
-import { audioEngine } from '../audio/engine';
-import { displayMode } from '../audio/displayMode';
+import { useAudioEngine, useDisplayMode } from '../core/session';
 import { COLORS, FONTS, CANVAS, SPACING } from '../theme';
 
 const PAD = SPACING.panelPad;
@@ -21,6 +20,8 @@ const PANEL_DPR_MAX = 1.25;
 const TD_BUF = new Float32Array(CANVAS.fftSize);
 
 export function OscilloscopePanel(): React.ReactElement {
+  const audioEngine = useAudioEngine();
+  const displayMode = useDisplayMode();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rafRef = useRef<number | null>(null);
 
@@ -163,7 +164,7 @@ export function OscilloscopePanel(): React.ReactElement {
       ro.disconnect();
       if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
     };
-  }, []);
+  }, [audioEngine, displayMode]);
 
   return (
     <div style={panelStyle}>

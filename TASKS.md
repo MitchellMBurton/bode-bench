@@ -4,6 +4,23 @@
 
 Deep single-movement console for **Suite No. 1 Prelude**.
 
+## Current Priority
+
+Core hardening before additional feature work.
+
+### Hardening Track
+
+- [ ] **H01 — Restore green build.** Fix current TypeScript build failures and keep `master` releasable.
+- [ ] **H02 — Add verification gate.** Add a repeatable CI path for typecheck, lint, and tests.
+- [ ] **H03 — Introduce explicit session core.** Replace hidden global runtime state with a session-scoped application service.
+- [ ] **H04 — Define runtime interfaces.** Put `WebAudio` execution behind a narrow adapter contract so desktop and hosted modes do not depend on direct singleton access.
+- [ ] **H05 — Move orchestration out of React.** Transport, ingest, and mode switching should be driven by session services rather than component-local wiring.
+- [ ] **H06 — Add runtime schemas.** Validate score JSON, artifact manifests, and future queue payloads at runtime.
+- [ ] **H07 — Define offline analysis artifacts.** Specify a durable artifact format for waveform, spectrogram, pitch, loudness, and file analysis summaries.
+- [ ] **H08 — Worker-ready analysis path.** Move heavy non-UI analysis work toward worker-safe execution.
+- [ ] **H09 — Desktop shell spike.** Add a thin desktop wrapper without introducing desktop-only core logic.
+- [ ] **H10 — Hosted queue seam.** Define job request/result contracts so queued analysis can render through the same panel model layer later.
+
 ## Build Order
 
 Each task is one unit of work. Complete in order. Each task should result in a working, testable state.

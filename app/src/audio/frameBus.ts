@@ -6,9 +6,9 @@
 
 import type { AudioFrame } from '../types';
 
-type FrameListener = (frame: AudioFrame) => void;
+export type FrameListener = (frame: AudioFrame) => void;
 
-class FrameBus {
+export class FrameBus {
   private listeners = new Set<FrameListener>();
 
   subscribe(fn: FrameListener): () => void {
@@ -24,6 +24,3 @@ class FrameBus {
     }
   }
 }
-
-// Singleton shared across the app.
-export const frameBus = new FrameBus();

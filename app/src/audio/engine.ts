@@ -15,7 +15,7 @@
 // to fade independently during seek without touching masterGain.
 // ============================================================
 
-import { frameBus } from './frameBus';
+import type { FrameBus } from './frameBus';
 import { CANVAS } from '../theme';
 import type { AudioFrame, FileAnalysis, TransportState } from '../types';
 
@@ -25,7 +25,13 @@ const ANALYSIS_FRAME_MS = 1000 / ANALYSIS_FPS;
 const DECLICK_FADE_S = 0.006;  // 6 ms fade-out on stop/pause
 const DECLICK_IN_S   = 0.008;  // 8 ms fade-in on play
 
-class AudioEngine {
+export class AudioEngine {
+  private readonly frameBus: FrameBus;
+
+  constructor(frameBus: FrameBus) {
+    this.frameBus = frameBus;
+  }
+
   private ctx: AudioContext | null = null;
   private analyserL: AnalyserNode | null = null;
   private analyserR: AnalyserNode | null = null;
@@ -55,10 +61,10 @@ class AudioEngine {
   private _waveformPeaks: Float32Array | null = null;
 
   // Frame data arrays (reused each frame to avoid allocation)
-  private timeDomainData!: Float32Array<ArrayBuffer>;
-  private timeDomainDataR!: Float32Array<ArrayBuffer>;
-  private frequencyData!: Float32Array<ArrayBuffer>;
-  private frequencyDataR!: Float32Array<ArrayBuffer>;
+  private timeDomainData!: Float32Array;
+  private timeDomainDataR!: Float32Array;
+  private frequencyData!: Float32Array;
+  private frequencyDataR!: Float32Array;
 
   private transportListeners = new Set<TransportListener>();
   private resetListeners = new Set<() => void>();
@@ -384,10 +390,10 @@ class AudioEngine {
     const analyserR = this.analyserR;
     if (!analyserL || !analyserR || !this.ctx) return;
 
-    analyserL.getFloatTimeDomainData(this.timeDomainData);
-    analyserL.getFloatFrequencyData(this.frequencyData);
-    analyserR.getFloatTimeDomainData(this.timeDomainDataR);
-    analyserR.getFloatFrequencyData(this.frequencyDataR);
+    analyserL.getFloatTimeDomainData(this.timeDomainData as Float32Array<ArrayBuffer>);
+    analyserL.getFloatFrequencyData(this.frequencyData as Float32Array<ArrayBuffer>);
+    analyserR.getFloatTimeDomainData(this.timeDomainDataR as Float32Array<ArrayBuffer>);
+    analyserR.getFloatFrequencyData(this.frequencyDataR as Float32Array<ArrayBuffer>);
 
     const tdL = this.timeDomainData;
     const tdR = this.timeDomainDataR;
@@ -439,7 +445,7 @@ class AudioEngine {
       f0Confidence: confidence,
     };
 
-    frameBus.publish(frame);
+    this.frameBus.publish(frame);
   }
 
   // ----------------------------------------------------------
@@ -467,7 +473,7 @@ class AudioEngine {
   /** Read current time-domain samples directly from the analyser at call time.
    *  Safe to call every RAF frame — pure read, no audio graph mutation. */
   getTimeDomainData(out: Float32Array): void {
-    if (this.analyserL) this.analyserL.getFloatTimeDomainData(out);
+    if (this.analyserL) this.analyserL.getFloatTimeDomainData(out as Float32Array<ArrayBuffer>);
     else out.fill(0);
   }
 
@@ -550,6 +556,3 @@ class AudioEngine {
     for (const fn of this.transportListeners) fn(state);
   }
 }
-
-// Singleton
-export const audioEngine = new AudioEngine();

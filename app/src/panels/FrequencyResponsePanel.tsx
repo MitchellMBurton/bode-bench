@@ -1,7 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { frameBus } from '../audio/frameBus';
-import { audioEngine } from '../audio/engine';
-import { displayMode } from '../audio/displayMode';
+import { useAudioEngine, useDisplayMode, useFrameBus } from '../core/session';
 import { CANVAS, COLORS, FONTS, SPACING } from '../theme';
 import { freqToX } from '../utils/canvas';
 import type { AudioFrame } from '../types';
@@ -91,6 +89,9 @@ function dbToPanelY(db: number, topDb: number, bottomDb: number, topY: number, h
 }
 
 export function FrequencyResponsePanel(): React.ReactElement {
+  const frameBus = useFrameBus();
+  const audioEngine = useAudioEngine();
+  const displayMode = useDisplayMode();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const frameRef = useRef<AudioFrame | null>(null);
   const rafRef = useRef<number | null>(null);
@@ -103,7 +104,7 @@ export function FrequencyResponsePanel(): React.ReactElement {
     return frameBus.subscribe((frame) => {
       frameRef.current = frame;
     });
-  }, []);
+  }, [frameBus]);
 
   useEffect(() => {
     return audioEngine.onReset(() => {
@@ -113,7 +114,7 @@ export function FrequencyResponsePanel(): React.ReactElement {
       targetLeftRef.current = null;
       targetRightRef.current = null;
     });
-  }, []);
+  }, [audioEngine]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -369,7 +370,7 @@ export function FrequencyResponsePanel(): React.ReactElement {
       ro.disconnect();
       if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
     };
-  }, []);
+  }, [audioEngine, displayMode]);
 
   return (
     <div style={panelStyle}>
