@@ -59,7 +59,7 @@ bach-cello-console/
 cd app && pnpm install && pnpm dev
 
 # Desktop dev (Tauri)
-cd desktop && cargo tauri dev
+cd desktop && npm install && npm run dev
 
 # Preprocessing
 cd scripts && python parse_scores.py

@@ -22,6 +22,7 @@ Its authority comes from the harmony of interfaces. Its beauty comes from precis
 |---|---|---|
 | Node.js | 18+ | v22 confirmed working |
 | npm | 9+ | pnpm also works if installed |
+| Rust | stable | Only for the Tauri desktop wrapper |
 | Python | 3.9+ | Only for score preprocessing |
 | music21 | any | `pip install music21` — score parsing only |
 | FFmpeg | any | Optional — `probe_audio.py` only |
@@ -41,6 +42,16 @@ npm run dev
 ```
 
 Open `http://localhost:5173` in any modern browser.
+
+### 1b. Launch the desktop shell
+
+```bash
+cd desktop
+npm install
+npm run dev
+```
+
+This wraps the existing frontend in Tauri. It requires the Rust/Tauri desktop prerequisites on the host machine.
 
 ### 2. Load audio
 
@@ -188,6 +199,12 @@ bach-cello-console/
 ```bash
 # Start dev server
 cd app && npm run dev
+
+# Start desktop shell
+cd desktop && npm run dev
+
+# Build desktop shell
+cd desktop && npm run build
 
 # Type check (no emit)
 cd app && npx tsc --noEmit

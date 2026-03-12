@@ -1,0 +1,39 @@
+{
+  "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+  "productName": "Bach Cello Console",
+  "version": "0.1.0",
+  "identifier": "com.mitchellmburton.bachcelloconsole",
+  "build": {
+    "frontendDist": "../../app/dist",
+    "devUrl": "http://localhost:5173",
+    "beforeDevCommand": "npm --prefix ../app run dev",
+    "beforeBuildCommand": "npm --prefix ../app run build"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Bach Cello Console",
+        "width": 1600,
+        "height": 1100,
+        "minWidth": 1280,
+        "minHeight": 860,
+        "resizable": true,
+        "fullscreen": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  }
+}
