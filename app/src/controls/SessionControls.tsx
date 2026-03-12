@@ -20,6 +20,10 @@ const PITCH_MIN = -12;
 const PITCH_MAX = 12;
 const SCROLL_MIN = 0.25;
 const SCROLL_MAX = 4;
+const DEFAULT_VOLUME = 1;
+const DEFAULT_RATE = 1;
+const DEFAULT_PITCH = 0;
+const DEFAULT_SCROLL = 1;
 
 function fillWidth(value: number, min: number, max: number): string {
   return `${((value - min) / (max - min)) * 100}%`;
@@ -42,10 +46,11 @@ export function SessionControls({ grayscale, onGrayscale, nge, onNge }: Props): 
   const scrollSpeed = useScrollSpeed();
   const displayMode = useDisplayMode();
 
-  const [volume, setVolume] = useState(1);
+  const [volume, setVolume] = useState(DEFAULT_VOLUME);
   const [rate, setRate] = useState(audioEngine.playbackRate);
   const [pitch, setPitch] = useState(audioEngine.pitchSemitones);
   const [scroll, setScroll] = useState(scrollSpeed.value);
+  const [pitchAvailable, setPitchAvailable] = useState(true);
 
   const volFillRef = useRef<HTMLDivElement>(null);
   const rateFillRef = useRef<HTMLDivElement>(null);
@@ -56,6 +61,7 @@ export function SessionControls({ grayscale, onGrayscale, nge, onNge }: Props): 
     return audioEngine.onTransport((state) => {
       setRate(state.playbackRate);
       setPitch(state.pitchSemitones);
+      setPitchAvailable(state.pitchShiftAvailable);
 
       if (rateFillRef.current) {
         rateFillRef.current.style.width = fillWidth(state.playbackRate, RATE_MIN, RATE_MAX);
@@ -102,6 +108,34 @@ export function SessionControls({ grayscale, onGrayscale, nge, onNge }: Props): 
     }
   }, [scrollSpeed]);
 
+  const onResetSettings = useCallback(() => {
+    setVolume(DEFAULT_VOLUME);
+    setRate(DEFAULT_RATE);
+    setPitch(DEFAULT_PITCH);
+    setScroll(DEFAULT_SCROLL);
+
+    audioEngine.setVolume(DEFAULT_VOLUME);
+    audioEngine.setPlaybackRate(DEFAULT_RATE);
+    audioEngine.setPitchSemitones(DEFAULT_PITCH);
+    scrollSpeed.set(DEFAULT_SCROLL);
+    displayMode.set(false);
+    onGrayscale(false);
+    onNge(false);
+
+    if (volFillRef.current) {
+      volFillRef.current.style.width = `${DEFAULT_VOLUME * 100}%`;
+    }
+    if (rateFillRef.current) {
+      rateFillRef.current.style.width = fillWidth(DEFAULT_RATE, RATE_MIN, RATE_MAX);
+    }
+    if (pitchFillRef.current) {
+      pitchFillRef.current.style.width = fillWidth(DEFAULT_PITCH, PITCH_MIN, PITCH_MAX);
+    }
+    if (scrollFillRef.current) {
+      scrollFillRef.current.style.width = fillWidth(DEFAULT_SCROLL, SCROLL_MIN, SCROLL_MAX);
+    }
+  }, [audioEngine, displayMode, onGrayscale, onNge, scrollSpeed]);
+
   const volPct = Math.round(volume * 100);
   const rateLabel = formatMultiplier(rate);
   const pitchLabel = formatPitch(pitch);
@@ -110,6 +144,16 @@ export function SessionControls({ grayscale, onGrayscale, nge, onNge }: Props): 
   return (
     <div style={wrapStyle}>
       <div style={separatorStyle} />
+
+      <div style={utilityRowStyle}>
+        <button
+          style={utilityButtonStyle}
+          onClick={onResetSettings}
+          title="Reset session controls to defaults"
+        >
+          RESET SETTINGS
+        </button>
+      </div>
 
       <div style={rowStyle}>
         <span style={labelStyle}>VOL</span>
@@ -150,7 +194,14 @@ export function SessionControls({ grayscale, onGrayscale, nge, onNge }: Props): 
       <div style={rowStyle}>
         <span style={labelStyle}>PITCH</span>
         <div style={trackStyle}>
-          <div ref={pitchFillRef} style={{ ...fillStyle, width: fillWidth(pitch, PITCH_MIN, PITCH_MAX) }} />
+          <div
+            ref={pitchFillRef}
+            style={{
+              ...fillStyle,
+              width: fillWidth(pitch, PITCH_MIN, PITCH_MAX),
+              background: pitchAvailable ? COLORS.accent : COLORS.border,
+            }}
+          />
           <input
             type="range"
             min={PITCH_MIN}
@@ -159,10 +210,11 @@ export function SessionControls({ grayscale, onGrayscale, nge, onNge }: Props): 
             value={pitch}
             onChange={onPitchChange}
             style={rangeStyle}
-            title="Pitch transpose in semitones with tempo preserved."
+            title={pitchAvailable ? 'Pitch transpose in semitones with tempo preserved.' : 'Studio pitch shift is unavailable in this runtime.'}
+            disabled={!pitchAvailable}
           />
         </div>
-        <span style={valueStyle}>{pitchLabel}</span>
+        <span style={valueStyle}>{pitchAvailable ? pitchLabel : 'N/A'}</span>
       </div>
 
       <div style={rowStyle}>
@@ -231,6 +283,12 @@ const rowStyle: React.CSSProperties = {
   flexShrink: 0,
 };
 
+const utilityRowStyle: React.CSSProperties = {
+  display: 'flex',
+  justifyContent: 'flex-start',
+  flexShrink: 0,
+};
+
 const labelStyle: React.CSSProperties = {
   fontFamily: FONTS.mono,
   fontSize: FONTS.sizeXs,
@@ -293,6 +351,11 @@ const toggleStyle: React.CSSProperties = {
   alignSelf: 'flex-start',
   outline: 'none',
   transition: 'background 0.1s, border-color 0.1s, color 0.1s',
+};
+
+const utilityButtonStyle: React.CSSProperties = {
+  ...toggleStyle,
+  padding: `${SPACING.xs}px ${SPACING.md}px`,
 };
 
 const toggleRowStyle: React.CSSProperties = {

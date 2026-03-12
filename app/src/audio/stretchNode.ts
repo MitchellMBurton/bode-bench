@@ -47,7 +47,9 @@ export interface StretchNode extends AudioWorkletNode {
 
 export function createStretchNode(audioContext: AudioContext, channelCount: number): Promise<StretchNode> {
   return createSignalsmithStretch(audioContext, {
-    numberOfInputs: 0,
+    // Keep one unconnected input for compatibility with runtimes which do not
+    // reliably drive zero-input AudioWorkletNodes from internal buffer state.
+    numberOfInputs: 1,
     numberOfOutputs: 1,
     outputChannelCount: [channelCount],
   }) as Promise<StretchNode>;

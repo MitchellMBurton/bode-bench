@@ -112,6 +112,15 @@ export function DiagnosticsLog(): React.ReactElement {
         pushEntry(`pitch ${pitchLabel} st`, 'dim');
       }
 
+      if (state.pitchShiftAvailable !== prev.pitchShiftAvailable) {
+        pushEntry(
+          state.pitchShiftAvailable
+            ? 'studio pitch shift online'
+            : 'studio pitch shift unavailable, native playback fallback active',
+          state.pitchShiftAvailable ? 'info' : 'warn',
+        );
+      }
+
       prevTransportRef.current = state;
     });
 

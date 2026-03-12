@@ -92,6 +92,8 @@ export interface TransportState {
   readonly playbackRate: number;
   /** Pitch transposition in semitones. Does not change duration. */
   readonly pitchSemitones: number;
+  /** True when the studio pitch-shift engine is active for the current file/runtime. */
+  readonly pitchShiftAvailable: boolean;
   /** Loop region start time in seconds, or null if no loop is set. */
   readonly loopStart: number | null;
   /** Loop region end time in seconds, or null if no loop is set. */

@@ -28,6 +28,8 @@ const RATE_MIN = 0.25;
 const RATE_MAX = 2;
 const PITCH_MIN = -12;
 const PITCH_MAX = 12;
+const STRETCH_WATCHDOG_GRACE_S = 0.75;
+const STRETCH_WATCHDOG_TIMEOUT_S = 0.6;
 
 export class AudioEngine {
   private readonly frameBus: FrameBus;
@@ -48,6 +50,8 @@ export class AudioEngine {
   private stretchChannelCount = 0;
   private stretchLatency = 0;
   private stretchEnabledForBuffer = false;
+  private stretchLastProgressAt = 0;
+  private pitchShiftAvailable = true;
 
   private buffer: AudioBuffer | null = null;
   private startedAt = 0;
@@ -134,7 +138,7 @@ export class AudioEngine {
   }
 
   private get nativeFallbackRate(): number {
-    return this._playbackRate * Math.pow(2, this._pitchSemitones / 12);
+    return this._playbackRate;
   }
 
   private get traversalRate(): number {
@@ -160,6 +164,7 @@ export class AudioEngine {
     this.stretchNodeReady = null;
     this.stretchChannelCount = 0;
     this.stretchLatency = 0;
+    this.stretchLastProgressAt = 0;
   }
 
   private async ensureStretchNode(channelCount: number): Promise<StretchNode> {
@@ -180,6 +185,9 @@ export class AudioEngine {
       .then(async (stretchNode) => {
         stretchNode.connect(this.playGainNode!);
         await stretchNode.configure({ preset: 'default' });
+        await stretchNode.setUpdateInterval(0.1, () => {
+          this.stretchLastProgressAt = this.ctx?.currentTime ?? 0;
+        });
         this.stretchLatency = Math.max(0, Number(await stretchNode.latency()) || 0);
         this.stretchChannelCount = channelCount;
         this.stretchNode = stretchNode;
@@ -214,6 +222,7 @@ export class AudioEngine {
     const arrayBuffer = await file.arrayBuffer();
     const decodedBuffer = await ctx.decodeAudioData(arrayBuffer);
     this.stretchEnabledForBuffer = false;
+    this.pitchShiftAvailable = true;
     try {
       const stretchNode = await this.ensureStretchNode(decodedBuffer.numberOfChannels);
       await stretchNode.dropBuffers();
@@ -257,6 +266,25 @@ export class AudioEngine {
       gain.setValueAtTime(target === 0 ? gain.value : 0, beginAt);
     }
     gain.linearRampToValueAtTime(target, beginAt + durationSeconds);
+  }
+
+  private fallbackToNativePlayback(reason: string): void {
+    if (!this.stretchEnabledForBuffer) return;
+
+    const wasPlaying = this._isPlaying;
+    const resumeAt = this.currentTime;
+    console.error(`stretch unavailable (${reason}), falling back to native playback`);
+
+    this.stopPlayback(false, `fallback:${reason}`);
+    this.stretchEnabledForBuffer = false;
+    this.pitchShiftAvailable = false;
+    this._pitchSemitones = 0;
+    this.offsetAt = resumeAt;
+    this.emitTransport();
+
+    if (wasPlaying) {
+      this.play();
+    }
   }
 
   private stopPlayback(resetToStart: boolean, label: string): void {
@@ -312,6 +340,7 @@ export class AudioEngine {
       };
 
       this.startedAt = outputTime;
+      this.stretchLastProgressAt = outputTime;
       this._isPlaying = true;
       this.playId++;
       this.startRaf();
@@ -320,12 +349,8 @@ export class AudioEngine {
       void this.stretchNode.start(schedule).catch((error) => {
         console.error('stretch start failed, falling back to native playback', error);
         if (!this._isPlaying || !this.stretchEnabledForBuffer) return;
-        this.stretchEnabledForBuffer = false;
-        this._isPlaying = false;
-        this.startedAt = 0;
         this.offsetAt = scheduledOffset;
-        this.stopRaf();
-        this.play();
+        this.fallbackToNativePlayback('start');
       });
       return;
     }
@@ -480,6 +505,17 @@ export class AudioEngine {
           return;
         }
 
+        if (
+          this._isPlaying &&
+          this.stretchEnabledForBuffer &&
+          this.ctx &&
+          this.ctx.currentTime >= this.startedAt + STRETCH_WATCHDOG_GRACE_S &&
+          this.ctx.currentTime - this.stretchLastProgressAt > STRETCH_WATCHDOG_TIMEOUT_S
+        ) {
+          this.fallbackToNativePlayback('watchdog');
+          return;
+        }
+
         if (this._isPlaying && this._loopStart === null && this.currentTime >= this.duration) {
           this.stopPlayback(true, 'ended');
           this.emitTransport();
@@ -627,6 +663,7 @@ export class AudioEngine {
   }
 
   setPitchSemitones(semitones: number): void {
+    if (!this.pitchShiftAvailable) return;
     const nextPitch = Math.max(PITCH_MIN, Math.min(PITCH_MAX, semitones));
     if (Math.abs(nextPitch - this._pitchSemitones) < 0.0001) return;
 
@@ -743,6 +780,7 @@ export class AudioEngine {
       filename: this._filename,
       playbackRate: this._playbackRate,
       pitchSemitones: this._pitchSemitones,
+      pitchShiftAvailable: this.pitchShiftAvailable,
       loopStart: this._loopStart,
       loopEnd: this._loopEnd,
     };

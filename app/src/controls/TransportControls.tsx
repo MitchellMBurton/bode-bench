@@ -28,6 +28,7 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
     filename: null,
     playbackRate: 1,
     pitchSemitones: 0,
+    pitchShiftAvailable: true,
     loopStart: null,
     loopEnd: null,
   });
