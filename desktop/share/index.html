@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Bach Cello Console Download</title>
+  <style>
+    :root {
+      --bg: #06070b;
+      --panel: #0d1118;
+      --line: #1d2a17;
+      --text: #d8e2c8;
+      --muted: #91a07b;
+      --accent: #9dd63d;
+      --accent-dim: #20310f;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      background:
+        radial-gradient(circle at top, rgba(77, 125, 25, 0.12), transparent 38%),
+        linear-gradient(180deg, #08090d 0%, #05060a 100%);
+      color: var(--text);
+      font-family: Consolas, "Courier New", monospace;
+    }
+
+    main {
+      width: min(760px, calc(100vw - 32px));
+      border: 1px solid var(--line);
+      background: linear-gradient(180deg, rgba(14, 18, 24, 0.98), rgba(9, 12, 16, 0.98));
+      box-shadow: 0 24px 80px rgba(0, 0, 0, 0.45);
+    }
+
+    header {
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--line);
+      color: var(--accent);
+      letter-spacing: 0.12em;
+      font-size: 12px;
+    }
+
+    section {
+      padding: 24px 20px 28px;
+    }
+
+    h1 {
+      margin: 0 0 12px;
+      font-size: 28px;
+      line-height: 1.1;
+      letter-spacing: 0.04em;
+      color: var(--text);
+    }
+
+    p {
+      margin: 0 0 14px;
+      color: var(--muted);
+      line-height: 1.6;
+      max-width: 62ch;
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin: 24px 0 18px;
+    }
+
+    .button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 46px;
+      padding: 0 18px;
+      border: 1px solid rgba(157, 214, 61, 0.5);
+      background: linear-gradient(180deg, rgba(54, 87, 19, 0.95), rgba(30, 48, 11, 0.95));
+      color: #e8f6ca;
+      text-decoration: none;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      font-size: 12px;
+    }
+
+    .button.secondary {
+      border-color: var(--line);
+      background: var(--panel);
+      color: var(--muted);
+    }
+
+    .meta {
+      display: grid;
+      grid-template-columns: 140px 1fr;
+      gap: 10px 14px;
+      padding-top: 18px;
+      border-top: 1px solid var(--line);
+      font-size: 13px;
+    }
+
+    .label {
+      color: var(--muted);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .value {
+      word-break: break-all;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>BACH CELLO CONSOLE / TEMPORARY DOWNLOAD NODE</header>
+    <section>
+      <h1>Windows Download</h1>
+      <p>This is a direct installer for the current desktop build of Bach Cello Console.</p>
+      <p>Download the setup file, run it, and launch the app from the Start Menu or desktop shortcut after install.</p>
+      <div class="actions">
+        <a class="button" href="./BachCelloConsole-Setup.exe">Download Setup</a>
+        <a class="button secondary" href="./BachCelloConsole-Setup.exe.sha256.txt">SHA256</a>
+        <a class="button secondary" href="./latest.json">Manifest</a>
+      </div>
+      <div class="meta">
+        <div class="label">Platform</div>
+        <div class="value">Windows x64</div>
+        <div class="label">Installer</div>
+        <div class="value">NSIS Setup EXE</div>
+        <div class="label">Note</div>
+        <div class="value">This build is unsigned, so Windows may show a SmartScreen warning on first run.</div>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

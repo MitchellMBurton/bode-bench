@@ -8,6 +8,13 @@ target/
 
 # Tauri
 desktop/src-tauri/target/
+desktop/cloudflared.log
+desktop/cloudflared.err
+desktop/share-server.log
+desktop/share-server.err
+desktop/share/BachCelloConsole-Setup.exe
+desktop/share/BachCelloConsole-Setup.exe.sha256.txt
+desktop/share/latest.json
 
 # Session audio (ephemeral)
 audio/sessions/

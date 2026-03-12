@@ -5,7 +5,9 @@
   "scripts": {
     "tauri": "tauri",
     "dev": "tauri dev",
-    "build": "tauri build"
+    "build": "tauri build",
+    "prepare-share": "powershell -ExecutionPolicy Bypass -File ./scripts/prepare-share.ps1",
+    "serve-share": "powershell -ExecutionPolicy Bypass -File ./scripts/serve-share.ps1"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.10.1"
