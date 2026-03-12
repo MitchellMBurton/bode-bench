@@ -31,11 +31,15 @@ function formatKhz(hz: number): string {
   return `${(hz / 1000).toFixed(1)} kHz`;
 }
 
+const SCRUB_SETTLE_MS = 500;
+
 export function DiagnosticsLog(): React.ReactElement {
   const [entries, setEntries] = useState<LogEntry[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const nextIdRef = useRef(1);
   const prevTransportRef = useRef<TransportState | null>(null);
+  const scrubTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scrubEndStateRef = useRef<TransportState | null>(null);
 
   const pushEntry = useCallback((text: string, tone: LogEntry['tone'] = 'dim') => {
     const stamp = formatClock(new Date());
@@ -64,6 +68,33 @@ export function DiagnosticsLog(): React.ReactElement {
         else if (prev.filename) pushEntry('reset / cleared session', 'warn');
       }
 
+      // Detect seek (large position jump while not playing or between states)
+      const jumped =
+        state.filename &&
+        prev.filename === state.filename &&
+        Math.abs(state.currentTime - prev.currentTime) > 1.5;
+
+      if (jumped) {
+        // Scrubbing: debounce — suppress intermediate events, log only when settled
+        if (scrubTimerRef.current) clearTimeout(scrubTimerRef.current);
+        scrubEndStateRef.current = state;
+        scrubTimerRef.current = setTimeout(() => {
+          scrubTimerRef.current = null;
+          const s = scrubEndStateRef.current!;
+          pushEntry(`seek -> ${formatPlaybackTime(s.currentTime)}`, 'dim');
+          if (s.isPlaying) pushEntry(`play @ ${formatPlaybackTime(s.currentTime)}`, 'info');
+        }, SCRUB_SETTLE_MS);
+        prevTransportRef.current = state;
+        return;
+      }
+
+      // Within an active scrub window: accumulate final state, suppress noise
+      if (scrubTimerRef.current !== null) {
+        scrubEndStateRef.current = state;
+        prevTransportRef.current = state;
+        return;
+      }
+
       if (state.isPlaying !== prev.isPlaying) {
         if (state.isPlaying) pushEntry(`play @ ${formatPlaybackTime(state.currentTime)}`, 'info');
         else pushEntry(`pause @ ${formatPlaybackTime(state.currentTime)}`, 'dim');
@@ -71,16 +102,6 @@ export function DiagnosticsLog(): React.ReactElement {
 
       if (Math.abs(state.playbackRate - prev.playbackRate) > 0.001) {
         pushEntry(`rate ${state.playbackRate.toFixed(2)}x`, 'dim');
-      }
-
-      const jumped = Math.abs(state.currentTime - prev.currentTime);
-      if (
-        state.filename &&
-        prev.filename === state.filename &&
-        jumped > 1.5 &&
-        (!state.isPlaying || !prev.isPlaying)
-      ) {
-        pushEntry(`seek -> ${formatPlaybackTime(state.currentTime)}`, 'dim');
       }
 
       prevTransportRef.current = state;
@@ -113,6 +134,7 @@ export function DiagnosticsLog(): React.ReactElement {
       unsubTransport();
       unsubFile();
       unsubReset();
+      if (scrubTimerRef.current) clearTimeout(scrubTimerRef.current);
     };
   }, [pushEntry]);
 
