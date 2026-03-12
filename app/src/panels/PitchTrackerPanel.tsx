@@ -8,6 +8,7 @@
 import { useEffect, useRef } from 'react';
 import { frameBus } from '../audio/frameBus';
 import { audioEngine } from '../audio/engine';
+import { displayMode } from '../audio/displayMode';
 import { scrollSpeed } from '../audio/scrollSpeed';
 import { COLORS, FONTS, SPACING, CANVAS } from '../theme';
 import type { AudioFrame } from '../types';
@@ -17,6 +18,10 @@ const HISTORY_MAX = 1200;
 const BASE_PX_PER_FRAME = CANVAS.timelineScrollPx;
 const PAD_V_PX = 8;
 const MS_PER_DATA_FRAME = 1000 / 20; // 20 FPS analysis rate
+const NGE_TRACE = '#a0d840';
+const NGE_TRACE_SOFT = 'rgba(160,216,64,0.82)';
+const NGE_GLOW = 'rgba(140,210,40,0.36)';
+const NGE_LABEL = 'rgba(140,210,40,0.5)';
 
 const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 const F0_MIN = 60;
@@ -93,7 +98,12 @@ export function PitchTrackerPanel(): React.ReactElement {
       const W = canvas.width;
       const H = canvas.height;
       const dpr = Math.min(devicePixelRatio, PANEL_DPR_MAX);
+      const nge = displayMode.nge;
       const padV = PAD_V_PX * dpr;
+      const traceColor = nge ? NGE_TRACE : COLORS.waveform;
+      const traceStroke = nge ? NGE_TRACE_SOFT : 'rgba(200,146,42,0.80)';
+      const glowColor = nge ? NGE_GLOW : 'rgba(200,146,42,0.30)';
+      const labelColor = nge ? NGE_LABEL : COLORS.textDim;
 
       ctx.fillStyle = COLORS.bg1;
       ctx.fillRect(0, 0, W, H);
@@ -156,8 +166,8 @@ export function PitchTrackerPanel(): React.ReactElement {
           prevX = x;
           prevY = y;
         }
-        ctx.strokeStyle = 'rgba(200,146,42,0.80)';
-        ctx.shadowColor = 'rgba(200,146,42,0.30)';
+        ctx.strokeStyle = traceStroke;
+        ctx.shadowColor = glowColor;
         ctx.shadowBlur = 3 * dpr;
         ctx.stroke();
         ctx.shadowBlur = 0;
@@ -166,8 +176,8 @@ export function PitchTrackerPanel(): React.ReactElement {
         if (prevY > 0) {
           ctx.beginPath();
           ctx.arc(prevX, prevY, 3 * dpr, 0, Math.PI * 2);
-          ctx.fillStyle = COLORS.waveform;
-          ctx.shadowColor = 'rgba(200,146,42,0.5)';
+          ctx.fillStyle = traceColor;
+          ctx.shadowColor = nge ? 'rgba(140,210,40,0.5)' : 'rgba(200,146,42,0.5)';
           ctx.shadowBlur = 5 * dpr;
           ctx.fill();
           ctx.shadowBlur = 0;
@@ -183,7 +193,7 @@ export function PitchTrackerPanel(): React.ReactElement {
       if (hasNote && cur?.f0Hz) {
         const { name, hz, tuning } = f0ToLabel(cur.f0Hz);
         ctx.font = `${11 * dpr}px ${FONTS.mono}`;
-        ctx.fillStyle = COLORS.waveform;
+        ctx.fillStyle = traceColor;
         ctx.fillText(name, SPACING.sm * dpr, SPACING.xs * dpr);
         ctx.font = `${8 * dpr}px ${FONTS.mono}`;
         ctx.fillStyle = COLORS.textSecondary;
@@ -199,7 +209,7 @@ export function PitchTrackerPanel(): React.ReactElement {
 
       // Panel label
       ctx.font = `${7 * dpr}px ${FONTS.mono}`;
-      ctx.fillStyle = COLORS.textDim;
+      ctx.fillStyle = labelColor;
       ctx.textAlign = 'left';
       ctx.textBaseline = 'bottom';
       ctx.fillText('F0 TRACK', SPACING.sm * dpr, H - SPACING.xs * dpr);

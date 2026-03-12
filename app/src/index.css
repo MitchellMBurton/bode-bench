@@ -43,3 +43,13 @@ input[type="range"] {
   appearance: none;
   background: transparent;
 }
+
+@keyframes nge-scanlines {
+  from {
+    background-position: 0 0;
+  }
+
+  to {
+    background-position: 0 2px;
+  }
+}

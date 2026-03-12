@@ -21,20 +21,27 @@ interface Props {
   bottomLeft: PanelDef;
   bottomRight: PanelDef;
   grayscale?: boolean;
+  nge?: boolean;
 }
 
-export function ConsoleLayout({ topLeft, topRight, bottomLeft, bottomRight, grayscale }: Props): React.ReactElement {
+export function ConsoleLayout({ topLeft, topRight, bottomLeft, bottomRight, grayscale, nge }: Props): React.ReactElement {
+  const chromeBorder = nge ? '#0d1a0d' : COLORS.border;
+  const chromeBorderActive = nge ? '#1a4a10' : COLORS.border;
+  const headerBorder = nge ? '#1a4a10' : COLORS.headerBorder;
+  const chromeCategory = nge ? 'rgba(80,160,50,0.6)' : COLORS.textCategory;
+  const chromeStat = nge ? '#78c84a' : COLORS.waveform;
+
   return (
     <div style={shellStyle}>
       {/* Global header */}
-      <div style={globalHeaderStyle}>
+      <div style={{ ...globalHeaderStyle, borderBottom: `1px solid ${headerBorder}` }}>
         <div style={headerLeftStyle}>
-          <span style={headerSuperStyle}>BACH CELLO SUITES VISUAL CONSOLE</span>
+          <span style={{ ...headerSuperStyle, color: chromeCategory }}>BACH CELLO SUITES VISUAL CONSOLE</span>
           <span style={headerTitleStyle}>SCIENTIFIC LISTENING INSTRUMENT</span>
         </div>
         <div style={headerRightStyle}>
-          <span style={headerTagStyle}>DESKTOP-FIRST / SESSION-BASED</span>
-          <span style={headerTagStyle}>SUITE NO. 1 PRELUDE MILESTONE</span>
+          <span style={{ ...headerTagStyle, color: chromeCategory }}>DESKTOP-FIRST / SESSION-BASED</span>
+          <span style={{ ...headerTagStyle, color: chromeCategory }}>SUITE NO. 1 PRELUDE MILESTONE</span>
         </div>
       </div>
 
@@ -49,13 +56,13 @@ export function ConsoleLayout({ topLeft, topRight, bottomLeft, bottomRight, gray
               gridRow: i < 2 ? '1' : '2',
             }}
           >
-            <div style={chromeStyle}>
-              <div style={chromHeaderStyle}>
+            <div style={{ ...chromeStyle, border: `1px solid ${chromeBorder}` }}>
+              <div style={{ ...chromHeaderStyle, borderBottom: `1px solid ${chromeBorderActive}` }}>
                 <div style={chromeLabelGroupStyle}>
-                  <span style={chromeCategoryStyle}>{panel.category}</span>
+                  <span style={{ ...chromeCategoryStyle, color: chromeCategory }}>{panel.category}</span>
                   <span style={chromeTitleStyle}>{panel.title}</span>
                 </div>
-                {panel.stat && <span style={chromeStatStyle}>{panel.stat}</span>}
+                {panel.stat && <span style={{ ...chromeStatStyle, color: chromeStat }}>{panel.stat}</span>}
               </div>
               <div style={chromeContentStyle}>
                 {panel.content}

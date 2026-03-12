@@ -8,6 +8,7 @@
 import { useEffect, useRef } from 'react';
 import { frameBus } from '../audio/frameBus';
 import { audioEngine } from '../audio/engine';
+import { displayMode } from '../audio/displayMode';
 import { scrollSpeed } from '../audio/scrollSpeed';
 import { COLORS, FONTS, SPACING, CANVAS } from '../theme';
 import type { AudioFrame } from '../types';
@@ -19,6 +20,9 @@ const PAD_V_PX = 8;
 const DB_MIN = -54;
 const DB_MAX = 0;
 const MS_PER_DATA_FRAME = 1000 / 20; // 20 FPS analysis rate
+const NGE_TRACE = '#a0d840';
+const NGE_LABEL = 'rgba(140,210,40,0.5)';
+const NGE_TEXT = 'rgba(140,210,40,0.72)';
 
 const REF_LINES: [number, string][] = [[-6, '-6'], [-18, '-18'], [-36, '-36']];
 
@@ -84,8 +88,12 @@ export function LoudnessHistoryPanel(): React.ReactElement {
       const W = canvas.width;
       const H = canvas.height;
       const dpr = Math.min(devicePixelRatio, PANEL_DPR_MAX);
+      const nge = displayMode.nge;
       const padV = PAD_V_PX * dpr;
       const baseY = H - padV;
+      const traceColor = nge ? NGE_TRACE : COLORS.waveform;
+      const labelColor = nge ? NGE_LABEL : COLORS.textDim;
+      const textColor = nge ? NGE_TEXT : COLORS.textSecondary;
 
       ctx.fillStyle = COLORS.bg1;
       ctx.fillRect(0, 0, W, H);
@@ -137,8 +145,8 @@ export function LoudnessHistoryPanel(): React.ReactElement {
           ctx.lineTo(points[points.length - 1][0], baseY);
           ctx.closePath();
           const fillGrad = ctx.createLinearGradient(0, padV, 0, H);
-          fillGrad.addColorStop(0, 'rgba(200,146,42,0.28)');
-          fillGrad.addColorStop(1, 'rgba(200,146,42,0.04)');
+          fillGrad.addColorStop(0, nge ? 'rgba(160,216,64,0.24)' : 'rgba(200,146,42,0.28)');
+          fillGrad.addColorStop(1, nge ? 'rgba(96,192,32,0.04)' : 'rgba(200,146,42,0.04)');
           ctx.fillStyle = fillGrad;
           ctx.fill();
 
@@ -146,7 +154,7 @@ export function LoudnessHistoryPanel(): React.ReactElement {
           ctx.beginPath();
           ctx.moveTo(points[0][0], points[0][1]);
           for (let i = 1; i < points.length; i++) ctx.lineTo(points[i][0], points[i][1]);
-          ctx.strokeStyle = 'rgba(200,146,42,0.75)';
+          ctx.strokeStyle = nge ? 'rgba(160,216,64,0.78)' : 'rgba(200,146,42,0.75)';
           ctx.lineWidth = 1.5 * dpr;
           ctx.lineJoin = 'round';
           ctx.stroke();
@@ -155,7 +163,7 @@ export function LoudnessHistoryPanel(): React.ReactElement {
           const last = points[points.length - 1];
           ctx.beginPath();
           ctx.arc(last[0], last[1], 2.5 * dpr, 0, Math.PI * 2);
-          ctx.fillStyle = COLORS.waveform;
+          ctx.fillStyle = traceColor;
           ctx.fill();
         }
       } else if (history.length === 0) {
@@ -170,7 +178,7 @@ export function LoudnessHistoryPanel(): React.ReactElement {
       const db = history.length > 0 ? history[history.length - 1] : DB_MIN;
       const hasSignal = db > DB_MIN + 2;
       if (hasSignal) {
-        const col = db > -6 ? COLORS.statusErr : db > -18 ? COLORS.waveform : COLORS.textSecondary;
+        const col = db > -6 ? COLORS.statusErr : db > -18 ? traceColor : textColor;
         ctx.font = `${10 * dpr}px ${FONTS.mono}`;
         ctx.fillStyle = col;
         ctx.textAlign = 'left';
@@ -180,7 +188,7 @@ export function LoudnessHistoryPanel(): React.ReactElement {
 
       // Panel label
       ctx.font = `${7 * dpr}px ${FONTS.mono}`;
-      ctx.fillStyle = COLORS.textDim;
+      ctx.fillStyle = labelColor;
       ctx.textAlign = 'left';
       ctx.textBaseline = 'bottom';
       ctx.fillText('RMS LEVEL', SPACING.sm * dpr, H - SPACING.xs * dpr);

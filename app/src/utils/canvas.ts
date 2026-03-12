@@ -58,6 +58,25 @@ export function binToHz(bin: number, fftSize: number, sampleRate: number): numbe
   return (bin * sampleRate) / fftSize;
 }
 
+/** Spectro colour map: NGE phosphor — void → dark green → mid green → lime → white-green.
+ *  Matches the phosphor terminal aesthetic of the NGE display mode. */
+export function spectroColorNge(db: number): string {
+  const t = Math.max(0, Math.min(1, (db - CANVAS.dbMin) / (CANVAS.dbMax - CANVAS.dbMin)));
+  if (t < 0.25) {
+    const s = t / 0.25;
+    return `rgb(${Math.round(3 + s * 7)},${Math.round(10 + s * 32)},${Math.round(3 + s * 7)})`;
+  } else if (t < 0.5) {
+    const s = (t - 0.25) / 0.25;
+    return `rgb(${Math.round(10 + s * 16)},${Math.round(42 + s * 54)},${Math.round(10 + s * 6)})`;
+  } else if (t < 0.75) {
+    const s = (t - 0.5) / 0.25;
+    return `rgb(${Math.round(26 + s * 70)},${Math.round(96 + s * 96)},${Math.round(16 + s * 16)})`;
+  } else {
+    const s = (t - 0.75) / 0.25;
+    return `rgb(${Math.round(96 + s * 104)},${Math.round(192 + s * 48)},${Math.round(32 + s * 32)})`;
+  }
+}
+
 /** Spectro colour map: NGE thermal — void → indigo → teal → amber → white-gold.
  *  Silence = deep space black. Signal = light emerging from cold to hot. */
 export function spectroColor(db: number): string {

@@ -73,6 +73,7 @@ export default function App(): React.ReactElement {
     <>
     <ConsoleLayout
       grayscale={grayscale}
+      nge={nge}
       topLeft={{
         category: 'SUITE CONSOLE',
         title: panelTitle,
@@ -233,5 +234,7 @@ const scanLineStyle: React.CSSProperties = {
   zIndex: 9999,
   backgroundImage:
     'repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.10) 2px, rgba(0,0,0,0.10) 3px)',
+  animation: 'nge-scanlines 80ms linear infinite',
   mixBlendMode: 'overlay',
+  willChange: 'background-position',
 };

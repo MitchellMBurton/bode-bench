@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { frameBus } from '../audio/frameBus';
+import { displayMode } from '../audio/displayMode';
 import { audioEngine } from '../audio/engine';
 import { scrollSpeed } from '../audio/scrollSpeed';
 import { COLORS, FONTS, CANVAS, SPACING } from '../theme';
@@ -18,6 +19,16 @@ const AXIS_HZ_VALUES = [50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000];
 // Minor frequency hairlines — unlabeled, drawn dimmer
 const MINOR_GRID_HZ = [30, 40, 70, 80, 150, 300, 700, 800, 1500, 3000, 7000, 8000, 15000];
 const PANEL_DPR_MAX = 1.5;
+const NGE_BG = '#030a03';
+const NGE_DIVIDER = '#071107';
+const NGE_LABEL = 'rgba(140,210,40,0.5)';
+const NGE_AXIS = '#1a4a10';
+const NGE_SPECTRO_PALETTE = ['#030a03', '#0a2a0a', '#1a6010', '#60c020', '#c8f040'] as const;
+const SPECTRO_SAMPLE_COUNT = 48;
+const SPECTRO_BG_RGB = colorToRgb(COLORS.bg2);
+const NGE_BG_RGB = colorToRgb(NGE_BG);
+const NORMAL_SPECTRO_SAMPLES = buildSpectroSamples(false);
+const NGE_SPECTRO_SAMPLES = buildSpectroSamples(true);
 
 function hzToT(hz: number): number {
   return Math.log10(hz / 20) / Math.log10(1000);
@@ -40,6 +51,110 @@ function bandAverageDb(data: Float32Array, lowHz: number, highHz: number, sample
   return rms > 0 ? 20 * Math.log10(rms) : CANVAS.dbMin;
 }
 
+function colorToRgb(value: string): [number, number, number] {
+  if (value.startsWith('#')) {
+    const hex = value.replace('#', '');
+    return [
+      parseInt(hex.slice(0, 2), 16),
+      parseInt(hex.slice(2, 4), 16),
+      parseInt(hex.slice(4, 6), 16),
+    ];
+  }
+
+  const match = value.match(/\d+/g);
+  if (!match || match.length < 3) return [0, 0, 0];
+  return [Number(match[0]), Number(match[1]), Number(match[2])];
+}
+
+function hexToRgb(hex: string): [number, number, number] {
+  const value = hex.replace('#', '');
+  return [
+    parseInt(value.slice(0, 2), 16),
+    parseInt(value.slice(2, 4), 16),
+    parseInt(value.slice(4, 6), 16),
+  ];
+}
+
+function lerpColor(startHex: string, endHex: string, t: number): string {
+  const [sr, sg, sb] = hexToRgb(startHex);
+  const [er, eg, eb] = hexToRgb(endHex);
+  const lerp = (start: number, end: number): number => Math.round(start + (end - start) * t);
+  return `rgb(${lerp(sr, er)},${lerp(sg, eg)},${lerp(sb, eb)})`;
+}
+
+function spectroColorForMode(db: number, nge: boolean): string {
+  if (!nge) return spectroColor(db);
+
+  const t = Math.max(0, Math.min(1, (db - CANVAS.dbMin) / (CANVAS.dbMax - CANVAS.dbMin)));
+  const segmentCount = NGE_SPECTRO_PALETTE.length - 1;
+  const scaled = t * segmentCount;
+  const index = Math.min(segmentCount - 1, Math.floor(scaled));
+  const localT = scaled - index;
+  return lerpColor(NGE_SPECTRO_PALETTE[index], NGE_SPECTRO_PALETTE[index + 1], localT);
+}
+
+function buildSpectroSamples(nge: boolean): [number, number, number][] {
+  return Array.from({ length: SPECTRO_SAMPLE_COUNT }, (_, i) => {
+    const t = i / Math.max(1, SPECTRO_SAMPLE_COUNT - 1);
+    const db = CANVAS.dbMin + (CANVAS.dbMax - CANVAS.dbMin) * t;
+    return colorToRgb(spectroColorForMode(db, nge));
+  });
+}
+
+function colorDistanceSq(
+  r: number,
+  g: number,
+  b: number,
+  target: readonly [number, number, number],
+): number {
+  const dr = r - target[0];
+  const dg = g - target[1];
+  const db = b - target[2];
+  return dr * dr + dg * dg + db * db;
+}
+
+function remapSpectroCanvas(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  fromBg: readonly [number, number, number],
+  toBg: readonly [number, number, number],
+  fromSamples: readonly [readonly [number, number, number], ...readonly [number, number, number][]] | readonly [number, number, number][],
+  toSamples: readonly [readonly [number, number, number], ...readonly [number, number, number][]] | readonly [number, number, number][],
+): void {
+  const image = ctx.getImageData(0, 0, width, height);
+  const data = image.data;
+
+  for (let i = 0; i < data.length; i += 4) {
+    const r = data[i];
+    const g = data[i + 1];
+    const b = data[i + 2];
+
+    if (colorDistanceSq(r, g, b, fromBg) <= 144) {
+      data[i] = toBg[0];
+      data[i + 1] = toBg[1];
+      data[i + 2] = toBg[2];
+      continue;
+    }
+
+    let bestIndex = 0;
+    let bestDistance = Number.POSITIVE_INFINITY;
+    for (let s = 0; s < fromSamples.length; s++) {
+      const dist = colorDistanceSq(r, g, b, fromSamples[s]);
+      if (dist < bestDistance) {
+        bestDistance = dist;
+        bestIndex = s;
+      }
+    }
+
+    data[i] = toSamples[bestIndex][0];
+    data[i + 1] = toSamples[bestIndex][1];
+    data[i + 2] = toSamples[bestIndex][2];
+  }
+
+  ctx.putImageData(image, 0, 0);
+}
+
 export function SpectrogramPanel(): React.ReactElement {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const offLRef = useRef<HTMLCanvasElement | null>(null);
@@ -50,6 +165,7 @@ export function SpectrogramPanel(): React.ReactElement {
   const lastFileIdRef = useRef(-1);
   const lastFrameRef = useRef<AudioFrame | null>(null);
   const scrollCarryRef = useRef(0);
+  const lastNgeRef = useRef(displayMode.nge);
 
   useEffect(() => {
     return frameBus.subscribe((frame) => {
@@ -67,14 +183,14 @@ export function SpectrogramPanel(): React.ReactElement {
       if (offL) {
         const ctx = offL.getContext('2d');
         if (ctx) {
-          ctx.fillStyle = COLORS.bg2;
+          ctx.fillStyle = displayMode.nge ? NGE_BG : COLORS.bg2;
           ctx.fillRect(0, 0, offL.width, offL.height);
         }
       }
       if (offR) {
         const ctx = offR.getContext('2d');
         if (ctx) {
-          ctx.fillStyle = COLORS.bg2;
+          ctx.fillStyle = displayMode.nge ? NGE_BG : COLORS.bg2;
           ctx.fillRect(0, 0, offR.width, offR.height);
         }
       }
@@ -109,7 +225,7 @@ export function SpectrogramPanel(): React.ReactElement {
           off.height = h;
           const ctx = off.getContext('2d');
           if (ctx) {
-            ctx.fillStyle = COLORS.bg2;
+            ctx.fillStyle = displayMode.nge ? NGE_BG : COLORS.bg2;
             ctx.fillRect(0, 0, w, h);
           }
           return off;
@@ -134,20 +250,47 @@ export function SpectrogramPanel(): React.ReactElement {
       if (W === 0 || H === 0 || spectroW <= 0 || halfH <= 0) return;
 
       const dpr = Math.min(devicePixelRatio, PANEL_DPR_MAX);
+      const nge = displayMode.nge;
       const divH = Math.round(DIVIDER_H * dpr);
       const chanLabelW = Math.round(CHAN_LABEL_W * dpr);
       const spectroX = axisW + chanLabelW;
+      const backgroundFill = nge ? NGE_BG : COLORS.bg2;
+      const dividerFill = nge ? NGE_DIVIDER : COLORS.bg0;
+      const axisColor = nge ? NGE_AXIS : COLORS.border;
+      const labelColor = nge ? NGE_LABEL : COLORS.textDim;
 
       const offLCtx = offL.getContext('2d');
       const offRCtx = offR.getContext('2d');
       if (!offLCtx || !offRCtx) return;
 
+      if (nge !== lastNgeRef.current) {
+        remapSpectroCanvas(
+          offLCtx,
+          offL.width,
+          offL.height,
+          lastNgeRef.current ? NGE_BG_RGB : SPECTRO_BG_RGB,
+          nge ? NGE_BG_RGB : SPECTRO_BG_RGB,
+          lastNgeRef.current ? NGE_SPECTRO_SAMPLES : NORMAL_SPECTRO_SAMPLES,
+          nge ? NGE_SPECTRO_SAMPLES : NORMAL_SPECTRO_SAMPLES,
+        );
+        remapSpectroCanvas(
+          offRCtx,
+          offR.width,
+          offR.height,
+          lastNgeRef.current ? NGE_BG_RGB : SPECTRO_BG_RGB,
+          nge ? NGE_BG_RGB : SPECTRO_BG_RGB,
+          lastNgeRef.current ? NGE_SPECTRO_SAMPLES : NORMAL_SPECTRO_SAMPLES,
+          nge ? NGE_SPECTRO_SAMPLES : NORMAL_SPECTRO_SAMPLES,
+        );
+        lastNgeRef.current = nge;
+      }
+
       if (frame && frame.fileId !== lastFileIdRef.current) {
         lastFileIdRef.current = frame.fileId;
         scrollCarryRef.current = 0;
-        offLCtx.fillStyle = COLORS.bg2;
+        offLCtx.fillStyle = backgroundFill;
         offLCtx.fillRect(0, 0, offL.width, offL.height);
-        offRCtx.fillStyle = COLORS.bg2;
+        offRCtx.fillStyle = backgroundFill;
         offRCtx.fillRect(0, 0, offR.width, offR.height);
       }
 
@@ -162,11 +305,11 @@ export function SpectrogramPanel(): React.ReactElement {
           scrollCarryRef.current -= scrollPx;
 
           offLCtx.drawImage(offL, -scrollPx, 0);
-          offLCtx.fillStyle = COLORS.bg2;
+          offLCtx.fillStyle = backgroundFill;
           offLCtx.fillRect(spectroW - scrollPx, 0, scrollPx, halfH);
 
           offRCtx.drawImage(offR, -scrollPx, 0);
-          offRCtx.fillStyle = COLORS.bg2;
+          offRCtx.fillStyle = backgroundFill;
           offRCtx.fillRect(spectroW - scrollPx, 0, scrollPx, halfH);
 
           const freqL = frame.frequencyDb;
@@ -181,23 +324,23 @@ export function SpectrogramPanel(): React.ReactElement {
             const avgL = bandAverageDb(freqL, lowHz, highHz, sampleRate);
             const avgR = bandAverageDb(freqR, lowHz, highHz, sampleRate);
 
-            offLCtx.fillStyle = spectroColor(avgL);
+            offLCtx.fillStyle = spectroColorForMode(avgL, nge);
             offLCtx.fillRect(spectroW - scrollPx, y, scrollPx, 1);
 
-            offRCtx.fillStyle = spectroColor(avgR);
+            offRCtx.fillStyle = spectroColorForMode(avgR, nge);
             offRCtx.fillRect(spectroW - scrollPx, y, scrollPx, 1);
           }
         }
       }
 
-      ctx.fillStyle = COLORS.bg2;
+      ctx.fillStyle = backgroundFill;
       ctx.fillRect(0, 0, W, H);
 
       const yL = padY;
       ctx.drawImage(offL, spectroX, yL);
 
       const yDiv = padY + halfH;
-      ctx.fillStyle = COLORS.bg0;
+      ctx.fillStyle = dividerFill;
       ctx.fillRect(spectroX, yDiv, spectroW, divH);
 
       const yR = yDiv + divH;
@@ -231,7 +374,7 @@ export function SpectrogramPanel(): React.ReactElement {
       }
 
       ctx.font = `${8 * dpr}px ${FONTS.mono}`;
-      ctx.fillStyle = COLORS.textDim;
+      ctx.fillStyle = labelColor;
       ctx.textAlign = 'right';
       ctx.textBaseline = 'middle';
 
@@ -242,7 +385,7 @@ export function SpectrogramPanel(): React.ReactElement {
         const yTickL = yL + halfH - t * halfH;
         const yTickR = yR + halfH - t * halfH;
 
-        ctx.strokeStyle = COLORS.border;
+        ctx.strokeStyle = axisColor;
         ctx.lineWidth = 0.5;
         ctx.beginPath();
         ctx.moveTo(axisW - 3 * dpr, yTickL);
@@ -258,7 +401,7 @@ export function SpectrogramPanel(): React.ReactElement {
 
       ctx.save();
       ctx.font = `${8 * dpr}px ${FONTS.mono}`;
-      ctx.fillStyle = COLORS.textDim;
+      ctx.fillStyle = labelColor;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       const midXLabel = axisW + chanLabelW / 2;
@@ -267,7 +410,7 @@ export function SpectrogramPanel(): React.ReactElement {
       ctx.restore();
 
       ctx.font = `${9 * dpr}px ${FONTS.mono}`;
-      ctx.fillStyle = COLORS.textDim;
+      ctx.fillStyle = labelColor;
       ctx.textAlign = 'right';
       ctx.textBaseline = 'top';
       ctx.fillText('SPECTROGRAM', W - 8 * dpr, 6 * dpr);

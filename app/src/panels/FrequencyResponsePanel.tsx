@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { frameBus } from '../audio/frameBus';
 import { audioEngine } from '../audio/engine';
+import { displayMode } from '../audio/displayMode';
 import { CANVAS, COLORS, FONTS, SPACING } from '../theme';
 import { freqToX } from '../utils/canvas';
 import type { AudioFrame } from '../types';
@@ -14,6 +15,13 @@ const CURVE_SMOOTHING = 0.22;
 const DISPLAY_DB_SPAN = 54;
 const BANDWIDTH_OCTAVES = 1 / 6;
 const PANEL_DPR_MAX = 1.25;
+const NGE_TRACE = '#a0d840';
+const NGE_TRACE_SOFT = 'rgba(160,216,64,0.78)';
+const NGE_TRACE_DIM = 'rgba(112,184,48,0.48)';
+const NGE_TRACE_FAINT = 'rgba(160,216,64,0.26)';
+const NGE_GLOW = 'rgba(140,210,40,0.18)';
+const NGE_LABEL = 'rgba(140,210,40,0.5)';
+const NGE_TEXT = 'rgba(140,210,40,0.72)';
 
 function formatFreqLabel(hz: number): string {
   return hz >= 1000 ? `${hz / 1000}k` : `${hz}`;
@@ -130,12 +138,17 @@ export function FrequencyResponsePanel(): React.ReactElement {
       const width = canvas.width;
       const height = canvas.height;
       const dpr = Math.min(devicePixelRatio, PANEL_DPR_MAX);
+      const nge = displayMode.nge;
       const padX = PAD * dpr;
       const padY = PAD * dpr;
       const axisH = 16 * dpr;
       const drawW = Math.max(1, width - padX * 2);
       const drawH = Math.max(1, height - padY * 2 - axisH);
       const pointCount = Math.max(112, Math.floor(drawW / Math.max(2, 3 * dpr)));
+      const signalColor = nge ? NGE_TRACE : COLORS.waveform;
+      const signalGlow = nge ? NGE_GLOW : COLORS.waveformGlow;
+      const labelColor = nge ? NGE_LABEL : COLORS.textDim;
+      const textColor = nge ? NGE_TEXT : COLORS.textSecondary;
 
       const didResizeCurve =
         smoothLeftRef.current === null ||
@@ -246,8 +259,8 @@ export function FrequencyResponsePanel(): React.ReactElement {
       }
 
       const ribbonGradient = ctx.createLinearGradient(padX, padY, padX, padY + drawH);
-      ribbonGradient.addColorStop(0, 'rgba(80, 96, 192, 0.18)');
-      ribbonGradient.addColorStop(1, 'rgba(200, 146, 42, 0.16)');
+      ribbonGradient.addColorStop(0, nge ? 'rgba(112, 184, 48, 0.18)' : 'rgba(80, 96, 192, 0.18)');
+      ribbonGradient.addColorStop(1, nge ? 'rgba(48, 104, 20, 0.10)' : 'rgba(200, 146, 42, 0.16)');
       ctx.beginPath();
       for (let i = 0; i < pointCount; i++) {
         const x = padX + (i / (pointCount - 1)) * drawW;
@@ -263,9 +276,9 @@ export function FrequencyResponsePanel(): React.ReactElement {
       ctx.fill();
 
       const fillGradient = ctx.createLinearGradient(padX, padY, padX, padY + drawH);
-      fillGradient.addColorStop(0, 'rgba(232, 176, 40, 0.42)');
-      fillGradient.addColorStop(0.55, 'rgba(200, 146, 42, 0.14)');
-      fillGradient.addColorStop(1, 'rgba(200, 146, 42, 0.03)');
+      fillGradient.addColorStop(0, nge ? 'rgba(160, 216, 64, 0.34)' : 'rgba(232, 176, 40, 0.42)');
+      fillGradient.addColorStop(0.55, nge ? 'rgba(96, 192, 32, 0.12)' : 'rgba(200, 146, 42, 0.14)');
+      fillGradient.addColorStop(1, nge ? 'rgba(96, 192, 32, 0.03)' : 'rgba(200, 146, 42, 0.03)');
       ctx.beginPath();
       ctx.moveTo(padX, padY + drawH);
       for (let i = 0; i < pointCount; i++) {
@@ -278,10 +291,10 @@ export function FrequencyResponsePanel(): React.ReactElement {
       ctx.fill();
 
       ctx.save();
-      ctx.strokeStyle = 'rgba(232, 176, 40, 0.72)';
+      ctx.strokeStyle = nge ? NGE_TRACE_SOFT : 'rgba(232, 176, 40, 0.72)';
       ctx.lineWidth = 3 * dpr;
       ctx.shadowBlur = 20 * dpr;
-      ctx.shadowColor = COLORS.waveformGlow;
+      ctx.shadowColor = signalGlow;
       ctx.beginPath();
       for (let i = 0; i < pointCount; i++) {
         const x = padX + (i / (pointCount - 1)) * drawW;
@@ -291,7 +304,7 @@ export function FrequencyResponsePanel(): React.ReactElement {
       ctx.stroke();
       ctx.restore();
 
-      ctx.strokeStyle = COLORS.waveform;
+      ctx.strokeStyle = signalColor;
       ctx.lineWidth = 1.5 * dpr;
       ctx.beginPath();
       for (let i = 0; i < pointCount; i++) {
@@ -301,7 +314,7 @@ export function FrequencyResponsePanel(): React.ReactElement {
       }
       ctx.stroke();
 
-      ctx.strokeStyle = 'rgba(80, 96, 192, 0.65)';
+      ctx.strokeStyle = nge ? NGE_TRACE_DIM : 'rgba(80, 96, 192, 0.65)';
       ctx.lineWidth = 1 * dpr;
       ctx.beginPath();
       for (let i = 0; i < pointCount; i++) {
@@ -311,7 +324,7 @@ export function FrequencyResponsePanel(): React.ReactElement {
       }
       ctx.stroke();
 
-      ctx.strokeStyle = 'rgba(232, 176, 40, 0.40)';
+      ctx.strokeStyle = nge ? NGE_TRACE_FAINT : 'rgba(232, 176, 40, 0.40)';
       ctx.lineWidth = 1 * dpr;
       ctx.beginPath();
       for (let i = 0; i < pointCount; i++) {
@@ -325,9 +338,9 @@ export function FrequencyResponsePanel(): React.ReactElement {
         const hotX = padX + (hottestIndex / (pointCount - 1)) * drawW;
         const hotY = averageY[hottestIndex];
         ctx.save();
-        ctx.fillStyle = 'rgba(232, 176, 40, 0.85)';
+        ctx.fillStyle = nge ? 'rgba(160, 216, 64, 0.85)' : 'rgba(232, 176, 40, 0.85)';
         ctx.shadowBlur = 18 * dpr;
-        ctx.shadowColor = 'rgba(232, 176, 40, 0.8)';
+        ctx.shadowColor = nge ? 'rgba(140, 210, 40, 0.8)' : 'rgba(232, 176, 40, 0.8)';
         ctx.beginPath();
         ctx.arc(hotX, hotY, 2.5 * dpr, 0, Math.PI * 2);
         ctx.fill();
@@ -337,7 +350,7 @@ export function FrequencyResponsePanel(): React.ReactElement {
       const hottestHz = hzAtFraction(hottestIndex / Math.max(1, pointCount - 1));
       if (frame) {
         ctx.font = `${8 * dpr}px ${FONTS.mono}`;
-        ctx.fillStyle = COLORS.textSecondary;
+        ctx.fillStyle = textColor;
         ctx.textAlign = 'left';
         ctx.textBaseline = 'top';
         ctx.fillText(`CENT ${Math.round(frame.spectralCentroid)} Hz`, padX, padY);
@@ -345,7 +358,7 @@ export function FrequencyResponsePanel(): React.ReactElement {
       }
 
       ctx.font = `${9 * dpr}px ${FONTS.mono}`;
-      ctx.fillStyle = COLORS.textDim;
+      ctx.fillStyle = labelColor;
       ctx.textAlign = 'right';
       ctx.textBaseline = 'top';
       ctx.fillText('FREQ RESPONSE', width - 8 * dpr, 6 * dpr);
