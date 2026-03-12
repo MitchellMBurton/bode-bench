@@ -1,29 +1,33 @@
 // ============================================================
-// Audio Engine — Web Audio graph, transport, and frame extraction.
-// Owns all AudioContext and AnalyserNode logic.
+// Audio Engine - Web Audio graph, transport, and frame extraction.
+// Owns all AudioContext, analyser, and stretch-node logic.
 // Publishes typed AudioFrame objects to the frame bus each RAF.
 //
-// Graph topology (per play session):
+// Graph topology:
 //
-//   source ──→ playGain ──→ masterGain ──→ destination
-//          └──→ splitter ──→ analyserL  (dead-end tap, not in audio path)
-//                       └──→ analyserR  (dead-end tap, not in audio path)
+//   stretchNode -> playGain -> masterGain -> destination
+//                         \-> splitter -> analyserL
+//                                      -> analyserR
 //
-// Analysers are monitoring taps ONLY. They never sit inline in the
-// signal path, which eliminates the ChannelMerger timing artifacts
-// that cause crackling. Per-play gain nodes allow old and new sources
-// to fade independently during seek without touching masterGain.
+// The stretch node handles tempo and pitch independently. The
+// playGain stage only exists for de-click fades during transport.
 // ============================================================
 
 import type { FrameBus } from './frameBus';
+import { createStretchNode, type StretchNode, type StretchSchedule } from './stretchNode';
 import { CANVAS } from '../theme';
 import type { AudioFrame, FileAnalysis, TransportState } from '../types';
 
 type TransportListener = (state: TransportState) => void;
+
 const ANALYSIS_FPS = 20;
 const ANALYSIS_FRAME_MS = 1000 / ANALYSIS_FPS;
-const DECLICK_FADE_S = 0.006;  // 6 ms fade-out on stop/pause
-const DECLICK_IN_S   = 0.008;  // 8 ms fade-in on play
+const DECLICK_FADE_S = 0.006;
+const DECLICK_IN_S = 0.008;
+const RATE_MIN = 0.25;
+const RATE_MAX = 2;
+const PITCH_MIN = -12;
+const PITCH_MAX = 12;
 
 export class AudioEngine {
   private readonly frameBus: FrameBus;
@@ -36,31 +40,32 @@ export class AudioEngine {
   private analyserL: AnalyserNode | null = null;
   private analyserR: AnalyserNode | null = null;
   private masterGain: GainNode | null = null;
-
-  // Per-play nodes — recreated each play(), discarded after stop
-  private sourceNode: AudioBufferSourceNode | null = null;
-  private playGainNode: GainNode | null = null;       // de-click gain, isolated per play
+  private playGainNode: GainNode | null = null;
   private splitterNode: ChannelSplitterNode | null = null;
+  private sourceNode: AudioBufferSourceNode | null = null;
+  private stretchNode: StretchNode | null = null;
+  private stretchNodeReady: Promise<StretchNode> | null = null;
+  private stretchChannelCount = 0;
+  private stretchLatency = 0;
+  private stretchEnabledForBuffer = false;
 
   private buffer: AudioBuffer | null = null;
-  private startedAt = 0;   // AudioContext.currentTime when play started
-  private offsetAt = 0;    // buffer offset when play started (seconds)
+  private startedAt = 0;
+  private offsetAt = 0;
   private _isPlaying = false;
   private rafId: number | null = null;
   private _volume = 1;
   private _playbackRate = 1;
+  private _pitchSemitones = 0;
   private playId = 0;
   private fileId = 0;
   private _displayGain = 1;
   private _loopStart: number | null = null;
   private _loopEnd: number | null = null;
 
-  // Pre-computed waveform peaks — interleaved [min0, max0, min1, max1, ...]
-  // Each bin covers WAVEFORM_BIN_SAMPLES audio samples for phase-accurate envelope.
   private static readonly WAVEFORM_BIN_SAMPLES = 800;
   private _waveformPeaks: Float32Array | null = null;
 
-  // Frame data arrays (reused each frame to avoid allocation)
   private timeDomainData!: Float32Array;
   private timeDomainDataR!: Float32Array;
   private frequencyData!: Float32Array;
@@ -68,14 +73,11 @@ export class AudioEngine {
 
   private transportListeners = new Set<TransportListener>();
   private resetListeners = new Set<() => void>();
-  private fileReadyListeners = new Set<(a: FileAnalysis) => void>();
+  private fileReadyListeners = new Set<(analysis: FileAnalysis) => void>();
   private _fileAnalysis: FileAnalysis | null = null;
   private _filename: string | null = null;
   private lastAnalysisAt = 0;
 
-  // ----------------------------------------------------------
-  // Context initialisation
-  // ----------------------------------------------------------
   private ensureContext(): AudioContext {
     if (!this.ctx) {
       this.ctx = new AudioContext();
@@ -105,18 +107,102 @@ export class AudioEngine {
     this.frequencyData = new Float32Array(new ArrayBuffer((fftSize / 2) * 4));
     this.frequencyDataR = new Float32Array(new ArrayBuffer((fftSize / 2) * 4));
 
-    // masterGain is the only persistent node in the signal path
     this.masterGain = ctx.createGain();
     this.masterGain.gain.value = this._volume;
     this.masterGain.connect(ctx.destination);
 
-    // Analysers are dead-ends — no output connection needed.
-    // They receive signal via per-play splitter tap.
+    this.playGainNode = ctx.createGain();
+    this.playGainNode.gain.value = 0;
+    this.playGainNode.channelCount = 2;
+    this.playGainNode.channelCountMode = 'explicit';
+    this.playGainNode.connect(this.masterGain);
+
+    this.splitterNode = ctx.createChannelSplitter(2);
+    this.playGainNode.connect(this.splitterNode);
+    this.splitterNode.connect(this.analyserL, 0);
+    this.splitterNode.connect(this.analyserR, 1);
   }
 
-  // ----------------------------------------------------------
-  // Ingest
-  // ----------------------------------------------------------
+  private queueStretchCommand(command: Promise<unknown>, label: string): void {
+    void command.catch((error) => {
+      console.error(`stretch ${label} failed`, error);
+    });
+  }
+
+  private get transportRate(): number {
+    return this._playbackRate;
+  }
+
+  private get nativeFallbackRate(): number {
+    return this._playbackRate * Math.pow(2, this._pitchSemitones / 12);
+  }
+
+  private get traversalRate(): number {
+    return this.stretchEnabledForBuffer ? this.transportRate : this.nativeFallbackRate;
+  }
+
+  private async disposeStretchNode(): Promise<void> {
+    const readyNode = this.stretchNode ?? await this.stretchNodeReady?.catch(() => null) ?? null;
+    if (readyNode) {
+      try {
+        await readyNode.dropBuffers();
+      } catch {
+        // Ignore cleanup failures during reconfiguration.
+      }
+      try {
+        readyNode.disconnect();
+      } catch {
+        // Already disconnected.
+      }
+    }
+
+    this.stretchNode = null;
+    this.stretchNodeReady = null;
+    this.stretchChannelCount = 0;
+    this.stretchLatency = 0;
+  }
+
+  private async ensureStretchNode(channelCount: number): Promise<StretchNode> {
+    if (this.stretchNode && this.stretchChannelCount === channelCount) {
+      return this.stretchNode;
+    }
+
+    if (this.stretchNode || this.stretchNodeReady) {
+      await this.disposeStretchNode();
+    }
+
+    const ctx = this.ensureContext();
+    if (!this.playGainNode) {
+      throw new Error('playGainNode is not initialized');
+    }
+
+    const pending = createStretchNode(ctx, channelCount)
+      .then(async (stretchNode) => {
+        stretchNode.connect(this.playGainNode!);
+        await stretchNode.configure({ preset: 'default' });
+        this.stretchLatency = Math.max(0, Number(await stretchNode.latency()) || 0);
+        this.stretchChannelCount = channelCount;
+        this.stretchNode = stretchNode;
+        return stretchNode;
+      })
+      .catch((error) => {
+        this.stretchNode = null;
+        this.stretchNodeReady = null;
+        this.stretchChannelCount = 0;
+        this.stretchLatency = 0;
+        throw error;
+      });
+
+    this.stretchNodeReady = pending;
+    return pending;
+  }
+
+  private prepareStretchBuffers(buffer: AudioBuffer): Float32Array[] {
+    return Array.from({ length: buffer.numberOfChannels }, (_, channel) => {
+      return new Float32Array(buffer.getChannelData(channel));
+    });
+  }
+
   async load(file: File): Promise<void> {
     const ctx = this.ensureContext();
     if (ctx.state === 'suspended') {
@@ -126,14 +212,23 @@ export class AudioEngine {
     this.stop();
 
     const arrayBuffer = await file.arrayBuffer();
-    this.buffer = await ctx.decodeAudioData(arrayBuffer);
+    const decodedBuffer = await ctx.decodeAudioData(arrayBuffer);
+    this.stretchEnabledForBuffer = false;
+    try {
+      const stretchNode = await this.ensureStretchNode(decodedBuffer.numberOfChannels);
+      await stretchNode.dropBuffers();
+      await stretchNode.addBuffers(this.prepareStretchBuffers(decodedBuffer));
+      this.stretchEnabledForBuffer = true;
+    } catch (error) {
+      console.error('stretch load failed, falling back to native playback', error);
+      await this.disposeStretchNode();
+    }
+
+    this.buffer = decodedBuffer;
     this._filename = file.name;
     this.offsetAt = 0;
     this.fileId++;
 
-    // Emit transport immediately so the file is available for playback.
-    // Heavy buffer scans (displayGain, fileAnalysis) are deferred to the next
-    // task to avoid blocking the main thread for ~900 ms on long files.
     this.emitTransport();
 
     const capturedBuffer = this.buffer;
@@ -143,63 +238,121 @@ export class AudioEngine {
       this._displayGain = this.computeDisplayGain(capturedBuffer);
       this._fileAnalysis = this.computeFileAnalysis(capturedBuffer);
       this._waveformPeaks = this.computeWaveformPeaks(capturedBuffer);
-      for (const fn of this.fileReadyListeners) fn(this._fileAnalysis!);
+      for (const fn of this.fileReadyListeners) {
+        fn(this._fileAnalysis!);
+      }
     }, 0);
   }
 
-  // ----------------------------------------------------------
-  // Transport
-  // ----------------------------------------------------------
+  private rampPlayGain(target: number, durationSeconds: number, startAt?: number): void {
+    if (!this.ctx || !this.playGainNode) return;
+
+    const now = this.ctx.currentTime;
+    const beginAt = startAt ?? now;
+    const gain = this.playGainNode.gain;
+
+    gain.cancelScheduledValues(now);
+    gain.setValueAtTime(gain.value, now);
+    if (beginAt > now) {
+      gain.setValueAtTime(target === 0 ? gain.value : 0, beginAt);
+    }
+    gain.linearRampToValueAtTime(target, beginAt + durationSeconds);
+  }
+
+  private stopPlayback(resetToStart: boolean, label: string): void {
+    const nextOffset = resetToStart ? 0 : this.currentTime;
+
+    if (this._isPlaying && this.ctx) {
+      this.rampPlayGain(0, DECLICK_FADE_S);
+
+      if (this.stretchEnabledForBuffer && this.stretchNode) {
+        this.queueStretchCommand(
+          this.stretchNode.stop(this.ctx.currentTime + DECLICK_FADE_S),
+          label,
+        );
+      }
+
+      if (this.sourceNode) {
+        try {
+          this.sourceNode.stop(this.ctx.currentTime + DECLICK_FADE_S + 0.001);
+        } catch {
+          // Ignore stop on an already-ended native source.
+        }
+      }
+    }
+
+    this.sourceNode = null;
+    this.offsetAt = nextOffset;
+    this.startedAt = 0;
+    this._isPlaying = false;
+    this.stopRaf();
+  }
+
   play(): void {
-    if (!this.ctx) return;
-    if (this._isPlaying) return;
+    if (this._isPlaying || !this.buffer || !this.playGainNode) {
+      return;
+    }
 
     const ctx = this.ensureContext();
     if (ctx.state === 'suspended') {
       void ctx.resume();
     }
 
-    if (!this.buffer || !this.masterGain || !this.analyserL || !this.analyserR) return;
+    if (this.stretchEnabledForBuffer && this.stretchNode) {
+      const outputTime = ctx.currentTime + this.stretchLatency;
+      const scheduledOffset = this.offsetAt;
+      this.rampPlayGain(1, DECLICK_IN_S, outputTime);
+
+      const schedule: StretchSchedule = {
+        active: true,
+        input: this.offsetAt,
+        outputTime,
+        rate: this._playbackRate,
+        semitones: this._pitchSemitones,
+      };
+
+      this.startedAt = outputTime;
+      this._isPlaying = true;
+      this.playId++;
+      this.startRaf();
+      this.emitTransport();
+
+      void this.stretchNode.start(schedule).catch((error) => {
+        console.error('stretch start failed, falling back to native playback', error);
+        if (!this._isPlaying || !this.stretchEnabledForBuffer) return;
+        this.stretchEnabledForBuffer = false;
+        this._isPlaying = false;
+        this.startedAt = 0;
+        this.offsetAt = scheduledOffset;
+        this.stopRaf();
+        this.play();
+      });
+      return;
+    }
 
     this.sourceNode = ctx.createBufferSource();
     this.sourceNode.buffer = this.buffer;
-    this.sourceNode.playbackRate.value = this._playbackRate;
-
-    // Per-play gain for de-click fade-in (isolated from masterGain).
-    // Force explicit stereo so the analysis tap always sees a stable 2-ch signal
-    // regardless of source channel count — eliminates double fan-out from the source buffer.
-    this.playGainNode = ctx.createGain();
-    this.playGainNode.channelCount = 2;
-    this.playGainNode.channelCountMode = 'explicit';
-    const now = ctx.currentTime;
-    this.playGainNode.gain.setValueAtTime(0, now);
-    this.playGainNode.gain.linearRampToValueAtTime(1, now + DECLICK_IN_S);
-
-    // Main audio path: source → playGain → masterGain → destination
+    this.sourceNode.playbackRate.value = this.nativeFallbackRate;
     this.sourceNode.connect(this.playGainNode);
-    this.playGainNode.connect(this.masterGain);
 
-    // Analysis taps — tap from playGain (not source) to avoid a second render-quantum
-    // pull on the large source buffer. Dead-end: never connected to destination.
-    this.splitterNode = ctx.createChannelSplitter(2);
-    this.playGainNode.connect(this.splitterNode);
-    this.splitterNode.connect(this.analyserL, 0);
-    this.splitterNode.connect(this.analyserR, 1);
-
+    this.rampPlayGain(1, DECLICK_IN_S, ctx.currentTime);
     this.sourceNode.start(0, this.offsetAt);
     this.startedAt = ctx.currentTime;
     this._isPlaying = true;
     this.playId++;
 
-    const ownSource = this.sourceNode;
-    ownSource.onended = () => {
-      if (this._isPlaying && this.sourceNode === ownSource) {
-        this._isPlaying = false;
-        this.offsetAt = 0;
+    const nativeSource = this.sourceNode;
+    nativeSource.onended = () => {
+      try {
+        nativeSource.disconnect();
+      } catch {
+        // Source may already be disconnected.
+      }
+      if (this.sourceNode === nativeSource) {
         this.sourceNode = null;
-        this.playGainNode = null;
-        this.clearSplitter();
-        this.stopRaf();
+      }
+      if (this._isPlaying && this.sourceNode === null) {
+        this.stopPlayback(true, 'ended');
         this.emitTransport();
       }
     };
@@ -209,37 +362,35 @@ export class AudioEngine {
   }
 
   pause(): void {
-    if (!this._isPlaying || !this.ctx) return;
-    this.offsetAt = this.offsetAt + (this.ctx.currentTime - this.startedAt) * this._playbackRate;
-    this._stopSource();
-    this._isPlaying = false;
-    this.stopRaf();
+    if (!this._isPlaying) return;
+    this.stopPlayback(false, 'pause');
     this.emitTransport();
   }
 
   stop(): void {
-    this.offsetAt = 0;
-    this._stopSource();
-    this._isPlaying = false;
-    this.stopRaf();
+    this.stopPlayback(true, 'stop');
     this.emitTransport();
   }
 
   reset(): void {
-    this._stopSource();
-    this._isPlaying = false;
-    this.stopRaf();
+    this.stopPlayback(true, 'reset');
     this.buffer = null;
     this._filename = null;
-    this.offsetAt = 0;
     this.fileId++;
     this._displayGain = 1;
     this._fileAnalysis = null;
     this._waveformPeaks = null;
     this._loopStart = null;
     this._loopEnd = null;
+
+    if (this.stretchNode) {
+      this.queueStretchCommand(this.stretchNode.dropBuffers(), 'dropBuffers');
+    }
+
     this.emitTransport();
-    for (const fn of this.resetListeners) fn();
+    for (const fn of this.resetListeners) {
+      fn();
+    }
   }
 
   setLoop(start: number, end: number): void {
@@ -262,31 +413,6 @@ export class AudioEngine {
   get loopStart(): number | null { return this._loopStart; }
   get loopEnd(): number | null { return this._loopEnd; }
 
-  private _stopSource(): void {
-    if (this.sourceNode && this.playGainNode && this.ctx) {
-      // De-click: fade the per-play gain to 0, then let the source stop naturally
-      const now = this.ctx.currentTime;
-      this.playGainNode.gain.cancelScheduledValues(now);
-      this.playGainNode.gain.setValueAtTime(this.playGainNode.gain.value, now);
-      this.playGainNode.gain.linearRampToValueAtTime(0, now + DECLICK_FADE_S);
-      try { this.sourceNode.stop(now + DECLICK_FADE_S + 0.001); } catch { /* already ended */ }
-      // Source and playGain will be GC'd after they stop; nulling refs is enough
-    } else if (this.sourceNode) {
-      try { this.sourceNode.stop(); } catch { /* already ended */ }
-      this.sourceNode.disconnect();
-    }
-    this.sourceNode = null;
-    this.playGainNode = null;
-    this.clearSplitter();
-  }
-
-  private clearSplitter(): void {
-    if (this.splitterNode) {
-      this.splitterNode.disconnect();
-      this.splitterNode = null;
-    }
-  }
-
   seek(seconds: number): void {
     const wasPlaying = this._isPlaying;
     if (wasPlaying) this.pause();
@@ -297,8 +423,11 @@ export class AudioEngine {
 
   get currentTime(): number {
     if (!this.ctx) return 0;
-    if (this._isPlaying) return this.offsetAt + (this.ctx.currentTime - this.startedAt) * this._playbackRate;
-    return this.offsetAt;
+    if (!this._isPlaying) return this.offsetAt;
+
+    const elapsed = Math.max(0, this.ctx.currentTime - this.startedAt);
+    const rawTime = this.offsetAt + elapsed * this.traversalRate;
+    return Math.max(0, Math.min(rawTime, this.duration));
   }
 
   get duration(): number {
@@ -307,36 +436,60 @@ export class AudioEngine {
 
   private computeDisplayGain(buffer: AudioBuffer): number {
     let peak = 0;
-    for (let ch = 0; ch < buffer.numberOfChannels; ch++) {
-      const data = buffer.getChannelData(ch);
+    for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
+      const data = buffer.getChannelData(channel);
       for (let i = 0; i < data.length; i++) {
-        const v = Math.abs(data[i]);
-        if (v > peak) peak = v;
+        const value = Math.abs(data[i]);
+        if (value > peak) peak = value;
       }
     }
     return peak > 0.001 ? 0.95 / peak : 1;
   }
 
-  // ----------------------------------------------------------
-  // Frame extraction (RAF loop)
-  // ----------------------------------------------------------
+  private rebasePlaybackClock(): void {
+    if (!this._isPlaying || !this.ctx) return;
+    this.offsetAt = this.currentTime;
+    this.startedAt = this.ctx.currentTime;
+  }
+
+  private scheduleStretchUpdate(): void {
+    if (!this._isPlaying || !this.ctx || !this.stretchNode || !this.stretchEnabledForBuffer) return;
+
+    const schedule: StretchSchedule = {
+      active: true,
+      outputTime: this.ctx.currentTime,
+      rate: this._playbackRate,
+      semitones: this._pitchSemitones,
+    };
+
+    this.queueStretchCommand(this.stretchNode.schedule(schedule), 'schedule');
+  }
+
   private startRaf(): void {
     if (this.rafId !== null) return;
+
     this.lastAnalysisAt = 0;
     const loop = () => {
       const now = performance.now();
       if (this.lastAnalysisAt === 0 || now - this.lastAnalysisAt >= ANALYSIS_FRAME_MS) {
         this.lastAnalysisAt = now;
         this.extractFrame();
-        // Loop region: seek back to loopStart when we pass loopEnd
-        if (this._isPlaying && this._loopStart !== null && this._loopEnd !== null) {
-          if (this.currentTime >= this._loopEnd) {
-            this.seek(this._loopStart);
-          }
+
+        if (this._isPlaying && this._loopStart !== null && this._loopEnd !== null && this.currentTime >= this._loopEnd) {
+          this.seek(this._loopStart);
+          return;
+        }
+
+        if (this._isPlaying && this._loopStart === null && this.currentTime >= this.duration) {
+          this.stopPlayback(true, 'ended');
+          this.emitTransport();
+          return;
         }
       }
+
       this.rafId = requestAnimationFrame(loop);
     };
+
     this.rafId = requestAnimationFrame(loop);
   }
 
@@ -348,27 +501,30 @@ export class AudioEngine {
     this.lastAnalysisAt = 0;
   }
 
-  // ----------------------------------------------------------
-  // Pitch (F0) detection — normalized autocorrelation, cello range 60–1000 Hz
-  // ----------------------------------------------------------
   private detectF0(td: Float32Array, sampleRate: number): { f0: number | null; confidence: number } {
-    const N = Math.min(2048, td.length);
+    const size = Math.min(2048, td.length);
     const minLag = Math.floor(sampleRate / 1000);
-    const maxLag = Math.min(Math.floor(sampleRate / 60), N - 1);
+    const maxLag = Math.min(Math.floor(sampleRate / 60), size - 1);
 
-    // Silence check: skip detection if RMS is below threshold
     let rms = 0;
-    for (let i = 0; i < N; i++) rms += td[i] * td[i];
-    if (Math.sqrt(rms / N) < 0.005) return { f0: null, confidence: 0 };
+    for (let i = 0; i < size; i++) {
+      rms += td[i] * td[i];
+    }
+    if (Math.sqrt(rms / size) < 0.005) {
+      return { f0: null, confidence: 0 };
+    }
 
     let bestLag = -1;
     let bestCorr = 0;
 
     for (let lag = minLag; lag <= maxLag; lag++) {
-      let sum = 0, norm1 = 0, norm2 = 0;
-      const lim = N - lag;
-      for (let i = 0; i < lim; i++) {
-        const a = td[i], b = td[i + lag];
+      let sum = 0;
+      let norm1 = 0;
+      let norm2 = 0;
+      const limit = size - lag;
+      for (let i = 0; i < limit; i++) {
+        const a = td[i];
+        const b = td[i + lag];
         sum += a * b;
         norm1 += a * a;
         norm2 += b * b;
@@ -386,43 +542,44 @@ export class AudioEngine {
   }
 
   private extractFrame(): void {
-    const analyserL = this.analyserL;
-    const analyserR = this.analyserR;
-    if (!analyserL || !analyserR || !this.ctx) return;
+    if (!this.analyserL || !this.analyserR || !this.ctx) return;
 
-    analyserL.getFloatTimeDomainData(this.timeDomainData as Float32Array<ArrayBuffer>);
-    analyserL.getFloatFrequencyData(this.frequencyData as Float32Array<ArrayBuffer>);
-    analyserR.getFloatTimeDomainData(this.timeDomainDataR as Float32Array<ArrayBuffer>);
-    analyserR.getFloatFrequencyData(this.frequencyDataR as Float32Array<ArrayBuffer>);
+    this.analyserL.getFloatTimeDomainData(this.timeDomainData as Float32Array<ArrayBuffer>);
+    this.analyserL.getFloatFrequencyData(this.frequencyData as Float32Array<ArrayBuffer>);
+    this.analyserR.getFloatTimeDomainData(this.timeDomainDataR as Float32Array<ArrayBuffer>);
+    this.analyserR.getFloatFrequencyData(this.frequencyDataR as Float32Array<ArrayBuffer>);
 
     const tdL = this.timeDomainData;
     const tdR = this.timeDomainDataR;
     const fftBinCount = this.frequencyData.length;
 
-    let peakL = 0, rmsL = 0;
+    let peakL = 0;
+    let rmsL = 0;
     for (let i = 0; i < tdL.length; i++) {
-      const v = Math.abs(tdL[i]);
-      if (v > peakL) peakL = v;
+      const value = Math.abs(tdL[i]);
+      if (value > peakL) peakL = value;
       rmsL += tdL[i] * tdL[i];
     }
     rmsL = Math.sqrt(rmsL / tdL.length);
 
-    let peakR = 0, rmsR = 0;
+    let peakR = 0;
+    let rmsR = 0;
     for (let i = 0; i < tdR.length; i++) {
-      const v = Math.abs(tdR[i]);
-      if (v > peakR) peakR = v;
+      const value = Math.abs(tdR[i]);
+      if (value > peakR) peakR = value;
       rmsR += tdR[i] * tdR[i];
     }
     rmsR = Math.sqrt(rmsR / tdR.length);
 
     const binHz = this.ctx.sampleRate / (fftBinCount * 2);
-    let centNum = 0, centDen = 0;
+    let centroidNum = 0;
+    let centroidDen = 0;
     for (let i = 1; i < fftBinCount; i++) {
       const power = Math.pow(10, this.frequencyData[i] / 10);
-      centNum += i * binHz * power;
-      centDen += power;
+      centroidNum += i * binHz * power;
+      centroidDen += power;
     }
-    const spectralCentroid = centDen > 0 ? centNum / centDen : 0;
+    const spectralCentroid = centroidDen > 0 ? centroidNum / centroidDen : 0;
 
     const { f0, confidence } = this.detectF0(tdL, this.ctx.sampleRate);
 
@@ -448,48 +605,79 @@ export class AudioEngine {
     this.frameBus.publish(frame);
   }
 
-  // ----------------------------------------------------------
-  // Public controls
-  // ----------------------------------------------------------
   setVolume(v: number): void {
     this._volume = Math.max(0, Math.min(1, v));
-    if (this.masterGain) this.masterGain.gain.value = this._volume;
+    if (this.masterGain) {
+      this.masterGain.gain.value = this._volume;
+    }
   }
 
   setPlaybackRate(r: number): void {
-    this._playbackRate = Math.max(0.25, Math.min(2, r));
-    if (this.sourceNode) this.sourceNode.playbackRate.value = this._playbackRate;
+    const nextRate = Math.max(RATE_MIN, Math.min(RATE_MAX, r));
+    if (Math.abs(nextRate - this._playbackRate) < 0.0001) return;
+
+    this.rebasePlaybackClock();
+    this._playbackRate = nextRate;
+    if (this.stretchEnabledForBuffer) {
+      this.scheduleStretchUpdate();
+    } else if (this.sourceNode) {
+      this.sourceNode.playbackRate.value = this.nativeFallbackRate;
+    }
     this.emitTransport();
   }
 
-  get isPlaying(): boolean    { return this._isPlaying; }
-  get playbackRate(): number  { return this._playbackRate; }
-  get analysisFps(): number   { return ANALYSIS_FPS; }
+  setPitchSemitones(semitones: number): void {
+    const nextPitch = Math.max(PITCH_MIN, Math.min(PITCH_MAX, semitones));
+    if (Math.abs(nextPitch - this._pitchSemitones) < 0.0001) return;
+
+    if (!this.stretchEnabledForBuffer) {
+      this.rebasePlaybackClock();
+    }
+    this._pitchSemitones = nextPitch;
+    if (this.stretchEnabledForBuffer) {
+      this.scheduleStretchUpdate();
+    } else if (this.sourceNode) {
+      this.sourceNode.playbackRate.value = this.nativeFallbackRate;
+    }
+    this.emitTransport();
+  }
+
+  get isPlaying(): boolean { return this._isPlaying; }
+  get playbackRate(): number { return this._playbackRate; }
+  get pitchSemitones(): number { return this._pitchSemitones; }
+  get analysisFps(): number { return ANALYSIS_FPS; }
   get audioBuffer(): AudioBuffer | null { return this.buffer; }
-  get displayGain(): number   { return this._displayGain; }
+  get displayGain(): number { return this._displayGain; }
   get waveformPeaks(): Float32Array | null { return this._waveformPeaks; }
   get waveformBinSamples(): number { return AudioEngine.WAVEFORM_BIN_SAMPLES; }
 
-  /** Read current time-domain samples directly from the analyser at call time.
-   *  Safe to call every RAF frame — pure read, no audio graph mutation. */
   getTimeDomainData(out: Float32Array): void {
-    if (this.analyserL) this.analyserL.getFloatTimeDomainData(out as Float32Array<ArrayBuffer>);
-    else out.fill(0);
+    if (this.analyserL) {
+      this.analyserL.getFloatTimeDomainData(out as Float32Array<ArrayBuffer>);
+    } else {
+      out.fill(0);
+    }
   }
 
   onFileReady(fn: (analysis: FileAnalysis) => void): () => void {
     this.fileReadyListeners.add(fn);
-    return () => { this.fileReadyListeners.delete(fn); };
+    return () => {
+      this.fileReadyListeners.delete(fn);
+    };
   }
 
   onTransport(fn: TransportListener): () => void {
     this.transportListeners.add(fn);
-    return () => { this.transportListeners.delete(fn); };
+    return () => {
+      this.transportListeners.delete(fn);
+    };
   }
 
   onReset(fn: () => void): () => void {
     this.resetListeners.add(fn);
-    return () => { this.resetListeners.delete(fn); };
+    return () => {
+      this.resetListeners.delete(fn);
+    };
   }
 
   private computeWaveformPeaks(buffer: AudioBuffer): Float32Array {
@@ -498,16 +686,17 @@ export class AudioEngine {
     const numBins = Math.ceil(data.length / binSamples);
     const peaks = new Float32Array(numBins * 2);
     for (let bin = 0; bin < numBins; bin++) {
-      const s0 = bin * binSamples;
-      const s1 = Math.min(s0 + binSamples, data.length);
-      let mn = 0, mx = 0;
-      for (let s = s0; s < s1; s++) {
-        const v = data[s];
-        if (v < mn) mn = v;
-        if (v > mx) mx = v;
+      const start = bin * binSamples;
+      const end = Math.min(start + binSamples, data.length);
+      let min = 0;
+      let max = 0;
+      for (let sample = start; sample < end; sample++) {
+        const value = data[sample];
+        if (value < min) min = value;
+        if (value > max) max = value;
       }
-      peaks[bin * 2] = mn;
-      peaks[bin * 2 + 1] = mx;
+      peaks[bin * 2] = min;
+      peaks[bin * 2 + 1] = max;
     }
     return peaks;
   }
@@ -517,19 +706,22 @@ export class AudioEngine {
     let rmsSum = 0;
     let totalSamples = 0;
     let clipCount = 0;
-    for (let ch = 0; ch < buffer.numberOfChannels; ch++) {
-      const data = buffer.getChannelData(ch);
+
+    for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
+      const data = buffer.getChannelData(channel);
       for (let i = 0; i < data.length; i++) {
-        const v = Math.abs(data[i]);
-        if (v > peak) peak = v;
+        const value = Math.abs(data[i]);
+        if (value > peak) peak = value;
         rmsSum += data[i] * data[i];
         totalSamples++;
-        if (v >= 0.9999) clipCount++;
+        if (value >= 0.9999) clipCount++;
       }
     }
+
     const rms = Math.sqrt(rmsSum / totalSamples);
     const peakDb = peak > 0 ? 20 * Math.log10(peak) : -100;
     const rmsDb = rms > 0 ? 20 * Math.log10(rms) : -100;
+
     return {
       crestFactorDb: peakDb - rmsDb,
       peakDb,
@@ -550,9 +742,13 @@ export class AudioEngine {
       duration: this.duration,
       filename: this._filename,
       playbackRate: this._playbackRate,
+      pitchSemitones: this._pitchSemitones,
       loopStart: this._loopStart,
       loopEnd: this._loopEnd,
     };
-    for (const fn of this.transportListeners) fn(state);
+
+    for (const fn of this.transportListeners) {
+      fn(state);
+    }
   }
 }

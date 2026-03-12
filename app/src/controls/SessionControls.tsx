@@ -1,9 +1,9 @@
 // ============================================================
-// Session Controls — volume, playback rate, greyscale toggle.
-// Compact utility controls that sit above the diagnostics log.
+// Session Controls - volume, playback rate, pitch, and display
+// toggles. Compact utility controls that sit above diagnostics.
 // ============================================================
 
-import { useRef, useState, useCallback } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAudioEngine, useDisplayMode, useScrollSpeed } from '../core/session';
 import { COLORS, FONTS, SPACING } from '../theme';
 
@@ -14,86 +14,170 @@ interface Props {
   onNge: (v: boolean) => void;
 }
 
+const RATE_MIN = 0.25;
+const RATE_MAX = 2;
+const PITCH_MIN = -12;
+const PITCH_MAX = 12;
+const SCROLL_MIN = 0.25;
+const SCROLL_MAX = 4;
+
+function fillWidth(value: number, min: number, max: number): string {
+  return `${((value - min) / (max - min)) * 100}%`;
+}
+
+function formatMultiplier(value: number): string {
+  return `${value.toFixed(2)}x`;
+}
+
+function formatPitch(semitones: number): string {
+  if (Math.abs(semitones) < 0.001) return '0 st';
+  const rounded = Math.abs(semitones - Math.round(semitones)) < 0.001
+    ? Math.round(semitones)
+    : Number(semitones.toFixed(1));
+  return `${rounded > 0 ? '+' : ''}${rounded} st`;
+}
+
 export function SessionControls({ grayscale, onGrayscale, nge, onNge }: Props): React.ReactElement {
   const audioEngine = useAudioEngine();
   const scrollSpeed = useScrollSpeed();
   const displayMode = useDisplayMode();
+
   const [volume, setVolume] = useState(1);
-  const [rate, setRate] = useState(1);
-  const [scroll, setScroll] = useState(1);
+  const [rate, setRate] = useState(audioEngine.playbackRate);
+  const [pitch, setPitch] = useState(audioEngine.pitchSemitones);
+  const [scroll, setScroll] = useState(scrollSpeed.value);
+
   const volFillRef = useRef<HTMLDivElement>(null);
   const rateFillRef = useRef<HTMLDivElement>(null);
+  const pitchFillRef = useRef<HTMLDivElement>(null);
   const scrollFillRef = useRef<HTMLDivElement>(null);
 
+  useEffect(() => {
+    return audioEngine.onTransport((state) => {
+      setRate(state.playbackRate);
+      setPitch(state.pitchSemitones);
+
+      if (rateFillRef.current) {
+        rateFillRef.current.style.width = fillWidth(state.playbackRate, RATE_MIN, RATE_MAX);
+      }
+      if (pitchFillRef.current) {
+        pitchFillRef.current.style.width = fillWidth(state.pitchSemitones, PITCH_MIN, PITCH_MAX);
+      }
+    });
+  }, [audioEngine]);
+
   const onVolChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const v = parseFloat(e.target.value);
-    setVolume(v);
-    audioEngine.setVolume(v);
-    if (volFillRef.current) volFillRef.current.style.width = `${v * 100}%`;
+    const nextVolume = parseFloat(e.target.value);
+    setVolume(nextVolume);
+    audioEngine.setVolume(nextVolume);
+    if (volFillRef.current) {
+      volFillRef.current.style.width = `${nextVolume * 100}%`;
+    }
   }, [audioEngine]);
 
   const onRateChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const r = parseFloat(e.target.value);
-    setRate(r);
-    audioEngine.setPlaybackRate(r);
-    if (rateFillRef.current) rateFillRef.current.style.width = `${((r - 0.25) / 1.75) * 100}%`;
+    const nextRate = parseFloat(e.target.value);
+    setRate(nextRate);
+    audioEngine.setPlaybackRate(nextRate);
+    if (rateFillRef.current) {
+      rateFillRef.current.style.width = fillWidth(nextRate, RATE_MIN, RATE_MAX);
+    }
+  }, [audioEngine]);
+
+  const onPitchChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const nextPitch = parseFloat(e.target.value);
+    setPitch(nextPitch);
+    audioEngine.setPitchSemitones(nextPitch);
+    if (pitchFillRef.current) {
+      pitchFillRef.current.style.width = fillWidth(nextPitch, PITCH_MIN, PITCH_MAX);
+    }
   }, [audioEngine]);
 
   const onScrollChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const s = parseFloat(e.target.value);
-    setScroll(s);
-    scrollSpeed.set(s);
-    if (scrollFillRef.current) scrollFillRef.current.style.width = `${((s - 0.25) / 3.75) * 100}%`;
+    const nextScroll = parseFloat(e.target.value);
+    setScroll(nextScroll);
+    scrollSpeed.set(nextScroll);
+    if (scrollFillRef.current) {
+      scrollFillRef.current.style.width = fillWidth(nextScroll, SCROLL_MIN, SCROLL_MAX);
+    }
   }, [scrollSpeed]);
 
   const volPct = Math.round(volume * 100);
-  const rateLabel = rate === 1 ? '1.00×' : `${rate.toFixed(2)}×`;
-  const scrollLabel = scroll === 1 ? '1.00×' : `${scroll.toFixed(2)}×`;
+  const rateLabel = formatMultiplier(rate);
+  const pitchLabel = formatPitch(pitch);
+  const scrollLabel = formatMultiplier(scroll);
 
   return (
     <div style={wrapStyle}>
       <div style={separatorStyle} />
 
-      {/* Volume */}
       <div style={rowStyle}>
         <span style={labelStyle}>VOL</span>
         <div style={trackStyle}>
           <div ref={volFillRef} style={{ ...fillStyle, width: `${volume * 100}%` }} />
           <input
-            type="range" min={0} max={1} step={0.01}
-            defaultValue={1}
+            type="range"
+            min={0}
+            max={1}
+            step={0.01}
+            value={volume}
             onChange={onVolChange}
             style={rangeStyle}
+            title="Master output level"
           />
         </div>
         <span style={valueStyle}>{volPct}</span>
       </div>
 
-      {/* Playback rate */}
       <div style={rowStyle}>
         <span style={labelStyle}>RATE</span>
         <div style={trackStyle}>
-          <div ref={rateFillRef} style={{ ...fillStyle, width: '42.9%' /* default 1.0 of 0.25–2.0 */ }} />
+          <div ref={rateFillRef} style={{ ...fillStyle, width: fillWidth(rate, RATE_MIN, RATE_MAX) }} />
           <input
-            type="range" min={0.25} max={2} step={0.05}
-            defaultValue={1}
+            type="range"
+            min={RATE_MIN}
+            max={RATE_MAX}
+            step={0.05}
+            value={rate}
             onChange={onRateChange}
             style={rangeStyle}
+            title="Playback rate multiplier"
           />
         </div>
         <span style={valueStyle}>{rateLabel}</span>
       </div>
 
-      {/* Scroll speed */}
+      <div style={rowStyle}>
+        <span style={labelStyle}>PITCH</span>
+        <div style={trackStyle}>
+          <div ref={pitchFillRef} style={{ ...fillStyle, width: fillWidth(pitch, PITCH_MIN, PITCH_MAX) }} />
+          <input
+            type="range"
+            min={PITCH_MIN}
+            max={PITCH_MAX}
+            step={1}
+            value={pitch}
+            onChange={onPitchChange}
+            style={rangeStyle}
+            title="Pitch transpose in semitones with tempo preserved."
+          />
+        </div>
+        <span style={valueStyle}>{pitchLabel}</span>
+      </div>
+
       <div style={rowStyle}>
         <span style={labelStyle}>SCRL</span>
         <div style={trackStyle}>
-          <div ref={scrollFillRef} style={{ ...fillStyle, width: '20%' /* default 1.0 of 0.25–4.0 */ }} />
+          <div ref={scrollFillRef} style={{ ...fillStyle, width: fillWidth(scroll, SCROLL_MIN, SCROLL_MAX) }} />
           <input
-            type="range" min={0.25} max={4} step={0.25}
-            defaultValue={1}
+            type="range"
+            min={SCROLL_MIN}
+            max={SCROLL_MAX}
+            step={0.25}
+            value={scroll}
             onChange={onScrollChange}
             style={rangeStyle}
+            title="Visual scroll speed multiplier"
           />
         </div>
         <span style={valueStyle}>{scrollLabel}</span>
@@ -102,22 +186,24 @@ export function SessionControls({ grayscale, onGrayscale, nge, onNge }: Props): 
       <div style={separatorStyle} />
 
       <div style={toggleRowStyle}>
-        {/* Greyscale toggle */}
         <button
           style={{ ...toggleStyle, ...(grayscale ? toggleActiveStyle : {}) }}
           onClick={() => onGrayscale(!grayscale)}
           title="Toggle greyscale display mode"
         >
-          ◧ MONO
+          MONO
         </button>
 
-        {/* NGE mode toggle */}
         <button
           style={{ ...toggleStyle, ...(nge ? ngeActiveStyle : {}) }}
-          onClick={() => { const v = !nge; displayMode.set(v); onNge(v); }}
-          title="NGE phosphor mode — CRT persistence on oscilloscope, scan-line overlay"
+          onClick={() => {
+            const nextNge = !nge;
+            displayMode.set(nextNge);
+            onNge(nextNge);
+          }}
+          title="NGE phosphor mode"
         >
-          ◉ NGE
+          NGE
         </button>
       </div>
     </div>
@@ -150,7 +236,7 @@ const labelStyle: React.CSSProperties = {
   fontSize: FONTS.sizeXs,
   color: COLORS.textSecondary,
   letterSpacing: '0.10em',
-  width: 28,
+  width: 40,
   flexShrink: 0,
 };
 
@@ -189,7 +275,7 @@ const valueStyle: React.CSSProperties = {
   fontSize: FONTS.sizeXs,
   color: COLORS.textSecondary,
   letterSpacing: '0.06em',
-  width: 36,
+  width: 52,
   textAlign: 'right',
   flexShrink: 0,
 };

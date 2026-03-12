@@ -88,7 +88,10 @@ export interface TransportState {
   readonly currentTime: number; // seconds
   readonly duration: number;    // seconds
   readonly filename: string | null;
+  /** Tempo/speed multiplier. Does not change pitch. */
   readonly playbackRate: number;
+  /** Pitch transposition in semitones. Does not change duration. */
+  readonly pitchSemitones: number;
   /** Loop region start time in seconds, or null if no loop is set. */
   readonly loopStart: number | null;
   /** Loop region end time in seconds, or null if no loop is set. */

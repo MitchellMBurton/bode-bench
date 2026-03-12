@@ -105,6 +105,13 @@ export function DiagnosticsLog(): React.ReactElement {
         pushEntry(`rate ${state.playbackRate.toFixed(2)}x`, 'dim');
       }
 
+      if (Math.abs(state.pitchSemitones - prev.pitchSemitones) > 0.001) {
+        const pitchLabel = state.pitchSemitones > 0
+          ? `+${state.pitchSemitones.toFixed(0)}`
+          : state.pitchSemitones.toFixed(0);
+        pushEntry(`pitch ${pitchLabel} st`, 'dim');
+      }
+
       prevTransportRef.current = state;
     });
 
