@@ -14,6 +14,7 @@
 // ============================================================
 
 import { useState } from 'react';
+import { LayoutInteractionProvider } from './LayoutInteraction';
 import { SplitPane } from './SplitPane';
 import { COLORS, FONTS, SPACING } from '../theme';
 
@@ -90,7 +91,8 @@ export function ConsoleLayout({ topLeft, topRight, bottomLeft, bottomRight, gray
   }
 
   return (
-    <div style={shellStyle}>
+    <LayoutInteractionProvider>
+      <div style={shellStyle}>
       {/* Global header */}
       <div style={{ ...globalHeaderStyle, borderBottom: `1px solid ${headerBorder}` }}>
         <div style={headerLeftStyle}>
@@ -167,7 +169,8 @@ export function ConsoleLayout({ topLeft, topRight, bottomLeft, bottomRight, gray
           ]}
         </SplitPane>
       </div>
-    </div>
+      </div>
+    </LayoutInteractionProvider>
   );
 }
 

@@ -17,13 +17,16 @@
 //     fracs state to a parent layout store and passing it back down.
 // ============================================================
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
+import { useLayoutInteraction } from './LayoutInteraction';
 import { COLORS } from '../theme';
 
 // Pixel height (column) or width (row) of the entire drag hit area.
 const HANDLE_HIT_PX = 8;
+const PREVIEW_LINE_PX = 2;
 
 const DEFAULT_MIN_PX = 48;
+const EMPTY_SIZES: number[] = [];
 
 function normalize(sizes: number[]): number[] {
   const total = sizes.reduce((a, b) => a + b, 0);
@@ -99,12 +102,17 @@ export interface SplitPaneProps {
 export function SplitPane({
   direction = 'column',
   initialSizes,
-  minSizePx = [],
-  maxSizePx = [],
+  minSizePx = EMPTY_SIZES,
+  maxSizePx = EMPTY_SIZES,
   children,
 }: SplitPaneProps): React.ReactElement {
   const [fracs, setFracs] = useState(() => normalize(initialSizes));
   const containerRef = useRef<HTMLDivElement>(null);
+  const previewGuideRef = useRef<HTMLDivElement>(null);
+  const pendingFracsRef = useRef<number[] | null>(null);
+  const dragFrameRef = useRef<number | null>(null);
+  const interactionId = useId();
+  const { beginResize, endInteraction } = useLayoutInteraction();
   const isColumn = direction === 'column';
   const n = children.length;
 
@@ -114,30 +122,58 @@ export function SplitPane({
     startCoord: number;
     startFracs: number[];
     availPx: number;
+    previewFracs: number[];
   } | null>(null);
 
   // Compute pixel space available for panes (container minus all handle slices).
-  const computeAvailPx = (): number => {
+  const computeAvailPx = useCallback((): number => {
     if (!containerRef.current) return 0;
     const rect = containerRef.current.getBoundingClientRect();
     return (isColumn ? rect.height : rect.width) - (n - 1) * HANDLE_HIT_PX;
-  };
+  }, [isColumn, n]);
+
+  const setPreviewVisible = useCallback((visible: boolean): void => {
+    const guide = previewGuideRef.current;
+    if (!guide) return;
+    guide.style.opacity = visible ? '1' : '0';
+  }, []);
+
+  const setPreviewPosition = useCallback((handleIdx: number, nextFracs: number[]): void => {
+    const guide = previewGuideRef.current;
+    const container = containerRef.current;
+    if (!guide || !container) return;
+
+    const rect = container.getBoundingClientRect();
+    const totalPx = isColumn ? rect.height : rect.width;
+    const availPx = totalPx - (n - 1) * HANDLE_HIT_PX;
+    const paneFraction = nextFracs.slice(0, handleIdx + 1).reduce((sum, frac) => sum + frac, 0);
+    const guidePx = Math.round(paneFraction * availPx + handleIdx * HANDLE_HIT_PX + HANDLE_HIT_PX / 2);
+
+    guide.style.transform = isColumn
+      ? `translate3d(0, ${guidePx}px, 0)`
+      : `translate3d(${guidePx}px, 0, 0)`;
+  }, [isColumn, n]);
 
   const onHandleMouseDown = useCallback(
     (e: React.MouseEvent, handleIdx: number) => {
       e.preventDefault();
       const availPx = computeAvailPx();
+      const startFracs = [...fracs];
       dragRef.current = {
         handleIdx,
         startCoord: isColumn ? e.clientY : e.clientX,
-        startFracs: [...fracs],
+        startFracs,
         availPx,
+        previewFracs: startFracs,
       };
+      pendingFracsRef.current = null;
+      setPreviewPosition(handleIdx, startFracs);
+      setPreviewVisible(true);
+      beginResize(interactionId);
       document.body.style.cursor = isColumn ? 'row-resize' : 'col-resize';
       document.body.style.userSelect = 'none';
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [fracs, isColumn],
+    [beginResize, computeAvailPx, fracs, interactionId, isColumn, setPreviewPosition, setPreviewVisible],
   );
 
   useEffect(() => {
@@ -168,23 +204,54 @@ export function SplitPane({
       const newFracs = [...drag.startFracs];
       newFracs[i]     = newA;
       newFracs[i + 1] = newB;
-      setFracs(newFracs);
+      drag.previewFracs = newFracs;
+      pendingFracsRef.current = newFracs;
+
+      if (dragFrameRef.current !== null) return;
+      dragFrameRef.current = requestAnimationFrame(() => {
+        dragFrameRef.current = null;
+        const activeDrag = dragRef.current;
+        const draftFracs = pendingFracsRef.current ?? activeDrag?.previewFracs;
+        if (!activeDrag || !draftFracs) return;
+        setPreviewPosition(activeDrag.handleIdx, draftFracs);
+      });
     };
 
     const onMouseUp = () => {
-      if (!dragRef.current) return;
+      const drag = dragRef.current;
+      if (!drag) return;
+
+      const finalFracs = pendingFracsRef.current ?? drag.previewFracs;
+      pendingFracsRef.current = null;
+      if (dragFrameRef.current !== null) {
+        cancelAnimationFrame(dragFrameRef.current);
+        dragFrameRef.current = null;
+      }
+      setPreviewVisible(false);
+      setFracs(finalFracs);
       dragRef.current = null;
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
+      endInteraction();
     };
 
     window.addEventListener('mousemove', onMouseMove);
     window.addEventListener('mouseup', onMouseUp);
     return () => {
+      if (dragFrameRef.current !== null) {
+        cancelAnimationFrame(dragFrameRef.current);
+        dragFrameRef.current = null;
+      }
+      dragRef.current = null;
+      pendingFracsRef.current = null;
+      setPreviewVisible(false);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      endInteraction();
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('mouseup', onMouseUp);
     };
-  }, [isColumn, minSizePx, maxSizePx]);
+  }, [endInteraction, isColumn, maxSizePx, minSizePx, setPreviewPosition, setPreviewVisible]);
 
   // Build interleaved [pane, handle, pane, handle, pane, …] children.
   const items: React.ReactElement[] = [];
@@ -223,12 +290,32 @@ export function SplitPane({
       style={{
         display: 'flex',
         flexDirection: direction,
+        position: 'relative',
         width: '100%',
         height: '100%',
         overflow: 'hidden',
       }}
     >
       {items}
+      <div
+        ref={previewGuideRef}
+        style={{
+          position: 'absolute',
+          top: isColumn ? -Math.round(PREVIEW_LINE_PX / 2) : 0,
+          left: isColumn ? 0 : -Math.round(PREVIEW_LINE_PX / 2),
+          width: isColumn ? '100%' : PREVIEW_LINE_PX,
+          height: isColumn ? PREVIEW_LINE_PX : '100%',
+          background: COLORS.borderHighlight,
+          boxShadow: isColumn
+            ? `0 0 0 1px ${COLORS.bg0}, 0 0 12px ${COLORS.borderHighlight}`
+            : `0 0 0 1px ${COLORS.bg0}, 0 0 12px ${COLORS.borderHighlight}`,
+          opacity: 0,
+          pointerEvents: 'none',
+          zIndex: 30,
+          willChange: 'transform, opacity',
+          transition: 'opacity 80ms linear',
+        }}
+      />
     </div>
   );
 }
