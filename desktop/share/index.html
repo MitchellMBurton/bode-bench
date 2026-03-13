@@ -3,100 +3,207 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Bach Cello Console Download</title>
+  <title>Bach Cello Console Desktop Download</title>
   <style>
     :root {
-      --bg: #06070b;
-      --panel: #0d1118;
-      --line: #1d2a17;
-      --text: #d8e2c8;
-      --muted: #91a07b;
-      --accent: #9dd63d;
-      --accent-dim: #20310f;
+      --bg: #05060a;
+      --bg2: #090c11;
+      --panel: rgba(10, 13, 18, 0.94);
+      --line: rgba(56, 82, 35, 0.42);
+      --line-strong: rgba(132, 186, 58, 0.55);
+      --text: #dde7cf;
+      --muted: #93a57b;
+      --accent: #a5db47;
+      --accent-soft: rgba(165, 219, 71, 0.14);
+      --shadow: rgba(0, 0, 0, 0.55);
+      --warn: #efc57f;
     }
 
-    * { box-sizing: border-box; }
+    * {
+      box-sizing: border-box;
+    }
 
     body {
       margin: 0;
       min-height: 100vh;
-      display: grid;
-      place-items: center;
-      background:
-        radial-gradient(circle at top, rgba(77, 125, 25, 0.12), transparent 38%),
-        linear-gradient(180deg, #08090d 0%, #05060a 100%);
       color: var(--text);
-      font-family: Consolas, "Courier New", monospace;
+      font-family: "JetBrains Mono", "Cascadia Code", Consolas, monospace;
+      background:
+        radial-gradient(circle at top, rgba(122, 180, 44, 0.16), transparent 34%),
+        radial-gradient(circle at bottom right, rgba(71, 110, 24, 0.12), transparent 30%),
+        linear-gradient(180deg, #08090c 0%, var(--bg) 100%);
+      padding: 28px 16px;
     }
 
     main {
-      width: min(760px, calc(100vw - 32px));
+      width: min(980px, 100%);
+      margin: 0 auto;
       border: 1px solid var(--line);
-      background: linear-gradient(180deg, rgba(14, 18, 24, 0.98), rgba(9, 12, 16, 0.98));
-      box-shadow: 0 24px 80px rgba(0, 0, 0, 0.45);
+      background: linear-gradient(180deg, rgba(16, 21, 27, 0.98), rgba(9, 11, 16, 0.98));
+      box-shadow:
+        0 24px 80px var(--shadow),
+        inset 0 1px 0 rgba(255, 255, 255, 0.02);
+      overflow: hidden;
     }
 
     header {
-      padding: 16px 20px;
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 18px 22px;
       border-bottom: 1px solid var(--line);
+      background: linear-gradient(180deg, rgba(8, 11, 16, 0.94), rgba(8, 11, 16, 0.68));
+    }
+
+    .eyebrow,
+    .section-label {
       color: var(--accent);
-      letter-spacing: 0.12em;
-      font-size: 12px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      font-size: 11px;
+    }
+
+    .header-meta {
+      color: var(--muted);
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      white-space: nowrap;
+      align-self: flex-start;
     }
 
     section {
-      padding: 24px 20px 28px;
+      padding: 30px 22px 32px;
+    }
+
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1.15fr) minmax(280px, 0.85fr);
+      gap: 18px;
+      align-items: start;
     }
 
     h1 {
-      margin: 0 0 12px;
-      font-size: 28px;
-      line-height: 1.1;
+      margin: 10px 0 12px;
+      font-size: clamp(28px, 5vw, 42px);
+      line-height: 1;
       letter-spacing: 0.04em;
-      color: var(--text);
     }
 
     p {
       margin: 0 0 14px;
+      max-width: 66ch;
       color: var(--muted);
-      line-height: 1.6;
-      max-width: 62ch;
+      line-height: 1.7;
+      font-size: 14px;
+    }
+
+    .panel {
+      border: 1px solid var(--line);
+      background: rgba(8, 11, 15, 0.58);
+      padding: 16px 16px 18px;
+      min-width: 0;
+    }
+
+    .status-row,
+    .facts {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .status-row {
+      margin: 20px 0 0;
+    }
+
+    .pill {
+      padding: 7px 10px;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.02);
+      color: var(--text);
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .pill.accent {
+      border-color: rgba(165, 219, 71, 0.34);
+      background: var(--accent-soft);
+      color: #e8f6ca;
     }
 
     .actions {
       display: flex;
       flex-wrap: wrap;
       gap: 12px;
-      margin: 24px 0 18px;
+      margin: 24px 0 0;
     }
 
     .button {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      min-height: 46px;
+      gap: 8px;
+      min-height: 48px;
       padding: 0 18px;
-      border: 1px solid rgba(157, 214, 61, 0.5);
-      background: linear-gradient(180deg, rgba(54, 87, 19, 0.95), rgba(30, 48, 11, 0.95));
-      color: #e8f6ca;
+      border: 1px solid rgba(165, 219, 71, 0.5);
+      background: linear-gradient(180deg, rgba(68, 108, 24, 0.96), rgba(38, 59, 16, 0.96));
+      color: #eef8dc;
       text-decoration: none;
       letter-spacing: 0.08em;
       text-transform: uppercase;
       font-size: 12px;
+      cursor: pointer;
+      transition: border-color 120ms ease, transform 120ms ease, background 120ms ease;
     }
 
     .button.secondary {
       border-color: var(--line);
-      background: var(--panel);
+      background: rgba(11, 15, 20, 0.92);
       color: var(--muted);
+    }
+
+    .button:hover {
+      border-color: var(--line-strong);
+      transform: translateY(-1px);
+    }
+
+    .hero-side {
+      display: grid;
+      gap: 14px;
+    }
+
+    .hero-side h2,
+    .panel h2 {
+      margin: 0 0 14px;
+      font-size: 13px;
+      color: var(--accent);
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .facts {
+      margin: 12px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.8;
+    }
+
+    .facts strong {
+      color: var(--text);
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(280px, 0.95fr);
+      gap: 18px;
+      margin-top: 18px;
     }
 
     .meta {
       display: grid;
-      grid-template-columns: 140px 1fr;
+      grid-template-columns: 136px 1fr;
       gap: 10px 14px;
-      padding-top: 18px;
-      border-top: 1px solid var(--line);
       font-size: 13px;
     }
 
@@ -107,31 +214,298 @@
     }
 
     .value {
+      min-width: 0;
+      word-break: break-word;
+    }
+
+    .checksum {
+      margin-top: 16px;
+      padding: 12px;
+      border: 1px solid rgba(165, 219, 71, 0.24);
+      background: rgba(165, 219, 71, 0.06);
+      font-size: 12px;
+      color: #d7e7c4;
       word-break: break-all;
+    }
+
+    .inline-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 12px;
+    }
+
+    .mini-button {
+      min-height: 34px;
+      padding: 0 12px;
+      font-size: 11px;
+    }
+
+    ol {
+      margin: 0;
+      padding-left: 18px;
+      color: var(--muted);
+      line-height: 1.75;
+      font-size: 13px;
+    }
+
+    code {
+      color: #edf7d6;
+      background: rgba(255, 255, 255, 0.03);
+      padding: 2px 5px;
+    }
+
+    .muted {
+      color: var(--muted);
+    }
+
+    .warn {
+      color: var(--warn);
+    }
+
+    .error {
+      color: var(--warn);
+    }
+
+    @media (max-width: 800px) {
+      header,
+      .hero,
+      .grid {
+        grid-template-columns: 1fr;
+      }
+
+      header {
+        display: grid;
+      }
+
+      .header-meta {
+        white-space: normal;
+      }
+
+      .meta {
+        grid-template-columns: 1fr;
+      }
     }
   </style>
 </head>
 <body>
   <main>
-    <header>BACH CELLO CONSOLE / TEMPORARY DOWNLOAD NODE</header>
-    <section>
-      <h1>Windows Download</h1>
-      <p>This is a direct installer for the current desktop build of Bach Cello Console.</p>
-      <p>Download the setup file, run it, and launch the app from the Start Menu or desktop shortcut after install.</p>
-      <div class="actions">
-        <a class="button" href="./BachCelloConsole-Setup.exe">Download Setup</a>
-        <a class="button secondary" href="./BachCelloConsole-Setup.exe.sha256.txt">SHA256</a>
-        <a class="button secondary" href="./latest.json">Manifest</a>
+    <header>
+      <div>
+        <div class="eyebrow">Bach Cello Console / Desktop Distribution</div>
       </div>
-      <div class="meta">
-        <div class="label">Platform</div>
-        <div class="value">Windows x64</div>
-        <div class="label">Installer</div>
-        <div class="value">NSIS Setup EXE</div>
-        <div class="label">Note</div>
-        <div class="value">This build is unsigned, so Windows may show a SmartScreen warning on first run.</div>
+      <div class="header-meta" id="header-meta">Preparing manifest...</div>
+    </header>
+
+    <section>
+      <div class="hero">
+        <div>
+          <div class="section-label">Local-first analysis workstation</div>
+          <h1>Windows Desktop Download</h1>
+          <p>
+            A desktop scientific listening instrument for waveform study, spectral analysis,
+            loudness tracking, transport control, and session-based inspection of Bach's cello suites.
+          </p>
+          <p>
+            This build is intended for serious local use. Download the installer, verify the checksum
+            if required, then run setup. The current local bundle is unsigned, so Windows SmartScreen
+            may ask for confirmation on first launch.
+          </p>
+
+          <div class="status-row">
+            <div class="pill accent" id="version-pill">Version -</div>
+            <div class="pill" id="platform-pill">Windows x64</div>
+            <div class="pill" id="size-pill">Size -</div>
+            <div class="pill" id="channel-pill">Channel local</div>
+          </div>
+
+          <div class="actions">
+            <a class="button" id="download-link" href="./BachCelloConsole-Setup.exe">Download Setup</a>
+            <a class="button secondary" id="webapp-link" href="./webapp.html">Open Browser App</a>
+            <a class="button secondary" id="checksum-link" href="./BachCelloConsole-Setup.exe.sha256.txt">SHA256 File</a>
+            <a class="button secondary" id="manifest-link" href="./latest.json">Manifest</a>
+            <a class="button secondary" id="homepage-link" href="https://github.com/MitchellMBurton/bach-cello-console">Project Page</a>
+          </div>
+        </div>
+
+        <div class="hero-side">
+          <div class="panel">
+            <h2>Run Profile</h2>
+            <div class="facts">
+              <div><strong>Installer:</strong> <span id="installer-type-hero">NSIS Setup EXE</span></div>
+              <div><strong>Minimum OS:</strong> <span id="minimum-os">Windows 10 or later</span></div>
+              <div><strong>Trust Model:</strong> <span id="signed-state" class="warn">Unsigned local build</span></div>
+            </div>
+          </div>
+
+          <div class="panel">
+            <h2>Release Integrity</h2>
+            <div class="facts">
+              <div><strong>Filename:</strong> <span id="installer-file-hero">BachCelloConsole-Setup.exe</span></div>
+              <div><strong>Published:</strong> <span id="updated-at-hero">-</span></div>
+              <div><strong>SHA256:</strong> <span id="checksum-short">Loading...</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid">
+        <div class="panel">
+          <h2>Release Details</h2>
+          <div class="meta">
+            <div class="label">Product</div>
+            <div class="value" id="product-name">Bach Cello Console</div>
+            <div class="label">Installer</div>
+            <div class="value" id="installer-type">NSIS Setup EXE</div>
+            <div class="label">Filename</div>
+            <div class="value" id="installer-file">BachCelloConsole-Setup.exe</div>
+            <div class="label">Published</div>
+            <div class="value" id="updated-at">-</div>
+            <div class="label">Browser App</div>
+            <div class="value"><a id="browser-app-detail" href="./webapp.html" class="muted">webapp.html</a></div>
+            <div class="label">Homepage</div>
+            <div class="value"><a id="homepage-link-detail" href="https://github.com/MitchellMBurton/bach-cello-console" class="muted">Project repository</a></div>
+          </div>
+
+          <div class="checksum">
+            <div><strong>SHA256</strong></div>
+            <div id="checksum-value">Loading checksum...</div>
+            <div class="inline-actions">
+              <button class="button secondary mini-button" id="copy-checksum" type="button">Copy checksum</button>
+              <button class="button secondary mini-button" id="copy-verify" type="button">Copy verify command</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <h2>Install + Verify</h2>
+          <ol>
+            <li>Download the setup file and optional SHA256 sidecar file.</li>
+            <li>Run <code id="verify-command">certutil -hashfile BachCelloConsole-Setup.exe SHA256</code>.</li>
+            <li>Confirm the output matches the checksum shown here or in the SHA256 file.</li>
+            <li>Run the installer and launch Bach Cello Console from the Start Menu.</li>
+          </ol>
+          <p id="manifest-status" class="muted" style="margin-top: 16px;">Manifest loaded from <code>latest.json</code>.</p>
+        </div>
       </div>
     </section>
   </main>
+
+  <script>
+    const formatBytes = (value) => {
+      if (!Number.isFinite(value) || value <= 0) return 'Unknown';
+      const units = ['B', 'KB', 'MB', 'GB'];
+      let size = value;
+      let unit = 0;
+      while (size >= 1024 && unit < units.length - 1) {
+        size /= 1024;
+        unit += 1;
+      }
+      return `${size.toFixed(size >= 10 || unit === 0 ? 0 : 1)} ${units[unit]}`;
+    };
+
+    const setText = (id, value) => {
+      const node = document.getElementById(id);
+      if (node) node.textContent = value;
+    };
+
+    const setHref = (id, value, text) => {
+      const node = document.getElementById(id);
+      if (!node) return;
+      node.href = value;
+      if (text) node.textContent = text;
+    };
+
+    const copyValue = async (value, statusText) => {
+      const manifestStatus = document.getElementById('manifest-status');
+      try {
+        await navigator.clipboard.writeText(value);
+        if (manifestStatus) {
+          manifestStatus.textContent = statusText;
+          manifestStatus.className = 'muted';
+        }
+      } catch (error) {
+        if (manifestStatus) {
+          manifestStatus.textContent = `Clipboard write failed: ${error.message}`;
+          manifestStatus.className = 'error';
+        }
+      }
+    };
+
+    const manifestStatus = document.getElementById('manifest-status');
+    let currentChecksum = '';
+    let currentVerifyCommand = '';
+
+    document.getElementById('copy-checksum')?.addEventListener('click', () => {
+      if (currentChecksum) copyValue(currentChecksum, 'Checksum copied to clipboard.');
+    });
+
+    document.getElementById('copy-verify')?.addEventListener('click', () => {
+      if (currentVerifyCommand) copyValue(currentVerifyCommand, 'Verify command copied to clipboard.');
+    });
+
+    fetch('./latest.json', { cache: 'no-store' })
+      .then((response) => {
+        if (!response.ok) throw new Error(`Manifest request failed: ${response.status}`);
+        return response.json();
+      })
+      .then((manifest) => {
+        const file = manifest.file || 'BachCelloConsole-Setup.exe';
+        const shaFile = manifest.sha256File || `${file}.sha256.txt`;
+        const browserAppFile = manifest.browserAppAvailable === false ? null : (manifest.browserAppFile || 'webapp.html');
+        const updated = manifest.updatedAtUtc ? new Date(manifest.updatedAtUtc) : null;
+        const updatedLabel = updated && !Number.isNaN(updated.valueOf())
+          ? `${updated.toLocaleDateString()} ${updated.toLocaleTimeString()}`
+          : 'Unknown';
+        const checksumShort = manifest.sha256 ? `${manifest.sha256.slice(0, 12)}...` : 'Unavailable';
+        const signedState = manifest.signed ? 'Signed build' : 'Unsigned local build';
+
+        currentChecksum = manifest.sha256 || '';
+        currentVerifyCommand = `certutil -hashfile ${file} SHA256`;
+
+        setText('header-meta', `${manifest.platform || 'Windows x64'} / ${manifest.version || 'Unknown version'}`);
+        setText('version-pill', `Version ${manifest.version || '-'}`);
+        setText('platform-pill', manifest.platform || 'Windows x64');
+        setText('size-pill', `Size ${formatBytes(manifest.sizeBytes)}`);
+        setText('channel-pill', `Channel ${manifest.channel || 'local'}`);
+        setText('product-name', manifest.productName || 'Bach Cello Console');
+        setText('installer-type', manifest.installerType || 'NSIS Setup EXE');
+        setText('installer-type-hero', manifest.installerType || 'NSIS Setup EXE');
+        setText('installer-file', file);
+        setText('installer-file-hero', file);
+        setText('minimum-os', manifest.minimumOs || 'Windows 10 or later');
+        setText('signed-state', signedState);
+        setText('updated-at', updatedLabel);
+        setText('updated-at-hero', updatedLabel);
+        setText('checksum-value', manifest.sha256 || 'Unavailable');
+        setText('checksum-short', checksumShort);
+        setText('verify-command', currentVerifyCommand);
+
+        const homepage = manifest.homepage || 'https://github.com/MitchellMBurton/bach-cello-console';
+        setHref('download-link', `./${file}`);
+        if (browserAppFile) {
+          setHref('webapp-link', `./${browserAppFile}`);
+          setHref('browser-app-detail', `./${browserAppFile}`, browserAppFile);
+        } else {
+          setText('browser-app-detail', 'Unavailable');
+        }
+        setHref('checksum-link', `./${shaFile}`);
+        setHref('manifest-link', './latest.json');
+        setHref('homepage-link', homepage);
+        setHref('homepage-link-detail', homepage, homepage.replace(/^https?:\/\//, ''));
+
+        if (manifestStatus) {
+          manifestStatus.textContent = `Manifest loaded for ${manifest.version || 'current'} / ${manifest.platform || 'Windows x64'}.`;
+          manifestStatus.className = 'muted';
+        }
+      })
+      .catch((error) => {
+        setText('header-meta', 'Manifest unavailable');
+        if (manifestStatus) {
+          manifestStatus.textContent = `Manifest load failed: ${error.message}`;
+          manifestStatus.className = 'error';
+        }
+      });
+  </script>
 </body>
 </html>

@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Bach Cello Console",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "identifier": "com.mitchellmburton.bachcelloconsole",
   "build": {
     "frontendDist": "../../app/dist",
@@ -27,6 +27,12 @@
   },
   "bundle": {
     "active": true,
+    "publisher": "Mitchell Burton",
+    "homepage": "https://github.com/MitchellMBurton/bach-cello-console",
+    "category": "Music",
+    "shortDescription": "Scientific listening instrument for Bach's cello suites.",
+    "longDescription": "A local-first desktop analysis console for scientific listening, waveform inspection, spectral study, loudness tracking, and session-based exploration of Bach's cello suites.",
+    "copyright": "Copyright (c) 2026 Mitchell Burton",
     "targets": [
       "nsis"
     ],
@@ -36,7 +42,8 @@
         "silent": true
       },
       "nsis": {
-        "installMode": "currentUser"
+        "installMode": "currentUser",
+        "installerHooks": "installer-hooks.nsh"
       }
     },
     "icon": [

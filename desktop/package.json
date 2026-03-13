@@ -1,11 +1,12 @@
 {
   "name": "desktop",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.1",
   "scripts": {
     "tauri": "tauri",
     "dev": "tauri dev",
     "build": "tauri build",
+    "release:share": "npm run build && npm run prepare-share",
     "prepare-share": "powershell -ExecutionPolicy Bypass -File ./scripts/prepare-share.ps1",
     "serve-share": "powershell -ExecutionPolicy Bypass -File ./scripts/serve-share.ps1"
   },
