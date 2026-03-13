@@ -4,12 +4,14 @@
 
 import { useState, useEffect } from 'react';
 import { ConsoleLayout } from './layout/ConsoleLayout';
+import { SplitPane } from './layout/SplitPane';
 import { TransportControls } from './controls/TransportControls';
 import { MetadataDisplay } from './controls/MetadataDisplay';
 import { SessionControls } from './controls/SessionControls';
 import { DiagnosticsLog } from './controls/DiagnosticsLog';
 import { WaveformOverviewPanel } from './panels/WaveformOverviewPanel';
 import { OscilloscopePanel } from './panels/OscilloscopePanel';
+import { OscilloscopeScrollPanel } from './panels/OscilloscopeScrollPanel';
 import { FrequencyResponsePanel } from './panels/FrequencyResponsePanel';
 import { WaveformScrollPanel } from './panels/WaveformScrollPanel';
 import { SpectrogramPanel } from './panels/SpectrogramPanel';
@@ -28,6 +30,8 @@ export default function App(): React.ReactElement {
   const [filename, setFilename] = useState<string | null>(null);
   const [grayscale, setGrayscale] = useState(false);
   const [nge, setNge] = useState(false);
+  // Incrementing this triggers SessionControls to reset all audio/display settings.
+  const [sessionResetKey, setSessionResetKey] = useState(0);
 
   useEffect(() => {
     return audioEngine.onTransport((state) => {
@@ -38,7 +42,6 @@ export default function App(): React.ReactElement {
   // Global keyboard shortcuts
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      // Skip if focus is in an input/textarea
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA') return;
 
@@ -72,9 +75,14 @@ export default function App(): React.ReactElement {
 
   return (
     <>
-    <ConsoleLayout
+      <ConsoleLayout
       grayscale={grayscale}
       nge={nge}
+      onResetAll={() => {
+        setGrayscale(false);
+        setNge(false);
+        setSessionResetKey(k => k + 1);
+      }}
       topLeft={{
         category: 'SUITE CONSOLE',
         title: panelTitle,
@@ -83,7 +91,7 @@ export default function App(): React.ReactElement {
             <MetadataDisplay filename={filename} />
             <div style={dividerStyle} />
             <TransportControls />
-            <SessionControls grayscale={grayscale} onGrayscale={setGrayscale} nge={nge} onNge={setNge} />
+            <SessionControls grayscale={grayscale} onGrayscale={setGrayscale} nge={nge} onNge={setNge} resetKey={sessionResetKey} />
             <DiagnosticsLog />
           </div>
         ),
@@ -92,42 +100,58 @@ export default function App(): React.ReactElement {
         category: 'LIVE DIAGNOSTIC',
         title: 'OVERVIEW / WAVEFORM / PITCH / OSC / RESPONSE',
         content: (
-          <div style={splitPanelStyle}>
-            <div style={overviewSlotStyle}><WaveformOverviewPanel /></div>
-            <div style={waveScrollSlotStyle}><WaveformScrollPanel /></div>
-            <div style={pitchSlotStyle}><PitchTrackerPanel /></div>
-            <div style={diagLowerSlotStyle}>
-              <div style={diagLowerStackStyle}>
-                <div style={oscSlotStyle}><OscilloscopePanel /></div>
-                <div style={responseSlotStyle}><FrequencyResponsePanel /></div>
-              </div>
-            </div>
-          </div>
+          // Six independent vertical panes — each handle moves only that boundary.
+          <SplitPane
+            direction="column"
+            initialSizes={[10, 22, 12, 12, 12, 32]}
+            minSizePx={[56, 72, 56, 56, 56, 80]}
+          >
+            {[
+              <WaveformOverviewPanel key="overview" />,
+              <WaveformScrollPanel key="wave-scroll" />,
+              <PitchTrackerPanel key="pitch" />,
+              <OscilloscopePanel key="osc" />,
+              <OscilloscopeScrollPanel key="osc-scroll" />,
+              <FrequencyResponsePanel key="response" />,
+            ]}
+          </SplitPane>
         ),
       }}
       bottomLeft={{
         category: 'SUPPORT INSTRUMENTATION',
         title: 'LEVELS / BANDS / PARTIALS',
         content: (
-          <div style={splitPanelStyle}>
-            <div style={levelsSlotStyle}><LevelsPanel /></div>
-            <div style={freqSlotStyle}><FrequencyBandsPanel /></div>
-            <div style={ladderSlotStyle}><HarmonicLadderPanel /></div>
-          </div>
+          <SplitPane
+            direction="column"
+            initialSizes={[30, 30, 40]}
+            minSizePx={[72, 72, 56]}
+          >
+            {[
+              <LevelsPanel key="levels" />,
+              <FrequencyBandsPanel key="bands" />,
+              <HarmonicLadderPanel key="ladder" />,
+            ]}
+          </SplitPane>
         ),
       }}
       bottomRight={{
         category: 'SPECTRAL ANATOMY',
         title: 'LOUDNESS / SPECTROGRAM',
         content: (
-          <div style={splitPanelStyle}>
-            <div style={loudnessSlotStyle}><LoudnessHistoryPanel /></div>
-            <div style={spectroSlotStyle}><SpectrogramPanel /></div>
-          </div>
+          <SplitPane
+            direction="column"
+            initialSizes={[18, 82]}
+            minSizePx={[48, 96]}
+          >
+            {[
+              <LoudnessHistoryPanel key="loudness" />,
+              <SpectrogramPanel key="spectrogram" />,
+            ]}
+          </SplitPane>
         ),
       }}
-    />
-    {nge && <div style={scanLineStyle} />}
+      />
+      {nge && <div style={scanLineStyle} />}
     </>
   );
 }
@@ -146,88 +170,7 @@ const dividerStyle: React.CSSProperties = {
   flexShrink: 0,
 };
 
-const splitPanelStyle: React.CSSProperties = {
-  display: 'flex',
-  flexDirection: 'column',
-  height: '100%',
-  gap: SPACING.panelGap,
-};
-
-const overviewSlotStyle: React.CSSProperties = {
-  flex: '0 0 16%',
-  minHeight: 0,
-  overflow: 'hidden',
-};
-
-const waveScrollSlotStyle: React.CSSProperties = {
-  flex: '0 0 33%',
-  minHeight: 0,
-  overflow: 'hidden',
-};
-
-const pitchSlotStyle: React.CSSProperties = {
-  flex: '0 0 18%',
-  minHeight: 0,
-  overflow: 'hidden',
-};
-
-const diagLowerSlotStyle: React.CSSProperties = {
-  flex: 1,
-  minHeight: 0,
-  overflow: 'hidden',
-};
-
-const diagLowerStackStyle: React.CSSProperties = {
-  display: 'flex',
-  flexDirection: 'column',
-  height: '100%',
-  gap: SPACING.panelGap,
-};
-
-const oscSlotStyle: React.CSSProperties = {
-  flex: 1,
-  minHeight: 0,
-  overflow: 'hidden',
-};
-
-const responseSlotStyle: React.CSSProperties = {
-  flex: 2,
-  minHeight: 0,
-  overflow: 'hidden',
-};
-
-const levelsSlotStyle: React.CSSProperties = {
-  flex: '0 0 30%',
-  minHeight: 0,
-  overflow: 'hidden',
-};
-
-const freqSlotStyle: React.CSSProperties = {
-  flex: '0 0 30%',
-  minHeight: 0,
-  overflow: 'hidden',
-};
-
-const ladderSlotStyle: React.CSSProperties = {
-  flex: 1,
-  minHeight: 0,
-  overflow: 'hidden',
-};
-
-const loudnessSlotStyle: React.CSSProperties = {
-  flex: '0 0 18%',
-  minHeight: 0,
-  overflow: 'hidden',
-};
-
-const spectroSlotStyle: React.CSSProperties = {
-  flex: 1,
-  minHeight: 0,
-  overflow: 'hidden',
-};
-
 // NGE mode: horizontal scan lines across the entire viewport.
-// Pointer-events none so no interaction is blocked.
 const scanLineStyle: React.CSSProperties = {
   position: 'fixed',
   inset: 0,

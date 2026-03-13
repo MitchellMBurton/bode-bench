@@ -1,6 +1,47 @@
 // Shared canvas helpers
+// ──────────────────────────────────────────────────────────────────────────────
 
 import { CANVAS, COLORS } from '../theme';
+
+/** Parse a 6-digit hex color string to an [R,G,B] triple. */
+export function hexToRgb(hex: string): [number, number, number] {
+  const v = hex.replace('#', '');
+  return [parseInt(v.slice(0, 2), 16), parseInt(v.slice(2, 4), 16), parseInt(v.slice(4, 6), 16)];
+}
+
+/**
+ * Remap every pixel in a monochrome canvas from one [bg, fg] pair to another.
+ * Uses linear interpolation along the bg→fg axis so intermediate shades
+ * (e.g. anti-aliased edges or persistence trails) are also remapped correctly.
+ *
+ * Call this on the *offscreen* canvas whenever the display mode toggles between
+ * normal and NGE so that accumulated scroll history is recolored rather than cleared.
+ */
+export function remapMonochromeCanvas(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  fromBg: readonly [number, number, number],
+  fromFg: readonly [number, number, number],
+  toBg:   readonly [number, number, number],
+  toFg:   readonly [number, number, number],
+): void {
+  const image = ctx.getImageData(0, 0, width, height);
+  const data  = image.data;
+  const sv = [fromFg[0] - fromBg[0], fromFg[1] - fromBg[1], fromFg[2] - fromBg[2]] as const;
+  const dv = [toFg[0]   - toBg[0],   toFg[1]   - toBg[1],   toFg[2]   - toBg[2]]   as const;
+  const denom = sv[0] * sv[0] + sv[1] * sv[1] + sv[2] * sv[2] || 1;
+  for (let i = 0; i < data.length; i += 4) {
+    const dr = data[i]     - fromBg[0];
+    const dg = data[i + 1] - fromBg[1];
+    const db = data[i + 2] - fromBg[2];
+    const t  = Math.max(0, Math.min(1, (dr * sv[0] + dg * sv[1] + db * sv[2]) / denom));
+    data[i]     = Math.round(toBg[0] + dv[0] * t);
+    data[i + 1] = Math.round(toBg[1] + dv[1] * t);
+    data[i + 2] = Math.round(toBg[2] + dv[2] * t);
+  }
+  ctx.putImageData(image, 0, 0);
+}
 
 /** Convert normalised 0–1 level to dB. Returns –Infinity for 0. */
 export function levelToDb(level: number): number {

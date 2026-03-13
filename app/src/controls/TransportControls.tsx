@@ -465,8 +465,9 @@ const btnResetStyle: React.CSSProperties = {
   marginLeft: 'auto',          // push to the right side of the button row
   fontSize: FONTS.sizeSm,
   letterSpacing: '0.06em',
-  color: COLORS.textSecondary,
-  borderColor: COLORS.border,
+  color: COLORS.textPrimary,
+  borderColor: COLORS.borderActive,
+  background: COLORS.bg1,
 };
 
 const loopRowStyle: React.CSSProperties = {

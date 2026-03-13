@@ -3,27 +3,25 @@
 // toggles. Compact utility controls that sit above diagnostics.
 // ============================================================
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useEffectEvent, useRef, useState } from 'react';
+
 import { useAudioEngine, useDisplayMode, useScrollSpeed } from '../core/session';
 import { COLORS, FONTS, SPACING } from '../theme';
+import {
+  RATE_MIN, RATE_MAX, RATE_DEFAULT,
+  PITCH_MIN, PITCH_MAX, PITCH_DEFAULT,
+  SCROLL_MIN, SCROLL_MAX, SCROLL_DEFAULT,
+  VOLUME_DEFAULT,
+} from '../constants';
 
 interface Props {
   grayscale: boolean;
   onGrayscale: (v: boolean) => void;
   nge: boolean;
   onNge: (v: boolean) => void;
+  /** Increment this value to externally trigger a full settings reset. */
+  resetKey?: number;
 }
-
-const RATE_MIN = 0.25;
-const RATE_MAX = 2;
-const PITCH_MIN = -12;
-const PITCH_MAX = 12;
-const SCROLL_MIN = 0.25;
-const SCROLL_MAX = 4;
-const DEFAULT_VOLUME = 1;
-const DEFAULT_RATE = 1;
-const DEFAULT_PITCH = 0;
-const DEFAULT_SCROLL = 1;
 
 function fillWidth(value: number, min: number, max: number): string {
   return `${((value - min) / (max - min)) * 100}%`;
@@ -41,12 +39,12 @@ function formatPitch(semitones: number): string {
   return `${rounded > 0 ? '+' : ''}${rounded} st`;
 }
 
-export function SessionControls({ grayscale, onGrayscale, nge, onNge }: Props): React.ReactElement {
+export function SessionControls({ grayscale, onGrayscale, nge, onNge, resetKey }: Props): React.ReactElement {
   const audioEngine = useAudioEngine();
   const scrollSpeed = useScrollSpeed();
   const displayMode = useDisplayMode();
 
-  const [volume, setVolume] = useState(DEFAULT_VOLUME);
+  const [volume, setVolume] = useState(VOLUME_DEFAULT);
   const [rate, setRate] = useState(audioEngine.playbackRate);
   const [pitch, setPitch] = useState(audioEngine.pitchSemitones);
   const [scroll, setScroll] = useState(scrollSpeed.value);
@@ -109,32 +107,39 @@ export function SessionControls({ grayscale, onGrayscale, nge, onNge }: Props): 
   }, [scrollSpeed]);
 
   const onResetSettings = useCallback(() => {
-    setVolume(DEFAULT_VOLUME);
-    setRate(DEFAULT_RATE);
-    setPitch(DEFAULT_PITCH);
-    setScroll(DEFAULT_SCROLL);
+    setVolume(VOLUME_DEFAULT);
+    setRate(RATE_DEFAULT);
+    setPitch(PITCH_DEFAULT);
+    setScroll(SCROLL_DEFAULT);
 
-    audioEngine.setVolume(DEFAULT_VOLUME);
-    audioEngine.setPlaybackRate(DEFAULT_RATE);
-    audioEngine.setPitchSemitones(DEFAULT_PITCH);
-    scrollSpeed.set(DEFAULT_SCROLL);
+    audioEngine.setVolume(VOLUME_DEFAULT);
+    audioEngine.setPlaybackRate(RATE_DEFAULT);
+    audioEngine.setPitchSemitones(PITCH_DEFAULT);
+    scrollSpeed.set(SCROLL_DEFAULT);
     displayMode.set(false);
     onGrayscale(false);
     onNge(false);
 
     if (volFillRef.current) {
-      volFillRef.current.style.width = `${DEFAULT_VOLUME * 100}%`;
+      volFillRef.current.style.width = `${VOLUME_DEFAULT * 100}%`;
     }
     if (rateFillRef.current) {
-      rateFillRef.current.style.width = fillWidth(DEFAULT_RATE, RATE_MIN, RATE_MAX);
+      rateFillRef.current.style.width = fillWidth(RATE_DEFAULT, RATE_MIN, RATE_MAX);
     }
     if (pitchFillRef.current) {
-      pitchFillRef.current.style.width = fillWidth(DEFAULT_PITCH, PITCH_MIN, PITCH_MAX);
+      pitchFillRef.current.style.width = fillWidth(PITCH_DEFAULT, PITCH_MIN, PITCH_MAX);
     }
     if (scrollFillRef.current) {
-      scrollFillRef.current.style.width = fillWidth(DEFAULT_SCROLL, SCROLL_MIN, SCROLL_MAX);
+      scrollFillRef.current.style.width = fillWidth(SCROLL_DEFAULT, SCROLL_MIN, SCROLL_MAX);
     }
   }, [audioEngine, displayMode, onGrayscale, onNge, scrollSpeed]);
+
+  // External reset trigger — fires when parent increments resetKey.
+  const handleExternalReset = useEffectEvent(onResetSettings);
+  useEffect(() => {
+    if (!resetKey) return;
+    handleExternalReset();
+  }, [resetKey]);
 
   const volPct = Math.round(volume * 100);
   const rateLabel = formatMultiplier(rate);

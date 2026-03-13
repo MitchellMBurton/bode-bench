@@ -1,3 +1,15 @@
+// ============================================================
+// OscilloscopeScrollPanel — real-time scrolling time-domain tape.
+//
+// Unlike WaveformScrollPanel (which scrolls pre-computed peak bins
+// from the full file), this panel reads the live AnalyserNode
+// time-domain buffer at RAF rate and paints new columns as the
+// audio advances — creating a high-resolution ECG-style display.
+//
+// Scroll is RAF-rate (dt-based), not gated on the 20fps frame bus,
+// so it is smooth at all SCRL settings.
+// ============================================================
+
 import { useEffect, useRef } from 'react';
 import { useAudioEngine, useDisplayMode, useFrameBus, useScrollSpeed } from '../core/session';
 import { COLORS, FONTS, CANVAS, SPACING } from '../theme';
@@ -5,19 +17,22 @@ import { hexToRgb, remapMonochromeCanvas } from '../utils/canvas';
 import type { AudioFrame } from '../types';
 
 const PAD = SPACING.panelPad;
-const BASE_SCROLL_PX = CANVAS.timelineScrollPx;
 const PANEL_DPR_MAX = 1.25;
-const NGE_BG = '#131a13';
-const NGE_PERSISTENCE_FILL = 'rgba(19,26,19,0.85)';
+const NGE_BG    = '#131a13';
 const NGE_TRACE = '#a0d840';
-const NGE_GRID = 'rgba(144,200,64,0.22)';
-const NGE_LABEL = 'rgba(140,210,40,0.5)';
-const BG_RGB = hexToRgb(COLORS.bg2);
+const BG_RGB    = hexToRgb(COLORS.bg2);
 const TRACE_RGB = hexToRgb(COLORS.waveform);
-const NGE_BG_RGB = hexToRgb(NGE_BG);
+const NGE_BG_RGB    = hexToRgb(NGE_BG);
 const NGE_TRACE_RGB = hexToRgb(NGE_TRACE);
 
-export function WaveformScrollPanel(): React.ReactElement {
+// How many audio samples each horizontal pixel column represents.
+// 256 samples @ 44100 Hz ≈ 5.8 ms/px; a 900-px panel shows ~5.2 s.
+const SAMPLES_PER_PX = 256;
+
+// Allocate once — reused every frame.
+const TD_BUF = new Float32Array(CANVAS.fftSize);
+
+export function OscilloscopeScrollPanel(): React.ReactElement {
   const frameBus = useFrameBus();
   const audioEngine = useAudioEngine();
   const displayMode = useDisplayMode();
@@ -27,10 +42,11 @@ export function WaveformScrollPanel(): React.ReactElement {
   const frameRef = useRef<AudioFrame | null>(null);
   const rafRef = useRef<number | null>(null);
   const lastFileIdRef = useRef(-1);
-  const scrollCarryRef = useRef(0);
   const lastNgeRef = useRef(displayMode.nge);
-  const lastRafTimeRef = useRef(0); // performance.now() of last RAF tick
+  const sampleCarryRef = useRef(0); // fractional-sample carry across frames
+  const lastRafTimeRef = useRef(0);
 
+  // Track latest frame only for fileId / displayGain
   useEffect(() => {
     return frameBus.subscribe((frame) => {
       frameRef.current = frame;
@@ -40,13 +56,13 @@ export function WaveformScrollPanel(): React.ReactElement {
   useEffect(() => {
     return audioEngine.onReset(() => {
       frameRef.current = null;
+      sampleCarryRef.current = 0;
       lastRafTimeRef.current = 0;
-      scrollCarryRef.current = 0;
       const offscreen = offscreenRef.current;
       if (!offscreen) return;
       const octx = offscreen.getContext('2d');
       if (octx) {
-        octx.fillStyle = displayMode.nge ? NGE_BG : COLORS.bg2;
+        octx.fillStyle = displayMode.nge ? '#131a13' : COLORS.bg2;
         octx.fillRect(0, 0, offscreen.width, offscreen.height);
       }
     });
@@ -66,8 +82,6 @@ export function WaveformScrollPanel(): React.ReactElement {
         const w = Math.round(width * dpr);
         const h = Math.round(height * dpr);
 
-        // Snapshot existing content before resize clears it, then blit back
-        // right-aligned so the newest (right-edge) history is always preserved.
         const prevW = offscreen.width;
         const prevH = offscreen.height;
         let snapshot: HTMLCanvasElement | null = null;
@@ -82,11 +96,11 @@ export function WaveformScrollPanel(): React.ReactElement {
         canvas.height = h;
         offscreen.width = w;
         offscreen.height = h;
-        scrollCarryRef.current = 0;
+        sampleCarryRef.current = 0;
 
         const octx = offscreen.getContext('2d');
         if (octx) {
-          octx.fillStyle = displayMode.nge ? NGE_BG : COLORS.bg2;
+          octx.fillStyle = displayMode.nge ? '#131a13' : COLORS.bg2;
           octx.fillRect(0, 0, w, h);
           if (snapshot) {
             octx.drawImage(snapshot, w - prevW, Math.round((h - prevH) / 2));
@@ -98,7 +112,6 @@ export function WaveformScrollPanel(): React.ReactElement {
 
     const draw = () => {
       rafRef.current = requestAnimationFrame(draw);
-      const frame = frameRef.current;
       const ctx = canvas.getContext('2d');
       const octx = offscreen.getContext('2d');
       if (!ctx || !octx) return;
@@ -113,38 +126,34 @@ export function WaveformScrollPanel(): React.ReactElement {
       const drawH = H - padY * 2;
       const midY = padY + drawH / 2;
       const halfH = drawH / 2;
-      const backgroundFill = nge ? NGE_BG : COLORS.bg2;
-      const persistenceFill = nge ? NGE_PERSISTENCE_FILL : COLORS.bg2;
-      const traceColor = nge ? NGE_TRACE : COLORS.waveform;
-      const gridColor = nge ? NGE_GRID : COLORS.waveformGrid;
-      const labelColor = nge ? NGE_LABEL : COLORS.textDim;
-      const backgroundFillRgb = nge ? NGE_BG_RGB : BG_RGB;
-      const traceColorRgb = nge ? NGE_TRACE_RGB : TRACE_RGB;
+      const bgFill = nge ? '#131a13' : COLORS.bg2;
+      const traceColor = nge ? '#a0d840' : COLORS.waveform;
+      const gridColor = nge ? 'rgba(144,200,64,0.22)' : COLORS.waveformGrid;
+      const labelColor = nge ? 'rgba(140,210,40,0.5)' : COLORS.textDim;
 
+      // Detect NGE mode toggle — remap offscreen palette so scroll history is preserved
       if (nge !== lastNgeRef.current) {
         remapMonochromeCanvas(
-          octx,
-          W,
-          H,
+          octx, W, H,
           lastNgeRef.current ? NGE_BG_RGB : BG_RGB,
           lastNgeRef.current ? NGE_TRACE_RGB : TRACE_RGB,
-          backgroundFillRgb,
-          traceColorRgb,
+          nge ? NGE_BG_RGB : BG_RGB,
+          nge ? NGE_TRACE_RGB : TRACE_RGB,
         );
         lastNgeRef.current = nge;
       }
 
+      // Detect new file — clear offscreen
+      const frame = frameRef.current;
       if (frame && frame.fileId !== lastFileIdRef.current) {
         lastFileIdRef.current = frame.fileId;
-        scrollCarryRef.current = 0;
+        sampleCarryRef.current = 0;
         lastRafTimeRef.current = 0;
-        octx.fillStyle = backgroundFill;
+        octx.fillStyle = bgFill;
         octx.fillRect(0, 0, W, H);
       }
 
-      // RAF-rate scroll: advance every frame based on real elapsed time rather than
-      // waiting for the 20fps frame bus. This eliminates the "jump then freeze" stutter
-      // visible at higher scroll speeds. dt is capped at 100ms to handle tab-unfocus.
+      // RAF-rate scroll using real elapsed time
       const now = performance.now();
       const dtSec = lastRafTimeRef.current > 0
         ? Math.min((now - lastRafTimeRef.current) / 1000, 0.1)
@@ -152,45 +161,52 @@ export function WaveformScrollPanel(): React.ReactElement {
       lastRafTimeRef.current = now;
 
       if (audioEngine.isPlaying && dtSec > 0) {
-        // px/sec = BASE_SCROLL_PX × ANALYSIS_FPS × multipliers
-        // (matches the old per-frame rate of BASE_SCROLL_PX × playbackRate × scrollSpeed)
-        const pxPerSec = BASE_SCROLL_PX * 20 * scrollSpeed.value * audioEngine.playbackRate;
-        scrollCarryRef.current += pxPerSec * dtSec;
-        const scrollPx = Math.max(0, Math.floor(scrollCarryRef.current));
+        const sampleRate = audioEngine.sampleRate;
+        // Accumulate samples advanced this frame; divide by SAMPLES_PER_PX to get pixels
+        sampleCarryRef.current += dtSec * sampleRate * audioEngine.playbackRate * scrollSpeed.value;
+        const scrollPx = Math.min(
+          Math.max(0, Math.floor(sampleCarryRef.current / SAMPLES_PER_PX)),
+          Math.floor(TD_BUF.length / SAMPLES_PER_PX), // cap: can't exceed one buffer
+        );
 
         if (scrollPx > 0) {
-          scrollCarryRef.current -= scrollPx;
+          sampleCarryRef.current -= scrollPx * SAMPLES_PER_PX;
 
+          // Pull latest time-domain data from the analyser
+          audioEngine.getTimeDomainData(TD_BUF);
+          const bufLen = TD_BUF.length;
+          const gain = frame?.displayGain ?? audioEngine.displayGain;
+
+          // Shift offscreen left, clear right strip
           octx.drawImage(offscreen, -scrollPx, 0);
-          octx.fillStyle = persistenceFill;
+          octx.fillStyle = bgFill;
           octx.fillRect(W - scrollPx, 0, scrollPx, H);
 
-          const peaks = audioEngine.waveformPeaks;
-          const binSamples = audioEngine.waveformBinSamples;
-          const gain = frame?.displayGain ?? audioEngine.displayGain;
-          const currentTime = audioEngine.currentTime;
-          const sampleRate = audioEngine.sampleRate;
-
-          if (peaks) {
-            const currentBin = Math.floor((currentTime * sampleRate) / binSamples);
-
-            octx.fillStyle = traceColor;
-            for (let col = 0; col < scrollPx; col++) {
-              const bin = currentBin - (scrollPx - 1 - col);
-              if (bin < 0 || bin * 2 + 1 >= peaks.length) continue;
-              const mn = peaks[bin * 2] * gain;
-              const mx = peaks[bin * 2 + 1] * gain;
-              const y1 = Math.round(midY - mx * halfH);
-              const y2 = Math.round(midY - mn * halfH);
-              octx.fillRect(W - scrollPx + col, y1, 1, Math.max(1, y2 - y1));
+          // Paint new columns — each 1px wide, one min/max bar
+          octx.fillStyle = traceColor;
+          for (let col = 0; col < scrollPx; col++) {
+            // col=0 is leftmost (oldest); col=scrollPx-1 is rightmost (newest)
+            const end = bufLen - (scrollPx - 1 - col) * SAMPLES_PER_PX;
+            const start = Math.max(0, end - SAMPLES_PER_PX);
+            let mn = 0;
+            let mx = 0;
+            for (let s = start; s < end; s++) {
+              const v = TD_BUF[s];
+              if (v < mn) mn = v;
+              if (v > mx) mx = v;
             }
+            const y1 = Math.round(midY - mx * gain * halfH);
+            const y2 = Math.round(midY - mn * gain * halfH);
+            octx.fillRect(W - scrollPx + col, y1, 1, Math.max(1, y2 - y1));
           }
         }
       }
 
-      ctx.fillStyle = backgroundFill;
+      // Composite to display canvas
+      ctx.fillStyle = bgFill;
       ctx.fillRect(0, 0, W, H);
 
+      // Zero/grid lines drawn directly on display canvas (not in offscreen)
       ctx.strokeStyle = gridColor;
       ctx.lineWidth = 0.5;
       ctx.setLineDash([2, 4]);
@@ -207,6 +223,7 @@ export function WaveformScrollPanel(): React.ReactElement {
       ctx.drawImage(offscreen, 0, 0);
       ctx.restore();
 
+      // Amplitude labels
       ctx.font = `${9 * dpr}px ${FONTS.mono}`;
       ctx.fillStyle = labelColor;
       ctx.textAlign = 'left';
@@ -218,7 +235,7 @@ export function WaveformScrollPanel(): React.ReactElement {
 
       ctx.textAlign = 'right';
       ctx.textBaseline = 'top';
-      ctx.fillText('WAVEFORM', W - 8 * dpr, 6 * dpr);
+      ctx.fillText('OSC SCROLL', W - 8 * dpr, 6 * dpr);
     };
 
     rafRef.current = requestAnimationFrame(draw);

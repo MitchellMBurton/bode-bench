@@ -17,6 +17,7 @@ import type { FrameBus } from './frameBus';
 import { createStretchNode, type StretchNode, type StretchSchedule } from './stretchNode';
 import { CANVAS } from '../theme';
 import type { AudioFrame, FileAnalysis, TransportState } from '../types';
+import { RATE_MIN, RATE_MAX, PITCH_MIN, PITCH_MAX } from '../constants';
 
 type TransportListener = (state: TransportState) => void;
 
@@ -24,10 +25,6 @@ const ANALYSIS_FPS = 20;
 const ANALYSIS_FRAME_MS = 1000 / ANALYSIS_FPS;
 const DECLICK_FADE_S = 0.006;
 const DECLICK_IN_S = 0.008;
-const RATE_MIN = 0.25;
-const RATE_MAX = 2;
-const PITCH_MIN = -12;
-const PITCH_MAX = 12;
 const STRETCH_WATCHDOG_GRACE_S = 0.75;
 const STRETCH_WATCHDOG_TIMEOUT_S = 0.6;
 
@@ -687,6 +684,7 @@ export class AudioEngine {
   get displayGain(): number { return this._displayGain; }
   get waveformPeaks(): Float32Array | null { return this._waveformPeaks; }
   get waveformBinSamples(): number { return AudioEngine.WAVEFORM_BIN_SAMPLES; }
+  get sampleRate(): number { return this.ctx?.sampleRate ?? 44100; }
 
   getTimeDomainData(out: Float32Array): void {
     if (this.analyserL) {
@@ -705,6 +703,7 @@ export class AudioEngine {
 
   onTransport(fn: TransportListener): () => void {
     this.transportListeners.add(fn);
+    fn(this.createTransportState());
     return () => {
       this.transportListeners.delete(fn);
     };
@@ -772,8 +771,8 @@ export class AudioEngine {
     };
   }
 
-  private emitTransport(): void {
-    const state: TransportState = {
+  private createTransportState(): TransportState {
+    return {
       isPlaying: this._isPlaying,
       currentTime: this.currentTime,
       duration: this.duration,
@@ -784,6 +783,10 @@ export class AudioEngine {
       loopStart: this._loopStart,
       loopEnd: this._loopEnd,
     };
+  }
+
+  private emitTransport(): void {
+    const state = this.createTransportState();
 
     for (const fn of this.transportListeners) {
       fn(state);

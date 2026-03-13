@@ -1,12 +1,26 @@
 // ============================================================
 // Four-quadrant console layout with global header and section chrome.
+//
+// Structure:
+//   globalHeader (fixed height)
+//   layoutToolbar (fixed height — profile controls, layout status)
+//   SplitPane[column] (flex 1)
+//     top row → SplitPane[row] → [topLeft, topRight]
+//     bottom row → SplitPane[row] → [bottomLeft, bottomRight]
+//
+// All four inter-quadrant dividers are now draggable:
+//   - The horizontal centre line (outer column SplitPane)
+//   - Each row's left/right boundary (inner row SplitPanes, independent)
 // ============================================================
 
+import { useState } from 'react';
+import { SplitPane } from './SplitPane';
 import { COLORS, FONTS, SPACING } from '../theme';
 
 const GAP = SPACING.panelGap;
 const CHROME_H = SPACING.chromeHeaderH;
 const GLOBAL_H = SPACING.globalHeaderH;
+const TOOLBAR_H = 26; // px — single-line layout toolbar
 
 interface PanelDef {
   category: string;
@@ -22,14 +36,58 @@ interface Props {
   bottomRight: PanelDef;
   grayscale?: boolean;
   nge?: boolean;
+  /** Called when the toolbar "RESET ALL" button is pressed, after layout sizes are reset. */
+  onResetAll?: () => void;
 }
 
-export function ConsoleLayout({ topLeft, topRight, bottomLeft, bottomRight, grayscale, nge }: Props): React.ReactElement {
-  const chromeBorder = nge ? '#0d1a0d' : COLORS.border;
-  const chromeBorderActive = nge ? '#1a4a10' : COLORS.border;
-  const headerBorder = nge ? '#1a4a10' : COLORS.headerBorder;
+// ── ChromePanel ───────────────────────────────────────────────────────────────
+// Renders a single panel with category/title header chrome.
+
+interface ChromePanelProps extends PanelDef {
+  nge?: boolean;
+}
+
+function ChromePanel({ category, title, stat, content, nge }: ChromePanelProps): React.ReactElement {
+  const chromeBorder      = nge ? '#0d1a0d' : COLORS.border;
+  const chromeBorderInner = nge ? '#1a4a10' : COLORS.border;
+  const chromeCategory    = nge ? 'rgba(80,160,50,0.6)' : COLORS.textCategory;
+  const chromeStat        = nge ? '#78c84a' : COLORS.waveform;
+
+  return (
+    <div style={{ ...chromeStyle, border: `1px solid ${chromeBorder}` }}>
+      <div style={{ ...chromeHeaderStyle, borderBottom: `1px solid ${chromeBorderInner}` }}>
+        <div style={chromeLabelGroupStyle}>
+          <span style={{ ...chromeCategoryStyle, color: chromeCategory }}>{category}</span>
+          <span style={chromeTitleStyle}>{title}</span>
+        </div>
+        {stat && <span style={{ ...chromeStatStyle, color: chromeStat }}>{stat}</span>}
+      </div>
+      <div style={chromeContentStyle}>
+        {content}
+      </div>
+    </div>
+  );
+}
+
+// ── ConsoleLayout ─────────────────────────────────────────────────────────────
+
+export function ConsoleLayout({ topLeft, topRight, bottomLeft, bottomRight, grayscale, nge, onResetAll }: Props): React.ReactElement {
+  // Incrementing layoutKey forces all SplitPanes to remount, resetting their
+  // fracs to initialSizes. This is the reset-layout mechanism.
+  const [layoutKey, setLayoutKey] = useState(0);
+
+  const headerBorder   = nge ? '#1a4a10' : COLORS.headerBorder;
   const chromeCategory = nge ? 'rgba(80,160,50,0.6)' : COLORS.textCategory;
-  const chromeStat = nge ? '#78c84a' : COLORS.waveform;
+  const toolbarBorder  = nge ? '#0d1a0d' : COLORS.border;
+  const toolbarText    = nge ? 'rgba(80,160,50,0.5)' : COLORS.textCategory;
+  const toolbarButtonText = nge ? 'rgba(160,230,60,0.92)' : COLORS.textPrimary;
+  const toolbarButtonBorder = nge ? '#2c6b18' : COLORS.borderActive;
+  const toolbarButtonBg = nge ? 'rgba(8,18,8,0.9)' : COLORS.bg1;
+
+  function handleResetAll(): void {
+    setLayoutKey(k => k + 1);
+    onResetAll?.();
+  }
 
   return (
     <div style={shellStyle}>
@@ -45,31 +103,69 @@ export function ConsoleLayout({ topLeft, topRight, bottomLeft, bottomRight, gray
         </div>
       </div>
 
-      {/* Four-quadrant grid */}
-      <div style={{ ...gridStyle, filter: grayscale ? 'grayscale(1) contrast(1.05)' : 'none' }}>
-        {[topLeft, topRight, bottomLeft, bottomRight].map((panel, i) => (
-          <div
-            key={i}
-            style={{
-              ...cellStyle,
-              gridColumn: i % 2 === 0 ? '1' : '2',
-              gridRow: i < 2 ? '1' : '2',
-            }}
-          >
-            <div style={{ ...chromeStyle, border: `1px solid ${chromeBorder}` }}>
-              <div style={{ ...chromHeaderStyle, borderBottom: `1px solid ${chromeBorderActive}` }}>
-                <div style={chromeLabelGroupStyle}>
-                  <span style={{ ...chromeCategoryStyle, color: chromeCategory }}>{panel.category}</span>
-                  <span style={chromeTitleStyle}>{panel.title}</span>
-                </div>
-                {panel.stat && <span style={{ ...chromeStatStyle, color: chromeStat }}>{panel.stat}</span>}
-              </div>
-              <div style={chromeContentStyle}>
-                {panel.content}
-              </div>
-            </div>
-          </div>
-        ))}
+      {/* Layout toolbar */}
+      <div style={{ ...toolbarStyle, borderBottom: `1px solid ${toolbarBorder}` }}>
+        <span style={{ ...toolbarLabelStyle, color: toolbarText }}>LAYOUT PROFILE</span>
+        <span style={{ ...toolbarValueStyle, color: toolbarText }}>DEFAULT</span>
+        <div style={toolbarDividerStyle} />
+        <button
+          style={{
+            ...toolbarButtonStyle,
+            color: toolbarButtonText,
+            borderColor: toolbarButtonBorder,
+            background: toolbarButtonBg,
+          }}
+          onClick={handleResetAll}
+          title="Reset all panel sizes and session settings to defaults"
+        >
+          RESET ALL
+        </button>
+        <div style={{ flex: 1 }} />
+        <span style={{ ...toolbarLabelStyle, color: toolbarText }}>DRAG DIVIDERS TO RESIZE</span>
+      </div>
+
+      {/* Main panel area — all four dividers are draggable */}
+      <div style={{
+        flex: 1,
+        minHeight: 0,
+        padding: GAP,
+        boxSizing: 'border-box',
+        filter: grayscale ? 'grayscale(1) contrast(1.05)' : 'none',
+      }}>
+        <SplitPane
+          key={layoutKey}
+          direction="column"
+          initialSizes={[50, 50]}
+          minSizePx={[200, 200]}
+        >
+          {[
+            /* Top row */
+            <SplitPane
+              key="top"
+              direction="row"
+              initialSizes={[340, 660]}
+              minSizePx={[240, 320]}
+            >
+              {[
+                <ChromePanel key="tl" {...topLeft} nge={nge} />,
+                <ChromePanel key="tr" {...topRight} nge={nge} />,
+              ]}
+            </SplitPane>,
+
+            /* Bottom row */
+            <SplitPane
+              key="bottom"
+              direction="row"
+              initialSizes={[340, 660]}
+              minSizePx={[240, 320]}
+            >
+              {[
+                <ChromePanel key="bl" {...bottomLeft} nge={nge} />,
+                <ChromePanel key="br" {...bottomRight} nge={nge} />,
+              ]}
+            </SplitPane>,
+          ]}
+        </SplitPane>
       </div>
     </div>
   );
@@ -137,21 +233,52 @@ const headerTagStyle: React.CSSProperties = {
   letterSpacing: '0.10em',
 };
 
-const gridStyle: React.CSSProperties = {
-  flex: 1,
-  display: 'grid',
-  gridTemplateColumns: '340px 1fr',
-  gridTemplateRows: '50% 1fr',
-  gap: GAP,
-  padding: GAP,
+const toolbarStyle: React.CSSProperties = {
+  height: TOOLBAR_H,
+  flexShrink: 0,
+  background: COLORS.bg0,
+  display: 'flex',
+  alignItems: 'center',
+  gap: SPACING.sm,
+  padding: `0 ${SPACING.md}px`,
   boxSizing: 'border-box',
-  minHeight: 0,
 };
 
-const cellStyle: React.CSSProperties = {
-  overflow: 'hidden',
-  minWidth: 0,
-  minHeight: 0,
+const toolbarLabelStyle: React.CSSProperties = {
+  fontFamily: FONTS.mono,
+  fontSize: FONTS.sizeXs,
+  letterSpacing: '0.12em',
+  textTransform: 'uppercase',
+  flexShrink: 0,
+};
+
+const toolbarValueStyle: React.CSSProperties = {
+  fontFamily: FONTS.mono,
+  fontSize: FONTS.sizeXs,
+  letterSpacing: '0.10em',
+  textTransform: 'uppercase',
+  flexShrink: 0,
+};
+
+const toolbarDividerStyle: React.CSSProperties = {
+  width: 1,
+  height: 12,
+  background: COLORS.border,
+  flexShrink: 0,
+};
+
+const toolbarButtonStyle: React.CSSProperties = {
+  fontFamily: FONTS.mono,
+  fontSize: FONTS.sizeXs,
+  letterSpacing: '0.12em',
+  textTransform: 'uppercase',
+  background: 'transparent',
+  border: `1px solid ${COLORS.border}`,
+  color: COLORS.textCategory,
+  padding: `2px ${SPACING.sm}px`,
+  cursor: 'pointer',
+  outline: 'none',
+  flexShrink: 0,
 };
 
 const chromeStyle: React.CSSProperties = {
@@ -165,7 +292,7 @@ const chromeStyle: React.CSSProperties = {
   flexDirection: 'column',
 };
 
-const chromHeaderStyle: React.CSSProperties = {
+const chromeHeaderStyle: React.CSSProperties = {
   height: CHROME_H,
   flexShrink: 0,
   borderBottom: `1px solid ${COLORS.border}`,

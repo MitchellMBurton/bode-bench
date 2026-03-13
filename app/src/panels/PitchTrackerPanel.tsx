@@ -53,7 +53,7 @@ export function PitchTrackerPanel(): React.ReactElement {
   const currentRef = useRef<AudioFrame | null>(null);
   const lastFileIdRef = useRef(-1);
   const rafRef = useRef<number | null>(null);
-  const lastDataTimeRef = useRef<number>(performance.now());
+  const lastDataTimeRef = useRef(0);
 
   useEffect(() => frameBus.subscribe((frame) => {
     if (frame.fileId !== lastFileIdRef.current) {

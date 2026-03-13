@@ -102,7 +102,7 @@ export const CANVAS = {
   oscTriggerThreshold: 0.01,
 
   spectroScrollSpeed: 1,
-  timelineScrollPx: 3.0,  // px/frame shared by all scrolling panels; tuned for 20 FPS analysis
+  timelineScrollPx: 1.5,  // px/frame shared by all scrolling panels; tuned for 20 FPS analysis (≈30px/s at 1×)
   spectroFreqAxisWidth: 48,
 
   levelBarWidth: 28,
@@ -115,8 +115,27 @@ export const CANVAS = {
   fftSize: 8192,
   smoothingTimeConstant: 0.8,
 
-  // Per-band bar colors - indexed parallel to frequencyBands
-  bandColors: ['#1a2870', '#1a5070', '#1a7060', '#706020', '#a07020', '#c8922a'],
+  // Per-band bar colors — derived from COLORS band constants (indexed parallel to frequencyBands).
+  // Update the COLORS.band* values above to change all band-color usages at once.
+  get bandColors(): readonly string[] {
+    return [COLORS.bandSub, COLORS.bandBody, COLORS.bandWood, COLORS.bandBow, COLORS.bandAir, COLORS.bandShimmer];
+  },
+
+  // ── NGE phosphor-mode palette ─────────────────────────────────
+  // Single source of truth for the green-phosphor display mode used
+  // across all canvas panels. Import NGE from theme instead of
+  // redefining these strings locally in each panel file.
+  nge: {
+    bg:          '#030a03',
+    bg2:         '#131a13',
+    trace:       '#a0d840',
+    grid:        'rgba(144,200,64,0.22)',
+    label:       'rgba(140,210,40,0.5)',
+    chromeBorder: '#0d1a0d',
+    chromeBorderActive: '#1a4a10',
+    category:    'rgba(80,160,50,0.6)',
+    stat:        '#78c84a',
+  },
 
   // Cello-meaningful frequency bands
   frequencyBands: [

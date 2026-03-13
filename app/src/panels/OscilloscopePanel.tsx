@@ -116,10 +116,22 @@ export function OscilloscopePanel(): React.ReactElement {
         return;
       }
 
-      // Find trigger point: first zero crossing going positive
-      let triggerIdx = 0;
-      for (let i = 1; i < len - 1; i++) {
-        if (td[i - 1] < TRIGGER_THRESHOLD && td[i] >= TRIGGER_THRESHOLD) {
+      // Hysteresis trigger with sub-sample precision — Foobar2000-style stable waveform.
+      // Strategy: search middle third of the buffer (not from pos 0), require signal to
+      // dip below -TRIGGER_THRESHOLD before allowing a positive crossing (hysteresis),
+      // then interpolate the exact fractional crossing position to phase-align the
+      // drawing with sub-sample accuracy. This eliminates all "swimming" jitter caused
+      // by the AnalyserNode buffer advancing a non-integer number of samples per frame.
+      const searchStart = Math.floor(len / 6);
+      const searchEnd   = Math.floor(len * 2 / 3);
+      let triggerIdx = searchStart; // fallback: beginning of search window
+      let triggerFrac = 0;          // sub-sample phase offset within [0, 1)
+      let primed = false;            // hysteresis: must see negative lobe first
+      for (let i = searchStart + 1; i < searchEnd; i++) {
+        if (td[i] < -TRIGGER_THRESHOLD) primed = true;
+        if (primed && td[i - 1] < TRIGGER_THRESHOLD && td[i] >= TRIGGER_THRESHOLD) {
+          const slope = td[i] - td[i - 1];
+          triggerFrac = slope > 0 ? (TRIGGER_THRESHOLD - td[i - 1]) / slope : 0;
           triggerIdx = i;
           break;
         }
@@ -139,7 +151,7 @@ export function OscilloscopePanel(): React.ReactElement {
         ctx.lineWidth = 5 * dpr;
         ctx.beginPath();
         for (let i = 0; i < samples; i++) {
-          const x = padX + (i / (samples - 1)) * drawW;
+          const x = padX + ((i - triggerFrac) / (samples - 1)) * drawW;
           const y = midY - td[triggerIdx + i] * gain * (drawH / 2);
           if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
         }
@@ -149,7 +161,7 @@ export function OscilloscopePanel(): React.ReactElement {
 
       ctx.beginPath();
       for (let i = 0; i < samples; i++) {
-        const x = padX + (i / (samples - 1)) * drawW;
+        const x = padX + ((i - triggerFrac) / (samples - 1)) * drawW;
         const y = midY - td[triggerIdx + i] * gain * (drawH / 2);
         if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
       }
