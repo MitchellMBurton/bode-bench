@@ -78,7 +78,7 @@ export default function App(): React.ReactElement {
 
   const fileTitle = filename ? filename.replace(/\.[^/.]+$/, '') : null;
   const panelTitle = fileTitle ?? 'NO SESSION';
-  const nge = visualMode === 'nge';
+  const showScanLines = visualMode === 'nge' || visualMode === 'hyper';
 
   return (
     <>
@@ -164,7 +164,7 @@ export default function App(): React.ReactElement {
         ),
       }}
       />
-      {nge && <div style={scanLineStyle} />}
+      {showScanLines && <div style={scanLineStyle} />}
     </>
   );
 }

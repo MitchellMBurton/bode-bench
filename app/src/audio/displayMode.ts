@@ -24,11 +24,4 @@ export class DisplayModeStore {
     this.currentMode = mode;
   }
 
-  set(modeOrNge: VisualMode | boolean): void {
-    if (typeof modeOrNge === 'boolean') {
-      this.currentMode = modeOrNge ? 'nge' : 'default';
-      return;
-    }
-    this.currentMode = modeOrNge;
-  }
 }
