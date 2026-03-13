@@ -53,6 +53,18 @@ npm run dev
 
 This wraps the existing frontend in Tauri. It requires the Rust/Tauri desktop prerequisites on the host machine.
 
+### 1c. Build the desktop download
+
+```bash
+cd desktop
+npm run release:share
+```
+
+This builds the desktop shell and refreshes the local download bundle in `desktop/share/`.
+It also refreshes a static browser bundle at `desktop/share/webapp.html` for temporary public sharing.
+
+Release notes and desktop workflow details live in `desktop/README.md`.
+
 ### 2. Load audio
 
 - **Drag and drop** any audio file onto the ingest zone (top-left panel).
@@ -206,6 +218,9 @@ cd desktop && npm run dev
 # Build desktop shell
 cd desktop && npm run build
 
+# Build desktop shell and refresh the download bundle
+cd desktop && npm run release:share
+
 # Type check (no emit)
 cd app && npx tsc --noEmit
 
@@ -227,6 +242,7 @@ cd scripts && python export_events.py <offset_seconds>
 |---|---|
 | `PROJECT.md` | Product definition and invariants |
 | `UX_PRINCIPLES.md` | Interface doctrine |
+| `POWER_USER_UX.md` | Workspace bar, overlays, and interpretation-system direction |
 | `ARCHITECTURE.md` | Technical structure and domain boundaries |
 | `DECISION_RULES.md` | How to choose between alternatives |
 | `TASKS.md` | Current build sequence and status |
@@ -252,7 +268,7 @@ cd scripts && python export_events.py <offset_seconds>
 
 ## What Remains
 
-- [ ] T02 — Tauri desktop wrapper
+- [x] T02 — Tauri desktop wrapper
 - [ ] T15 — Screenshot audit
 - [ ] T16 — Presentation test with full Prelude playback
 - Future: remaining five suites, phrase overlays, performer comparison, helix rendering

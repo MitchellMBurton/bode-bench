@@ -15,6 +15,9 @@ desktop/share-server.err
 desktop/share/BachCelloConsole-Setup.exe
 desktop/share/BachCelloConsole-Setup.exe.sha256.txt
 desktop/share/latest.json
+desktop/share/assets/
+desktop/share/vite.svg
+desktop/share/webapp.html
 
 # Session audio (ephemeral)
 audio/sessions/
