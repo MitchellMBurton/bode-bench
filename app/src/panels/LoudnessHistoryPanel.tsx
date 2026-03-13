@@ -20,6 +20,9 @@ const MS_PER_DATA_FRAME = 1000 / 20; // 20 FPS analysis rate
 const NGE_TRACE = '#a0d840';
 const NGE_LABEL = 'rgba(140,210,40,0.5)';
 const NGE_TEXT = 'rgba(140,210,40,0.72)';
+const HYPER_TRACE = CANVAS.hyper.trace;
+const HYPER_LABEL = CANVAS.hyper.label;
+const HYPER_TEXT = CANVAS.hyper.text;
 
 const REF_LINES: [number, string][] = [[-6, '-6'], [-18, '-18'], [-36, '-36']];
 
@@ -90,28 +93,31 @@ export function LoudnessHistoryPanel(): React.ReactElement {
       const H = canvas.height;
       const dpr = Math.min(devicePixelRatio, PANEL_DPR_MAX);
       const nge = displayMode.nge;
+      const hyper = displayMode.hyper;
       const padV = PAD_V_PX * dpr;
       const baseY = H - padV;
-      const traceColor = nge ? NGE_TRACE : COLORS.waveform;
-      const labelColor = nge ? NGE_LABEL : COLORS.textDim;
-      const textColor = nge ? NGE_TEXT : COLORS.textSecondary;
+      const traceColor = nge ? NGE_TRACE : hyper ? HYPER_TRACE : COLORS.waveform;
+      const labelColor = nge ? NGE_LABEL : hyper ? HYPER_LABEL : COLORS.textDim;
+      const textColor = nge ? NGE_TEXT : hyper ? HYPER_TEXT : COLORS.textSecondary;
 
-      ctx.fillStyle = COLORS.bg1;
+      ctx.fillStyle = hyper ? CANVAS.hyper.bg2 : COLORS.bg1;
       ctx.fillRect(0, 0, W, H);
 
       // Top border
-      ctx.fillStyle = COLORS.border;
+      ctx.fillStyle = hyper ? 'rgba(32,52,110,0.92)' : COLORS.border;
       ctx.fillRect(0, 0, W, 1);
 
       // Reference lines — labels on right
       ctx.setLineDash([3 * dpr, 4 * dpr]);
       for (const [db, label] of REF_LINES) {
         const y = Math.round(dbToY(db, H, padV)) + 0.5;
-        ctx.strokeStyle = db === -6 ? 'rgba(50,50,72,1)' : 'rgba(32,32,48,1)';
+        ctx.strokeStyle = db === -6
+          ? (hyper ? 'rgba(88,124,255,0.72)' : 'rgba(50,50,72,1)')
+          : (hyper ? 'rgba(28,42,88,0.92)' : 'rgba(32,32,48,1)');
         ctx.lineWidth = 1;
         ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
         ctx.font = `${6.5 * dpr}px ${FONTS.mono}`;
-        ctx.fillStyle = 'rgba(80,80,110,1)';
+        ctx.fillStyle = hyper ? HYPER_LABEL : 'rgba(80,80,110,1)';
         ctx.textAlign = 'right';
         ctx.textBaseline = 'bottom';
         ctx.fillText(label, W - SPACING.xs * dpr, y - 1 * dpr);
@@ -146,8 +152,8 @@ export function LoudnessHistoryPanel(): React.ReactElement {
           ctx.lineTo(points[points.length - 1][0], baseY);
           ctx.closePath();
           const fillGrad = ctx.createLinearGradient(0, padV, 0, H);
-          fillGrad.addColorStop(0, nge ? 'rgba(160,216,64,0.24)' : 'rgba(200,146,42,0.28)');
-          fillGrad.addColorStop(1, nge ? 'rgba(96,192,32,0.04)' : 'rgba(200,146,42,0.04)');
+          fillGrad.addColorStop(0, nge ? 'rgba(160,216,64,0.24)' : hyper ? 'rgba(98,232,255,0.24)' : 'rgba(200,146,42,0.28)');
+          fillGrad.addColorStop(1, nge ? 'rgba(96,192,32,0.04)' : hyper ? 'rgba(255,92,188,0.06)' : 'rgba(200,146,42,0.04)');
           ctx.fillStyle = fillGrad;
           ctx.fill();
 
@@ -155,7 +161,7 @@ export function LoudnessHistoryPanel(): React.ReactElement {
           ctx.beginPath();
           ctx.moveTo(points[0][0], points[0][1]);
           for (let i = 1; i < points.length; i++) ctx.lineTo(points[i][0], points[i][1]);
-          ctx.strokeStyle = nge ? 'rgba(160,216,64,0.78)' : 'rgba(200,146,42,0.75)';
+          ctx.strokeStyle = nge ? 'rgba(160,216,64,0.78)' : hyper ? 'rgba(98,232,255,0.84)' : 'rgba(200,146,42,0.75)';
           ctx.lineWidth = 1.5 * dpr;
           ctx.lineJoin = 'round';
           ctx.stroke();
@@ -170,7 +176,7 @@ export function LoudnessHistoryPanel(): React.ReactElement {
       } else if (history.length === 0) {
         // Empty state: flat dim line
         const y = Math.round(dbToY(-40, H, padV)) + 0.5;
-        ctx.strokeStyle = COLORS.bg3;
+        ctx.strokeStyle = hyper ? 'rgba(24,34,70,1)' : COLORS.bg3;
         ctx.lineWidth = 1;
         ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
       }

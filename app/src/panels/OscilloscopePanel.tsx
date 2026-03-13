@@ -15,6 +15,17 @@ import { COLORS, FONTS, CANVAS, SPACING } from '../theme';
 const PAD = SPACING.panelPad;
 const TRIGGER_THRESHOLD = CANVAS.oscTriggerThreshold;
 const PANEL_DPR_MAX = 1.25;
+const NGE_BG = CANVAS.nge.bg2;
+const NGE_TRACE = CANVAS.nge.trace;
+const NGE_GRID = CANVAS.nge.grid;
+const NGE_LABEL = CANVAS.nge.label;
+const NGE_PERSISTENCE_FILL = 'rgba(19,19,26,0.22)';
+const HYPER_BG = CANVAS.hyper.bg2;
+const HYPER_TRACE = CANVAS.hyper.trace;
+const HYPER_GRID = CANVAS.hyper.grid;
+const HYPER_LABEL = CANVAS.hyper.label;
+const HYPER_TEXT = CANVAS.hyper.text;
+const HYPER_GLOW = CANVAS.hyper.glow;
 
 // Allocate once at module level — reused every frame
 const TD_BUF = new Float32Array(CANVAS.fftSize);
@@ -48,14 +59,20 @@ export function OscilloscopePanel(): React.ReactElement {
       const H = canvas.height;
       const dpr = Math.min(devicePixelRatio, PANEL_DPR_MAX);
       const nge = displayMode.nge;
+      const hyper = displayMode.hyper;
+      const backgroundFill = nge ? NGE_BG : hyper ? HYPER_BG : COLORS.bg2;
+      const persistenceFill = nge ? NGE_PERSISTENCE_FILL : hyper ? CANVAS.hyper.persistenceFill : COLORS.bg2;
+      const gridColor = nge ? NGE_GRID : hyper ? HYPER_GRID : COLORS.waveformGrid;
+      const amplitudeTextColor = hyper ? HYPER_TEXT : COLORS.textDim;
+      const traceColor = nge ? NGE_TRACE : hyper ? HYPER_TRACE : COLORS.waveform;
 
       // Background — hard clear in normal mode, phosphor persistence in NGE
-      if (nge) {
+      if (nge || hyper) {
         // Fade previous trace: partially transparent fill lets old traces glow
-        ctx.fillStyle = 'rgba(19,19,26,0.22)';
+        ctx.fillStyle = persistenceFill;
       } else {
         ctx.clearRect(0, 0, W, H);
-        ctx.fillStyle = COLORS.bg2;
+        ctx.fillStyle = backgroundFill;
       }
       ctx.fillRect(0, 0, W, H);
 
@@ -66,7 +83,7 @@ export function OscilloscopePanel(): React.ReactElement {
       const midY = padY + drawH / 2;
 
       // Grid lines
-      ctx.strokeStyle = COLORS.waveformGrid;
+      ctx.strokeStyle = gridColor;
       ctx.lineWidth = 0.5;
       ctx.setLineDash([2, 4]);
       ctx.beginPath();
@@ -84,7 +101,7 @@ export function OscilloscopePanel(): React.ReactElement {
 
       // Amplitude labels
       ctx.font = `${9 * dpr}px ${FONTS.mono}`;
-      ctx.fillStyle = COLORS.textDim;
+      ctx.fillStyle = amplitudeTextColor;
       ctx.textAlign = 'left';
       ctx.textBaseline = 'middle';
       for (const [label, amp] of [['+1', 1], ['+0.5', 0.5], ['0', 0], ['-0.5', -0.5], ['-1', -1]] as const) {
@@ -106,13 +123,17 @@ export function OscilloscopePanel(): React.ReactElement {
 
       if (!hasSignal) {
         // Idle: flat line
-        ctx.strokeStyle = nge ? 'rgba(144,200,64,0.25)' : COLORS.waveformGrid;
+        ctx.strokeStyle = nge
+          ? 'rgba(144,200,64,0.25)'
+          : hyper
+            ? 'rgba(98,232,255,0.25)'
+            : COLORS.waveformGrid;
         ctx.lineWidth = CANVAS.oscLineWidth * dpr;
         ctx.beginPath();
         ctx.moveTo(padX, midY);
         ctx.lineTo(padX + drawW, midY);
         ctx.stroke();
-        drawLabel(ctx, W, dpr);
+        drawLabel(ctx, W, dpr, nge ? 'nge' : hyper ? 'hyper' : 'default');
         return;
       }
 
@@ -140,14 +161,14 @@ export function OscilloscopePanel(): React.ReactElement {
       const samples = Math.min(len - triggerIdx, Math.floor(drawW));
 
       // NGE: bright phosphor green-amber; normal: instrument amber
-      ctx.strokeStyle = nge ? '#a0d840' : COLORS.waveform;
-      ctx.lineWidth = nge ? 1.2 * dpr : CANVAS.oscLineWidth * dpr;
+      ctx.strokeStyle = traceColor;
+      ctx.lineWidth = nge || hyper ? 1.2 * dpr : CANVAS.oscLineWidth * dpr;
       ctx.lineJoin = 'round';
 
-      if (nge) {
+      if (nge || hyper) {
         // Glow pass — wide soft stroke underneath
         ctx.save();
-        ctx.strokeStyle = 'rgba(140,210,40,0.18)';
+        ctx.strokeStyle = nge ? 'rgba(140,210,40,0.18)' : HYPER_GLOW;
         ctx.lineWidth = 5 * dpr;
         ctx.beginPath();
         for (let i = 0; i < samples; i++) {
@@ -167,7 +188,7 @@ export function OscilloscopePanel(): React.ReactElement {
       }
       ctx.stroke();
 
-      drawLabel(ctx, W, dpr, nge);
+      drawLabel(ctx, W, dpr, nge ? 'nge' : hyper ? 'hyper' : 'default');
     };
 
     rafRef.current = requestAnimationFrame(draw);
@@ -185,9 +206,14 @@ export function OscilloscopePanel(): React.ReactElement {
   );
 }
 
-function drawLabel(ctx: CanvasRenderingContext2D, W: number, dpr: number, nge = false): void {
+function drawLabel(
+  ctx: CanvasRenderingContext2D,
+  W: number,
+  dpr: number,
+  mode: 'default' | 'nge' | 'hyper' = 'default',
+): void {
   ctx.font = `${9 * dpr}px ${FONTS.mono}`;
-  ctx.fillStyle = nge ? 'rgba(140,210,40,0.5)' : COLORS.textDim;
+  ctx.fillStyle = mode === 'nge' ? NGE_LABEL : mode === 'hyper' ? HYPER_LABEL : COLORS.textDim;
   ctx.textAlign = 'right';
   ctx.textBaseline = 'top';
   ctx.fillText('OSCILLOSCOPE', W - 8 * dpr, 6 * dpr);

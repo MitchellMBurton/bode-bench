@@ -137,6 +137,32 @@ export const CANVAS = {
     stat:        '#78c84a',
   },
 
+  hyper: {
+    bg:           '#02050c',
+    bg2:          '#091120',
+    trace:        '#62e8ff',
+    grid:         'rgba(84,132,255,0.22)',
+    label:        'rgba(112,208,255,0.62)',
+    text:         'rgba(228,146,255,0.78)',
+    glow:         'rgba(98,232,255,0.22)',
+    chromeBorder: '#122048',
+    chromeBorderActive: '#3559d8',
+    category:     'rgba(112,180,255,0.74)',
+    stat:         '#ff68c6',
+    persistenceFill: 'rgba(9,17,32,0.86)',
+    spectroAxis:  '#2f4ec0',
+    spectroPalette: [
+      '#02050c',
+      '#16206f',
+      '#0078d6',
+      '#19d9ff',
+      '#68ff9a',
+      '#ffe45a',
+      '#ff8d24',
+      '#ff4bb8',
+    ],
+  },
+
   // Cello-meaningful frequency bands
   frequencyBands: [
     { label: 'Sub', range: '20-80 Hz', centerHz: 40, lowHz: 20, highHz: 80 },

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react';
-import { useAudioEngine, useFrameBus } from '../core/session';
-import { COLORS, FONTS, SPACING } from '../theme';
+import { useAudioEngine, useDisplayMode, useFrameBus } from '../core/session';
+import { CANVAS, COLORS, FONTS, SPACING } from '../theme';
 import type { FileAnalysis } from '../types';
 
 interface EnvelopeData {
@@ -99,6 +99,7 @@ function drawBadge(
 export function WaveformOverviewPanel(): React.ReactElement {
   const frameBus = useFrameBus();
   const audioEngine = useAudioEngine();
+  const displayMode = useDisplayMode();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const peakEnvRef = useRef<Float32Array | null>(null);
   const rmsEnvRef = useRef<Float32Array | null>(null);
@@ -183,12 +184,24 @@ export function WaveformOverviewPanel(): React.ReactElement {
       const width = canvas.width;
       const height = canvas.height;
       const dpr = Math.min(devicePixelRatio, PANEL_DPR_MAX);
+      const nge = displayMode.nge;
+      const hyper = displayMode.hyper;
       const clipZoneH = Math.round(18 * dpr);
       const separatorH = 1;
       const waveH = height - clipZoneH - separatorH;
+      const backgroundFill = nge ? CANVAS.nge.bg2 : hyper ? CANVAS.hyper.bg2 : COLORS.bg2;
+      const stripFill = nge ? 'rgba(8,18,8,0.92)' : hyper ? 'rgba(8,14,32,0.92)' : COLORS.bg3;
+      const gridColor = nge ? 'rgba(22,54,18,1)' : hyper ? 'rgba(28,42,88,0.92)' : COLORS.bg3;
+      const textColor = nge ? CANVAS.nge.label : hyper ? CANVAS.hyper.label : COLORS.textDim;
+      const waveformFill = nge ? 'rgba(160,216,64,0.18)' : hyper ? 'rgba(98,232,255,0.22)' : 'rgba(200, 146, 42, 0.22)';
+      const waveformStroke = nge ? CANVAS.nge.trace : hyper ? CANVAS.hyper.trace : COLORS.waveform;
+      const waveformShadow = nge ? 'rgba(160,216,64,0.35)' : hyper ? 'rgba(255,92,188,0.32)' : 'rgba(200, 146, 42, 0.35)';
+      const playFill = nge ? 'rgba(80, 160, 50, 0.10)' : hyper ? 'rgba(98,232,255,0.08)' : 'rgba(80, 96, 192, 0.10)';
+      const playFillWave = nge ? 'rgba(80, 160, 50, 0.07)' : hyper ? 'rgba(98,232,255,0.07)' : 'rgba(80, 96, 192, 0.07)';
+      const playCursor = hyper ? 'rgba(255,92,188,0.92)' : COLORS.accent;
 
       ctx.clearRect(0, 0, width, height);
-      ctx.fillStyle = COLORS.bg2;
+      ctx.fillStyle = backgroundFill;
       ctx.fillRect(0, 0, width, height);
 
       const peakEnv = peakEnvRef.current;
@@ -203,7 +216,7 @@ export function WaveformOverviewPanel(): React.ReactElement {
         const scaleX = width / envLen;
         const clipZoneY = waveH + separatorH;
 
-        ctx.fillStyle = COLORS.bg3;
+        ctx.fillStyle = stripFill;
         ctx.fillRect(0, clipZoneY, width, clipZoneH);
 
         for (let i = 0; i < envLen; i++) {
@@ -219,10 +232,10 @@ export function WaveformOverviewPanel(): React.ReactElement {
         }
 
         const playX = (currentTime / duration) * width;
-        ctx.fillStyle = 'rgba(80, 96, 192, 0.10)';
+        ctx.fillStyle = playFill;
         ctx.fillRect(0, clipZoneY, playX, clipZoneH);
 
-        ctx.fillStyle = COLORS.border;
+        ctx.fillStyle = hyper ? 'rgba(32,52,110,0.92)' : COLORS.border;
         ctx.fillRect(0, waveH, width, separatorH);
       }
 
@@ -236,13 +249,13 @@ export function WaveformOverviewPanel(): React.ReactElement {
         ctx.lineWidth = 1;
         for (let t = interval; t < duration; t += interval) {
           const x = Math.round((t / duration) * width) + 0.5;
-          ctx.strokeStyle = COLORS.bg3;
+          ctx.strokeStyle = gridColor;
           ctx.beginPath();
           ctx.moveTo(x, 0);
           ctx.lineTo(x, waveH);
           ctx.stroke();
           ctx.font = `${7 * dpr}px ${FONTS.mono}`;
-          ctx.fillStyle = COLORS.textDim;
+          ctx.fillStyle = textColor;
           ctx.textAlign = 'center';
           ctx.textBaseline = 'top';
           ctx.fillText(fmtTime(t), x, 2 * dpr);
@@ -253,20 +266,20 @@ export function WaveformOverviewPanel(): React.ReactElement {
         for (let i = 0; i < envLen; i++) ctx.lineTo(i * scaleX, midY - rmsEnv[i] * ampH);
         for (let i = envLen - 1; i >= 0; i--) ctx.lineTo(i * scaleX, midY + rmsEnv[i] * ampH);
         ctx.closePath();
-        ctx.fillStyle = 'rgba(200, 146, 42, 0.22)';
+        ctx.fillStyle = waveformFill;
         ctx.fill();
 
         ctx.beginPath();
         ctx.moveTo(0, midY);
         for (let i = 0; i < envLen; i++) ctx.lineTo(i * scaleX, midY - peakEnv[i] * ampH);
-        ctx.strokeStyle = COLORS.waveform;
+        ctx.strokeStyle = waveformStroke;
         ctx.lineWidth = 1;
         ctx.stroke();
 
         ctx.beginPath();
         ctx.moveTo(0, midY);
         for (let i = 0; i < envLen; i++) ctx.lineTo(i * scaleX, midY + peakEnv[i] * ampH);
-        ctx.strokeStyle = 'rgba(200, 146, 42, 0.35)';
+        ctx.strokeStyle = waveformShadow;
         ctx.stroke();
 
         if (clipMap) {
@@ -279,10 +292,10 @@ export function WaveformOverviewPanel(): React.ReactElement {
         }
 
         const playX = (currentTime / duration) * width;
-        ctx.fillStyle = 'rgba(80, 96, 192, 0.07)';
+        ctx.fillStyle = playFillWave;
         ctx.fillRect(0, 0, playX, waveH);
 
-        ctx.strokeStyle = COLORS.accent;
+        ctx.strokeStyle = playCursor;
         ctx.lineWidth = dpr;
         ctx.beginPath();
         ctx.moveTo(playX, 0);
@@ -325,13 +338,13 @@ export function WaveformOverviewPanel(): React.ReactElement {
         const centroid = centroidRef.current;
         if (centroid > 0) {
           ctx.font = `${8 * dpr}px ${FONTS.mono}`;
-          ctx.fillStyle = COLORS.textDim;
+          ctx.fillStyle = textColor;
           ctx.textAlign = 'right';
           ctx.textBaseline = 'bottom';
           ctx.fillText(`CENT ${Math.round(centroid)} Hz`, width - SPACING.sm * dpr, waveH - 4 * dpr);
         }
       } else {
-        ctx.strokeStyle = COLORS.bg3;
+        ctx.strokeStyle = gridColor;
         ctx.lineWidth = 1;
         ctx.beginPath();
         ctx.moveTo(0, waveH / 2);
@@ -340,7 +353,7 @@ export function WaveformOverviewPanel(): React.ReactElement {
       }
 
       ctx.font = `${8 * dpr}px ${FONTS.mono}`;
-      ctx.fillStyle = COLORS.textDim;
+      ctx.fillStyle = textColor;
       ctx.textAlign = 'left';
       ctx.textBaseline = 'top';
       ctx.fillText('OVERVIEW', SPACING.sm * dpr, 4 * dpr);
@@ -350,7 +363,7 @@ export function WaveformOverviewPanel(): React.ReactElement {
     return () => {
       if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
     };
-  }, [audioEngine]);
+  }, [audioEngine, displayMode]);
 
   return (
     <div style={panelStyle}>

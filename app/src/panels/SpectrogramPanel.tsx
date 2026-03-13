@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { useAudioEngine, useDisplayMode, useFrameBus, useScrollSpeed } from '../core/session';
+import type { VisualMode } from '../audio/displayMode';
 import { COLORS, FONTS, CANVAS, SPACING } from '../theme';
 import { spectroColor } from '../utils/canvas';
 import type { AudioFrame } from '../types';
@@ -20,10 +21,15 @@ const NGE_BG = '#030a03';
 const NGE_LABEL = 'rgba(140,210,40,0.5)';
 const NGE_AXIS = '#1a4a10';
 const NGE_SPECTRO_PALETTE = ['#030a03', '#0a2a0a', '#1a6010', '#60c020', '#c8f040'] as const;
+const HYPER_BG = CANVAS.hyper.bg;
+const HYPER_LABEL = CANVAS.hyper.label;
+const HYPER_AXIS = CANVAS.hyper.spectroAxis;
+const HYPER_SPECTRO_PALETTE = CANVAS.hyper.spectroPalette;
 const HISTORY_EMPTY = -1;
 const HISTORY_LEVELS = 256;
 const SPECTRO_BG_RGB = hexToRgb(SPECTRO_BG);
 const NGE_BG_RGB = hexToRgb(NGE_BG);
+const HYPER_BG_RGB = hexToRgb(HYPER_BG);
 
 type Rgb = readonly [number, number, number];
 
@@ -73,15 +79,19 @@ function parseRgbString(color: string): [number, number, number] {
   return [Number(match[1]), Number(match[2]), Number(match[3])];
 }
 
-function spectroColorForMode(db: number, nge: boolean): string {
-  if (!nge) return spectroColor(db);
-
+function spectroPaletteColor(db: number, palette: readonly string[]): string {
   const t = Math.max(0, Math.min(1, (db - CANVAS.dbMin) / (CANVAS.dbMax - CANVAS.dbMin)));
-  const segmentCount = NGE_SPECTRO_PALETTE.length - 1;
+  const segmentCount = palette.length - 1;
   const scaled = t * segmentCount;
   const index = Math.min(segmentCount - 1, Math.floor(scaled));
   const localT = scaled - index;
-  return lerpColor(NGE_SPECTRO_PALETTE[index], NGE_SPECTRO_PALETTE[index + 1], localT);
+  return lerpColor(palette[index], palette[index + 1], localT);
+}
+
+function spectroColorForMode(db: number, mode: VisualMode): string {
+  if (mode === 'nge') return spectroPaletteColor(db, NGE_SPECTRO_PALETTE);
+  if (mode === 'hyper') return spectroPaletteColor(db, HYPER_SPECTRO_PALETTE);
+  return spectroColor(db);
 }
 
 function dbToHistoryLevel(db: number): number {
@@ -93,15 +103,16 @@ function historyLevelToDb(level: number): number {
   return CANVAS.dbMin + (level / (HISTORY_LEVELS - 1)) * (CANVAS.dbMax - CANVAS.dbMin);
 }
 
-function createPalette(nge: boolean): readonly Rgb[] {
+function createPalette(mode: VisualMode): readonly Rgb[] {
   return Array.from(
     { length: HISTORY_LEVELS },
-    (_, index) => parseRgbString(spectroColorForMode(historyLevelToDb(index), nge)),
+    (_, index) => parseRgbString(spectroColorForMode(historyLevelToDb(index), mode)),
   );
 }
 
-const NORMAL_PALETTE = createPalette(false);
-const NGE_PALETTE = createPalette(true);
+const NORMAL_PALETTE = createPalette('default');
+const NGE_PALETTE = createPalette('nge');
+const HYPER_PALETTE = createPalette('hyper');
 
 function createHistoryBuffer(width: number, height: number): Int16Array {
   const history = new Int16Array(width * height);
@@ -144,12 +155,12 @@ function paintHistoryToCanvas(
   history: Int16Array,
   width: number,
   height: number,
-  nge: boolean,
+  mode: VisualMode,
 ): void {
   if (width === 0 || height === 0) return;
 
-  const palette = nge ? NGE_PALETTE : NORMAL_PALETTE;
-  const [bgR, bgG, bgB] = nge ? NGE_BG_RGB : SPECTRO_BG_RGB;
+  const palette = mode === 'nge' ? NGE_PALETTE : mode === 'hyper' ? HYPER_PALETTE : NORMAL_PALETTE;
+  const [bgR, bgG, bgB] = mode === 'nge' ? NGE_BG_RGB : mode === 'hyper' ? HYPER_BG_RGB : SPECTRO_BG_RGB;
   const image = ctx.createImageData(width, height);
   const { data } = image;
 
@@ -180,7 +191,7 @@ export function SpectrogramPanel(): React.ReactElement {
   const lastFileIdRef = useRef(-1);
   const lastFrameRef = useRef<AudioFrame | null>(null);
   const scrollCarryRef = useRef(0);
-  const lastNgeRef = useRef(displayMode.nge);
+  const lastModeRef = useRef<VisualMode>(displayMode.mode);
 
   useEffect(() => {
     return frameBus.subscribe((frame) => {
@@ -201,7 +212,7 @@ export function SpectrogramPanel(): React.ReactElement {
 
       const ctx = offscreen.getContext('2d');
       if (ctx) {
-        paintHistoryToCanvas(ctx, history, offscreen.width, offscreen.height, displayMode.nge);
+        paintHistoryToCanvas(ctx, history, offscreen.width, offscreen.height, displayMode.mode);
       }
     });
   }, [audioEngine, displayMode]);
@@ -247,7 +258,7 @@ export function SpectrogramPanel(): React.ReactElement {
         offscreen.height = spectroH;
         const offscreenCtx = offscreen.getContext('2d');
         if (offscreenCtx) {
-          paintHistoryToCanvas(offscreenCtx, history, spectroW, spectroH, displayMode.nge);
+          paintHistoryToCanvas(offscreenCtx, history, spectroW, spectroH, displayMode.mode);
         }
         offscreenRef.current = offscreen;
         scrollCarryRef.current = 0;
@@ -267,25 +278,26 @@ export function SpectrogramPanel(): React.ReactElement {
       if (W === 0 || H === 0 || spectroW <= 0 || spectroH <= 0) return;
 
       const dpr = Math.min(devicePixelRatio, PANEL_DPR_MAX);
-      const nge = displayMode.nge;
+      const mode = displayMode.mode;
+      const hyper = mode === 'hyper';
       const spectroX = axisW;
-      const backgroundFill = nge ? NGE_BG : SPECTRO_BG;
-      const axisColor = nge ? NGE_AXIS : COLORS.border;
-      const labelColor = nge ? NGE_LABEL : COLORS.textDim;
+      const backgroundFill = mode === 'nge' ? NGE_BG : mode === 'hyper' ? HYPER_BG : SPECTRO_BG;
+      const axisColor = mode === 'nge' ? NGE_AXIS : mode === 'hyper' ? HYPER_AXIS : COLORS.border;
+      const labelColor = mode === 'nge' ? NGE_LABEL : mode === 'hyper' ? HYPER_LABEL : COLORS.textDim;
 
       const offscreenCtx = offscreen.getContext('2d');
       if (!offscreenCtx) return;
 
-      if (nge !== lastNgeRef.current) {
-        lastNgeRef.current = nge;
-        paintHistoryToCanvas(offscreenCtx, history, offscreen.width, offscreen.height, nge);
+      if (mode !== lastModeRef.current) {
+        lastModeRef.current = mode;
+        paintHistoryToCanvas(offscreenCtx, history, offscreen.width, offscreen.height, mode);
       }
 
       if (frame && frame.fileId !== lastFileIdRef.current) {
         lastFileIdRef.current = frame.fileId;
         scrollCarryRef.current = 0;
         clearHistory(history);
-        paintHistoryToCanvas(offscreenCtx, history, offscreen.width, offscreen.height, nge);
+        paintHistoryToCanvas(offscreenCtx, history, offscreen.width, offscreen.height, mode);
       }
 
       const isNewFrame = frame !== null && frame !== lastFrameRef.current;
@@ -323,7 +335,7 @@ export function SpectrogramPanel(): React.ReactElement {
             history.copyWithin(rowStart, rowStart + scrollPx, rowStart + spectroW);
             history.fill(level, rowStart + stripStartX, rowStart + spectroW);
 
-            offscreenCtx.fillStyle = spectroColorForMode(mono, nge);
+            offscreenCtx.fillStyle = spectroColorForMode(mono, mode);
             offscreenCtx.fillRect(stripStartX, y, scrollPx, 1);
           }
         }
@@ -335,18 +347,18 @@ export function SpectrogramPanel(): React.ReactElement {
       ctx.drawImage(offscreen, spectroX, padY);
 
       const cellPx = Math.round(8 * dpr);
-      ctx.fillStyle = 'rgba(0,0,0,0.30)';
+      ctx.fillStyle = hyper ? 'rgba(4,12,32,0.30)' : 'rgba(0,0,0,0.30)';
       for (let gx = spectroX; gx < spectroX + spectroW; gx += cellPx) {
         ctx.fillRect(gx, padY, 1, spectroH);
       }
 
-      ctx.fillStyle = 'rgba(0,0,0,0.38)';
+      ctx.fillStyle = hyper ? 'rgba(10,18,44,0.38)' : 'rgba(0,0,0,0.38)';
       for (const hz of MINOR_GRID_HZ) {
         const t = hzToT(hz);
         ctx.fillRect(spectroX, padY + spectroH - t * spectroH, spectroW, 1);
       }
 
-      ctx.fillStyle = 'rgba(0,0,0,0.62)';
+      ctx.fillStyle = hyper ? 'rgba(26,44,112,0.52)' : 'rgba(0,0,0,0.62)';
       for (const hz of GRID_HZ) {
         const t = hzToT(hz);
         ctx.fillRect(spectroX, padY + spectroH - t * spectroH, spectroW, 1);

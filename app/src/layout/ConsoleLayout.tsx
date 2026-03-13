@@ -14,9 +14,10 @@
 // ============================================================
 
 import { useState } from 'react';
+import type { VisualMode } from '../audio/displayMode';
 import { LayoutInteractionProvider } from './LayoutInteraction';
 import { SplitPane } from './SplitPane';
-import { COLORS, FONTS, SPACING } from '../theme';
+import { COLORS, FONTS, SPACING, CANVAS } from '../theme';
 
 const GAP = SPACING.panelGap;
 const CHROME_H = SPACING.chromeHeaderH;
@@ -37,7 +38,7 @@ interface Props {
   bottomLeft: PanelDef;
   bottomRight: PanelDef;
   grayscale?: boolean;
-  nge?: boolean;
+  visualMode?: VisualMode;
   /** Called when the toolbar "RESET ALL" button is pressed, after layout sizes are reset. */
   onResetAll?: () => void;
 }
@@ -46,14 +47,32 @@ interface Props {
 // Renders a single panel with category/title header chrome.
 
 interface ChromePanelProps extends PanelDef {
-  nge?: boolean;
+  visualMode?: VisualMode;
 }
 
-function ChromePanel({ category, title, stat, content, nge }: ChromePanelProps): React.ReactElement {
-  const chromeBorder      = nge ? '#0d1a0d' : COLORS.border;
-  const chromeBorderInner = nge ? '#1a4a10' : COLORS.border;
-  const chromeCategory    = nge ? 'rgba(80,160,50,0.6)' : COLORS.textCategory;
-  const chromeStat        = nge ? '#78c84a' : COLORS.waveform;
+function ChromePanel({ category, title, stat, content, visualMode }: ChromePanelProps): React.ReactElement {
+  const nge = visualMode === 'nge';
+  const hyper = visualMode === 'hyper';
+  const chromeBorder = nge
+    ? CANVAS.nge.chromeBorder
+    : hyper
+      ? CANVAS.hyper.chromeBorder
+      : COLORS.border;
+  const chromeBorderInner = nge
+    ? CANVAS.nge.chromeBorderActive
+    : hyper
+      ? CANVAS.hyper.chromeBorderActive
+      : COLORS.border;
+  const chromeCategory = nge
+    ? CANVAS.nge.category
+    : hyper
+      ? CANVAS.hyper.category
+      : COLORS.textCategory;
+  const chromeStat = nge
+    ? CANVAS.nge.stat
+    : hyper
+      ? CANVAS.hyper.stat
+      : COLORS.waveform;
 
   return (
     <div style={{ ...chromeStyle, border: `1px solid ${chromeBorder}` }}>
@@ -73,18 +92,56 @@ function ChromePanel({ category, title, stat, content, nge }: ChromePanelProps):
 
 // ── ConsoleLayout ─────────────────────────────────────────────────────────────
 
-export function ConsoleLayout({ topLeft, topRight, bottomLeft, bottomRight, grayscale, nge, onResetAll }: Props): React.ReactElement {
+export function ConsoleLayout({
+  topLeft,
+  topRight,
+  bottomLeft,
+  bottomRight,
+  grayscale,
+  visualMode = 'default',
+  onResetAll,
+}: Props): React.ReactElement {
   // Incrementing layoutKey forces all SplitPanes to remount, resetting their
   // fracs to initialSizes. This is the reset-layout mechanism.
   const [layoutKey, setLayoutKey] = useState(0);
 
-  const headerBorder   = nge ? '#1a4a10' : COLORS.headerBorder;
-  const chromeCategory = nge ? 'rgba(80,160,50,0.6)' : COLORS.textCategory;
-  const toolbarBorder  = nge ? '#0d1a0d' : COLORS.border;
-  const toolbarText    = nge ? 'rgba(80,160,50,0.5)' : COLORS.textCategory;
-  const toolbarButtonText = nge ? 'rgba(160,230,60,0.92)' : COLORS.textPrimary;
-  const toolbarButtonBorder = nge ? '#2c6b18' : COLORS.borderActive;
-  const toolbarButtonBg = nge ? 'rgba(8,18,8,0.9)' : COLORS.bg1;
+  const nge = visualMode === 'nge';
+  const hyper = visualMode === 'hyper';
+  const headerBorder = nge
+    ? CANVAS.nge.chromeBorderActive
+    : hyper
+      ? CANVAS.hyper.chromeBorderActive
+      : COLORS.headerBorder;
+  const chromeCategory = nge
+    ? CANVAS.nge.category
+    : hyper
+      ? CANVAS.hyper.category
+      : COLORS.textCategory;
+  const toolbarBorder = nge
+    ? CANVAS.nge.chromeBorder
+    : hyper
+      ? CANVAS.hyper.chromeBorder
+      : COLORS.border;
+  const toolbarText = nge
+    ? 'rgba(80,160,50,0.5)'
+    : hyper
+      ? 'rgba(112,180,255,0.62)'
+      : COLORS.textCategory;
+  const toolbarButtonText = nge
+    ? 'rgba(160,230,60,0.92)'
+    : hyper
+      ? 'rgba(222,238,255,0.96)'
+      : COLORS.textPrimary;
+  const toolbarButtonBorder = nge
+    ? '#2c6b18'
+    : hyper
+      ? 'rgba(112,180,255,0.72)'
+      : COLORS.borderActive;
+  const toolbarButtonBg = nge
+    ? 'rgba(8,18,8,0.9)'
+    : hyper
+      ? 'rgba(8,14,32,0.92)'
+      : COLORS.bg1;
 
   function handleResetAll(): void {
     setLayoutKey(k => k + 1);
@@ -150,8 +207,8 @@ export function ConsoleLayout({ topLeft, topRight, bottomLeft, bottomRight, gray
               minSizePx={[240, 320]}
             >
               {[
-                <ChromePanel key="tl" {...topLeft} nge={nge} />,
-                <ChromePanel key="tr" {...topRight} nge={nge} />,
+                <ChromePanel key="tl" {...topLeft} visualMode={visualMode} />,
+                <ChromePanel key="tr" {...topRight} visualMode={visualMode} />,
               ]}
             </SplitPane>,
 
@@ -163,8 +220,8 @@ export function ConsoleLayout({ topLeft, topRight, bottomLeft, bottomRight, gray
               minSizePx={[240, 320]}
             >
               {[
-                <ChromePanel key="bl" {...bottomLeft} nge={nge} />,
-                <ChromePanel key="br" {...bottomRight} nge={nge} />,
+                <ChromePanel key="bl" {...bottomLeft} visualMode={visualMode} />,
+                <ChromePanel key="br" {...bottomRight} visualMode={visualMode} />,
               ]}
             </SplitPane>,
           ]}

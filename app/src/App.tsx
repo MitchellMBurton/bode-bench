@@ -20,16 +20,18 @@ import { FrequencyBandsPanel } from './panels/FrequencyBandsPanel';
 import { PitchTrackerPanel } from './panels/PitchTrackerPanel';
 import { HarmonicLadderPanel } from './panels/HarmonicLadderPanel';
 import { LoudnessHistoryPanel } from './panels/LoudnessHistoryPanel';
-import { useAudioEngine } from './core/session';
+import { useAudioEngine, useDisplayMode } from './core/session';
+import type { VisualMode } from './audio/displayMode';
 import { COLORS, SPACING } from './theme';
 
 const SEEK_STEP = 5; // seconds per arrow key press
 
 export default function App(): React.ReactElement {
   const audioEngine = useAudioEngine();
+  const displayMode = useDisplayMode();
   const [filename, setFilename] = useState<string | null>(null);
   const [grayscale, setGrayscale] = useState(false);
-  const [nge, setNge] = useState(false);
+  const [visualMode, setVisualMode] = useState<VisualMode>('default');
   // Incrementing this triggers SessionControls to reset all audio/display settings.
   const [sessionResetKey, setSessionResetKey] = useState(0);
 
@@ -38,6 +40,10 @@ export default function App(): React.ReactElement {
       setFilename(state.filename);
     });
   }, [audioEngine]);
+
+  useEffect(() => {
+    displayMode.setMode(visualMode);
+  }, [displayMode, visualMode]);
 
   // Global keyboard shortcuts
   useEffect(() => {
@@ -72,15 +78,16 @@ export default function App(): React.ReactElement {
 
   const fileTitle = filename ? filename.replace(/\.[^/.]+$/, '') : null;
   const panelTitle = fileTitle ?? 'NO SESSION';
+  const nge = visualMode === 'nge';
 
   return (
     <>
       <ConsoleLayout
       grayscale={grayscale}
-      nge={nge}
+      visualMode={visualMode}
       onResetAll={() => {
         setGrayscale(false);
-        setNge(false);
+        setVisualMode('default');
         setSessionResetKey(k => k + 1);
       }}
       topLeft={{
@@ -91,7 +98,13 @@ export default function App(): React.ReactElement {
             <MetadataDisplay filename={filename} />
             <div style={dividerStyle} />
             <TransportControls />
-            <SessionControls grayscale={grayscale} onGrayscale={setGrayscale} nge={nge} onNge={setNge} resetKey={sessionResetKey} />
+            <SessionControls
+              grayscale={grayscale}
+              onGrayscale={setGrayscale}
+              visualMode={visualMode}
+              onVisualMode={setVisualMode}
+              resetKey={sessionResetKey}
+            />
             <DiagnosticsLog />
           </div>
         ),

@@ -19,6 +19,11 @@ const NGE_TRACE = '#a0d840';
 const NGE_TRACE_SOFT = 'rgba(160,216,64,0.82)';
 const NGE_GLOW = 'rgba(140,210,40,0.36)';
 const NGE_LABEL = 'rgba(140,210,40,0.5)';
+const HYPER_TRACE = CANVAS.hyper.trace;
+const HYPER_TRACE_SOFT = 'rgba(98,232,255,0.84)';
+const HYPER_GLOW = 'rgba(98,232,255,0.34)';
+const HYPER_LABEL = CANVAS.hyper.label;
+const HYPER_TEXT = CANVAS.hyper.text;
 
 const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 const F0_MIN = 60;
@@ -100,17 +105,19 @@ export function PitchTrackerPanel(): React.ReactElement {
       const H = canvas.height;
       const dpr = Math.min(devicePixelRatio, PANEL_DPR_MAX);
       const nge = displayMode.nge;
+      const hyper = displayMode.hyper;
       const padV = PAD_V_PX * dpr;
-      const traceColor = nge ? NGE_TRACE : COLORS.waveform;
-      const traceStroke = nge ? NGE_TRACE_SOFT : 'rgba(200,146,42,0.80)';
-      const glowColor = nge ? NGE_GLOW : 'rgba(200,146,42,0.30)';
-      const labelColor = nge ? NGE_LABEL : COLORS.textDim;
+      const traceColor = nge ? NGE_TRACE : hyper ? HYPER_TRACE : COLORS.waveform;
+      const traceStroke = nge ? NGE_TRACE_SOFT : hyper ? HYPER_TRACE_SOFT : 'rgba(200,146,42,0.80)';
+      const glowColor = nge ? NGE_GLOW : hyper ? HYPER_GLOW : 'rgba(200,146,42,0.30)';
+      const labelColor = nge ? NGE_LABEL : hyper ? HYPER_LABEL : COLORS.textDim;
+      const noteTextColor = hyper ? HYPER_TEXT : COLORS.textSecondary;
 
-      ctx.fillStyle = COLORS.bg1;
+      ctx.fillStyle = hyper ? CANVAS.hyper.bg2 : COLORS.bg1;
       ctx.fillRect(0, 0, W, H);
 
       // Top border
-      ctx.fillStyle = COLORS.border;
+      ctx.fillStyle = hyper ? 'rgba(32,52,110,0.92)' : COLORS.border;
       ctx.fillRect(0, 0, W, 1);
 
       // Grid lines — labels on right
@@ -120,11 +127,15 @@ export function PitchTrackerPanel(): React.ReactElement {
       ];
       for (const [hz, label, isC] of grid) {
         const y = Math.round(f0ToY(hz, H, padV)) + 0.5;
-        ctx.strokeStyle = isC ? 'rgba(50,50,72,1)' : 'rgba(32,32,48,1)';
+        ctx.strokeStyle = hyper
+          ? (isC ? 'rgba(88,124,255,0.78)' : 'rgba(24,34,70,0.92)')
+          : (isC ? 'rgba(50,50,72,1)' : 'rgba(32,32,48,1)');
         ctx.lineWidth = 1;
         ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
         ctx.font = `${6.5 * dpr}px ${FONTS.mono}`;
-        ctx.fillStyle = isC ? COLORS.textSecondary : COLORS.textDim;
+        ctx.fillStyle = hyper
+          ? (isC ? HYPER_TEXT : HYPER_LABEL)
+          : (isC ? COLORS.textSecondary : COLORS.textDim);
         ctx.textAlign = 'right';
         ctx.textBaseline = 'bottom';
         ctx.fillText(label, W - SPACING.xs * dpr, y - 1 * dpr);
@@ -178,7 +189,11 @@ export function PitchTrackerPanel(): React.ReactElement {
           ctx.beginPath();
           ctx.arc(prevX, prevY, 3 * dpr, 0, Math.PI * 2);
           ctx.fillStyle = traceColor;
-          ctx.shadowColor = nge ? 'rgba(140,210,40,0.5)' : 'rgba(200,146,42,0.5)';
+          ctx.shadowColor = nge
+            ? 'rgba(140,210,40,0.5)'
+            : hyper
+              ? 'rgba(255,92,188,0.5)'
+              : 'rgba(200,146,42,0.5)';
           ctx.shadowBlur = 5 * dpr;
           ctx.fill();
           ctx.shadowBlur = 0;
@@ -197,14 +212,14 @@ export function PitchTrackerPanel(): React.ReactElement {
         ctx.fillStyle = traceColor;
         ctx.fillText(name, SPACING.sm * dpr, SPACING.xs * dpr);
         ctx.font = `${8 * dpr}px ${FONTS.mono}`;
-        ctx.fillStyle = COLORS.textSecondary;
+        ctx.fillStyle = noteTextColor;
         ctx.fillText(hz, SPACING.sm * dpr, (SPACING.xs + 13) * dpr);
         ctx.font = `${7.5 * dpr}px ${FONTS.mono}`;
-        ctx.fillStyle = COLORS.textDim;
+        ctx.fillStyle = labelColor;
         ctx.fillText(tuning, SPACING.sm * dpr, (SPACING.xs + 23) * dpr);
       } else {
         ctx.font = `${8 * dpr}px ${FONTS.mono}`;
-        ctx.fillStyle = COLORS.textDim;
+        ctx.fillStyle = labelColor;
         ctx.fillText('NO PITCH', SPACING.sm * dpr, SPACING.xs * dpr);
       }
 

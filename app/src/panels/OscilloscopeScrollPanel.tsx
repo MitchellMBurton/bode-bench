@@ -12,6 +12,7 @@
 
 import { useEffect, useRef } from 'react';
 import { useAudioEngine, useDisplayMode, useFrameBus, useScrollSpeed } from '../core/session';
+import type { VisualMode } from '../audio/displayMode';
 import { COLORS, FONTS, CANVAS, SPACING } from '../theme';
 import { hexToRgb, remapMonochromeCanvas } from '../utils/canvas';
 import type { AudioFrame } from '../types';
@@ -24,6 +25,52 @@ const BG_RGB    = hexToRgb(COLORS.bg2);
 const TRACE_RGB = hexToRgb(COLORS.waveform);
 const NGE_BG_RGB    = hexToRgb(NGE_BG);
 const NGE_TRACE_RGB = hexToRgb(NGE_TRACE);
+const HYPER_BG = CANVAS.hyper.bg2;
+const HYPER_TRACE = CANVAS.hyper.trace;
+const HYPER_GRID = CANVAS.hyper.grid;
+const HYPER_LABEL = CANVAS.hyper.label;
+const HYPER_BG_RGB = hexToRgb(HYPER_BG);
+const HYPER_TRACE_RGB = hexToRgb(HYPER_TRACE);
+
+function getVisualPalette(mode: VisualMode): {
+  bgFill: string;
+  traceColor: string;
+  gridColor: string;
+  labelColor: string;
+  bgRgb: readonly [number, number, number];
+  traceRgb: readonly [number, number, number];
+} {
+  if (mode === 'nge') {
+    return {
+      bgFill: NGE_BG,
+      traceColor: NGE_TRACE,
+      gridColor: 'rgba(144,200,64,0.22)',
+      labelColor: 'rgba(140,210,40,0.5)',
+      bgRgb: NGE_BG_RGB,
+      traceRgb: NGE_TRACE_RGB,
+    };
+  }
+
+  if (mode === 'hyper') {
+    return {
+      bgFill: HYPER_BG,
+      traceColor: HYPER_TRACE,
+      gridColor: HYPER_GRID,
+      labelColor: HYPER_LABEL,
+      bgRgb: HYPER_BG_RGB,
+      traceRgb: HYPER_TRACE_RGB,
+    };
+  }
+
+  return {
+    bgFill: COLORS.bg2,
+    traceColor: COLORS.waveform,
+    gridColor: COLORS.waveformGrid,
+    labelColor: COLORS.textDim,
+    bgRgb: BG_RGB,
+    traceRgb: TRACE_RGB,
+  };
+}
 
 // How many audio samples each horizontal pixel column represents.
 // 256 samples @ 44100 Hz ≈ 5.8 ms/px; a 900-px panel shows ~5.2 s.
@@ -42,7 +89,7 @@ export function OscilloscopeScrollPanel(): React.ReactElement {
   const frameRef = useRef<AudioFrame | null>(null);
   const rafRef = useRef<number | null>(null);
   const lastFileIdRef = useRef(-1);
-  const lastNgeRef = useRef(displayMode.nge);
+  const lastModeRef = useRef<VisualMode>(displayMode.mode);
   const sampleCarryRef = useRef(0); // fractional-sample carry across frames
   const lastRafTimeRef = useRef(0);
 
@@ -62,7 +109,7 @@ export function OscilloscopeScrollPanel(): React.ReactElement {
       if (!offscreen) return;
       const octx = offscreen.getContext('2d');
       if (octx) {
-        octx.fillStyle = displayMode.nge ? '#131a13' : COLORS.bg2;
+        octx.fillStyle = getVisualPalette(displayMode.mode).bgFill;
         octx.fillRect(0, 0, offscreen.width, offscreen.height);
       }
     });
@@ -100,7 +147,7 @@ export function OscilloscopeScrollPanel(): React.ReactElement {
 
         const octx = offscreen.getContext('2d');
         if (octx) {
-          octx.fillStyle = displayMode.nge ? '#131a13' : COLORS.bg2;
+          octx.fillStyle = getVisualPalette(displayMode.mode).bgFill;
           octx.fillRect(0, 0, w, h);
           if (snapshot) {
             octx.drawImage(snapshot, w - prevW, Math.round((h - prevH) / 2));
@@ -119,28 +166,26 @@ export function OscilloscopeScrollPanel(): React.ReactElement {
       const W = canvas.width;
       const H = canvas.height;
       const dpr = Math.min(devicePixelRatio, PANEL_DPR_MAX);
-      const nge = displayMode.nge;
+      const mode = displayMode.mode;
       const padX = PAD * dpr;
       const padY = PAD * dpr;
       const drawW = W - padX * 2;
       const drawH = H - padY * 2;
       const midY = padY + drawH / 2;
       const halfH = drawH / 2;
-      const bgFill = nge ? '#131a13' : COLORS.bg2;
-      const traceColor = nge ? '#a0d840' : COLORS.waveform;
-      const gridColor = nge ? 'rgba(144,200,64,0.22)' : COLORS.waveformGrid;
-      const labelColor = nge ? 'rgba(140,210,40,0.5)' : COLORS.textDim;
+      const { bgFill, traceColor, gridColor, labelColor, bgRgb, traceRgb } = getVisualPalette(mode);
 
-      // Detect NGE mode toggle — remap offscreen palette so scroll history is preserved
-      if (nge !== lastNgeRef.current) {
+      // Detect mode toggle — remap offscreen palette so scroll history is preserved
+      if (mode !== lastModeRef.current) {
+        const previousPalette = getVisualPalette(lastModeRef.current);
         remapMonochromeCanvas(
           octx, W, H,
-          lastNgeRef.current ? NGE_BG_RGB : BG_RGB,
-          lastNgeRef.current ? NGE_TRACE_RGB : TRACE_RGB,
-          nge ? NGE_BG_RGB : BG_RGB,
-          nge ? NGE_TRACE_RGB : TRACE_RGB,
+          previousPalette.bgRgb,
+          previousPalette.traceRgb,
+          bgRgb,
+          traceRgb,
         );
-        lastNgeRef.current = nge;
+        lastModeRef.current = mode;
       }
 
       // Detect new file — clear offscreen

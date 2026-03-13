@@ -5,7 +5,8 @@
 
 import { useCallback, useEffect, useEffectEvent, useRef, useState } from 'react';
 
-import { useAudioEngine, useDisplayMode, useScrollSpeed } from '../core/session';
+import { useAudioEngine, useScrollSpeed } from '../core/session';
+import type { VisualMode } from '../audio/displayMode';
 import { COLORS, FONTS, SPACING } from '../theme';
 import {
   RATE_MIN, RATE_MAX, RATE_DEFAULT,
@@ -17,8 +18,8 @@ import {
 interface Props {
   grayscale: boolean;
   onGrayscale: (v: boolean) => void;
-  nge: boolean;
-  onNge: (v: boolean) => void;
+  visualMode: VisualMode;
+  onVisualMode: (mode: VisualMode) => void;
   /** Increment this value to externally trigger a full settings reset. */
   resetKey?: number;
 }
@@ -39,10 +40,15 @@ function formatPitch(semitones: number): string {
   return `${rounded > 0 ? '+' : ''}${rounded} st`;
 }
 
-export function SessionControls({ grayscale, onGrayscale, nge, onNge, resetKey }: Props): React.ReactElement {
+export function SessionControls({
+  grayscale,
+  onGrayscale,
+  visualMode,
+  onVisualMode,
+  resetKey,
+}: Props): React.ReactElement {
   const audioEngine = useAudioEngine();
   const scrollSpeed = useScrollSpeed();
-  const displayMode = useDisplayMode();
 
   const [volume, setVolume] = useState(VOLUME_DEFAULT);
   const [rate, setRate] = useState(audioEngine.playbackRate);
@@ -116,9 +122,8 @@ export function SessionControls({ grayscale, onGrayscale, nge, onNge, resetKey }
     audioEngine.setPlaybackRate(RATE_DEFAULT);
     audioEngine.setPitchSemitones(PITCH_DEFAULT);
     scrollSpeed.set(SCROLL_DEFAULT);
-    displayMode.set(false);
     onGrayscale(false);
-    onNge(false);
+    onVisualMode('default');
 
     if (volFillRef.current) {
       volFillRef.current.style.width = `${VOLUME_DEFAULT * 100}%`;
@@ -132,7 +137,7 @@ export function SessionControls({ grayscale, onGrayscale, nge, onNge, resetKey }
     if (scrollFillRef.current) {
       scrollFillRef.current.style.width = fillWidth(SCROLL_DEFAULT, SCROLL_MIN, SCROLL_MAX);
     }
-  }, [audioEngine, displayMode, onGrayscale, onNge, scrollSpeed]);
+  }, [audioEngine, onGrayscale, onVisualMode, scrollSpeed]);
 
   // External reset trigger — fires when parent increments resetKey.
   const handleExternalReset = useEffectEvent(onResetSettings);
@@ -145,6 +150,9 @@ export function SessionControls({ grayscale, onGrayscale, nge, onNge, resetKey }
   const rateLabel = formatMultiplier(rate);
   const pitchLabel = formatPitch(pitch);
   const scrollLabel = formatMultiplier(scroll);
+
+  const isNge = visualMode === 'nge';
+  const isHyper = visualMode === 'hyper';
 
   return (
     <div style={wrapStyle}>
@@ -252,15 +260,25 @@ export function SessionControls({ grayscale, onGrayscale, nge, onNge, resetKey }
         </button>
 
         <button
-          style={{ ...toggleStyle, ...(nge ? ngeActiveStyle : {}) }}
+          style={{ ...toggleStyle, ...(isNge ? ngeActiveStyle : {}) }}
           onClick={() => {
-            const nextNge = !nge;
-            displayMode.set(nextNge);
-            onNge(nextNge);
+            const nextMode = isNge ? 'default' : 'nge';
+            onVisualMode(nextMode);
           }}
           title="NGE phosphor mode"
         >
           NGE
+        </button>
+
+        <button
+          style={{ ...toggleStyle, ...(isHyper ? hyperActiveStyle : {}) }}
+          onClick={() => {
+            const nextMode = isHyper ? 'default' : 'hyper';
+            onVisualMode(nextMode);
+          }}
+          title="Hyperspectral image mode"
+        >
+          HYPER
         </button>
       </div>
     </div>
@@ -378,4 +396,11 @@ const ngeActiveStyle: React.CSSProperties = {
   background: 'rgba(30,60,10,1)',
   borderColor: 'rgba(140,210,40,0.7)',
   color: 'rgba(160,230,60,1)',
+};
+
+const hyperActiveStyle: React.CSSProperties = {
+  background: 'rgba(10,22,56,1)',
+  borderColor: 'rgba(112,208,255,0.72)',
+  color: 'rgba(210,236,255,0.98)',
+  boxShadow: '0 0 10px rgba(98,232,255,0.18)',
 };

@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { useAudioEngine, useDisplayMode, useFrameBus, useScrollSpeed } from '../core/session';
+import type { VisualMode } from '../audio/displayMode';
 import { COLORS, FONTS, CANVAS, SPACING } from '../theme';
 import { hexToRgb, remapMonochromeCanvas } from '../utils/canvas';
 import type { AudioFrame } from '../types';
@@ -12,10 +13,61 @@ const NGE_PERSISTENCE_FILL = 'rgba(19,26,19,0.85)';
 const NGE_TRACE = '#a0d840';
 const NGE_GRID = 'rgba(144,200,64,0.22)';
 const NGE_LABEL = 'rgba(140,210,40,0.5)';
+const HYPER_BG = CANVAS.hyper.bg2;
+const HYPER_PERSISTENCE_FILL = CANVAS.hyper.persistenceFill;
+const HYPER_TRACE = CANVAS.hyper.trace;
+const HYPER_GRID = CANVAS.hyper.grid;
+const HYPER_LABEL = CANVAS.hyper.label;
 const BG_RGB = hexToRgb(COLORS.bg2);
 const TRACE_RGB = hexToRgb(COLORS.waveform);
 const NGE_BG_RGB = hexToRgb(NGE_BG);
 const NGE_TRACE_RGB = hexToRgb(NGE_TRACE);
+const HYPER_BG_RGB = hexToRgb(HYPER_BG);
+const HYPER_TRACE_RGB = hexToRgb(HYPER_TRACE);
+
+function getVisualPalette(mode: VisualMode): {
+  backgroundFill: string;
+  persistenceFill: string;
+  traceColor: string;
+  gridColor: string;
+  labelColor: string;
+  backgroundFillRgb: readonly [number, number, number];
+  traceColorRgb: readonly [number, number, number];
+} {
+  if (mode === 'nge') {
+    return {
+      backgroundFill: NGE_BG,
+      persistenceFill: NGE_PERSISTENCE_FILL,
+      traceColor: NGE_TRACE,
+      gridColor: NGE_GRID,
+      labelColor: NGE_LABEL,
+      backgroundFillRgb: NGE_BG_RGB,
+      traceColorRgb: NGE_TRACE_RGB,
+    };
+  }
+
+  if (mode === 'hyper') {
+    return {
+      backgroundFill: HYPER_BG,
+      persistenceFill: HYPER_PERSISTENCE_FILL,
+      traceColor: HYPER_TRACE,
+      gridColor: HYPER_GRID,
+      labelColor: HYPER_LABEL,
+      backgroundFillRgb: HYPER_BG_RGB,
+      traceColorRgb: HYPER_TRACE_RGB,
+    };
+  }
+
+  return {
+    backgroundFill: COLORS.bg2,
+    persistenceFill: COLORS.bg2,
+    traceColor: COLORS.waveform,
+    gridColor: COLORS.waveformGrid,
+    labelColor: COLORS.textDim,
+    backgroundFillRgb: BG_RGB,
+    traceColorRgb: TRACE_RGB,
+  };
+}
 
 export function WaveformScrollPanel(): React.ReactElement {
   const frameBus = useFrameBus();
@@ -28,7 +80,7 @@ export function WaveformScrollPanel(): React.ReactElement {
   const rafRef = useRef<number | null>(null);
   const lastFileIdRef = useRef(-1);
   const scrollCarryRef = useRef(0);
-  const lastNgeRef = useRef(displayMode.nge);
+  const lastModeRef = useRef<VisualMode>(displayMode.mode);
   const lastRafTimeRef = useRef(0); // performance.now() of last RAF tick
 
   useEffect(() => {
@@ -46,7 +98,7 @@ export function WaveformScrollPanel(): React.ReactElement {
       if (!offscreen) return;
       const octx = offscreen.getContext('2d');
       if (octx) {
-        octx.fillStyle = displayMode.nge ? NGE_BG : COLORS.bg2;
+        octx.fillStyle = getVisualPalette(displayMode.mode).backgroundFill;
         octx.fillRect(0, 0, offscreen.width, offscreen.height);
       }
     });
@@ -86,7 +138,7 @@ export function WaveformScrollPanel(): React.ReactElement {
 
         const octx = offscreen.getContext('2d');
         if (octx) {
-          octx.fillStyle = displayMode.nge ? NGE_BG : COLORS.bg2;
+          octx.fillStyle = getVisualPalette(displayMode.mode).backgroundFill;
           octx.fillRect(0, 0, w, h);
           if (snapshot) {
             octx.drawImage(snapshot, w - prevW, Math.round((h - prevH) / 2));
@@ -106,32 +158,35 @@ export function WaveformScrollPanel(): React.ReactElement {
       const W = canvas.width;
       const H = canvas.height;
       const dpr = Math.min(devicePixelRatio, PANEL_DPR_MAX);
-      const nge = displayMode.nge;
+      const mode = displayMode.mode;
       const padX = PAD * dpr;
       const padY = PAD * dpr;
       const drawW = W - padX * 2;
       const drawH = H - padY * 2;
       const midY = padY + drawH / 2;
       const halfH = drawH / 2;
-      const backgroundFill = nge ? NGE_BG : COLORS.bg2;
-      const persistenceFill = nge ? NGE_PERSISTENCE_FILL : COLORS.bg2;
-      const traceColor = nge ? NGE_TRACE : COLORS.waveform;
-      const gridColor = nge ? NGE_GRID : COLORS.waveformGrid;
-      const labelColor = nge ? NGE_LABEL : COLORS.textDim;
-      const backgroundFillRgb = nge ? NGE_BG_RGB : BG_RGB;
-      const traceColorRgb = nge ? NGE_TRACE_RGB : TRACE_RGB;
+      const {
+        backgroundFill,
+        persistenceFill,
+        traceColor,
+        gridColor,
+        labelColor,
+        backgroundFillRgb,
+        traceColorRgb,
+      } = getVisualPalette(mode);
 
-      if (nge !== lastNgeRef.current) {
+      if (mode !== lastModeRef.current) {
+        const previousPalette = getVisualPalette(lastModeRef.current);
         remapMonochromeCanvas(
           octx,
           W,
           H,
-          lastNgeRef.current ? NGE_BG_RGB : BG_RGB,
-          lastNgeRef.current ? NGE_TRACE_RGB : TRACE_RGB,
+          previousPalette.backgroundFillRgb,
+          previousPalette.traceColorRgb,
           backgroundFillRgb,
           traceColorRgb,
         );
-        lastNgeRef.current = nge;
+        lastModeRef.current = mode;
       }
 
       if (frame && frame.fileId !== lastFileIdRef.current) {
