@@ -8,6 +8,14 @@ import { useAudioEngine } from '../core/session';
 import { COLORS, FONTS, SPACING } from '../theme';
 import type { TransportState } from '../types';
 
+const VIDEO_HEIGHT_MIN = 72;
+const VIDEO_HEIGHT_DEFAULT = 160;
+
+// Module-level: survives TransportControls remount (e.g. layout reset) within
+// the same page session. The component reinitialises from these on mount.
+let _sessionVideoUrl: string | null = null;
+let _sessionVideoHeight: number = VIDEO_HEIGHT_DEFAULT;
+
 function formatTime(s: number): string {
   const m = Math.floor(s / 60);
   const sec = Math.floor(s % 60);
@@ -34,29 +42,108 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
   });
   const [isDragging, setIsDragging] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [videoUrl, setVideoUrl] = useState<string | null>(null);
+  const [videoUrl, setVideoUrl] = useState<string | null>(() => _sessionVideoUrl);
+  const [videoHeight, setVideoHeight] = useState(() => _sessionVideoHeight);
+  const [videoResolution, setVideoResolution] = useState<string | null>(null);
 
   const seekInputRef = useRef<HTMLInputElement>(null);
   const seekFillRef = useRef<HTMLDivElement>(null);
   const isSeekingRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const videoWrapRef = useRef<HTMLDivElement>(null);
   const videoUrlRef = useRef<string | null>(null); // tracks current object URL for revocation
   const transportRef = useRef(transport);
   transportRef.current = transport;
   const lastVideoSyncRef = useRef(0);
+  const videoResizeRef = useRef<{ startY: number; startH: number } | null>(null);
+
+  // Restore the ref on mount so clearVideoPreview can revoke the URL if a new file is loaded.
+  useEffect(() => {
+    if (_sessionVideoUrl && !videoUrlRef.current) {
+      videoUrlRef.current = _sessionVideoUrl;
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const setVideoUrlSession = useCallback((url: string | null) => {
+    _sessionVideoUrl = url;
+    setVideoUrl(url);
+  }, []);
+
+  const setVideoHeightSession = useCallback((h: number) => {
+    _sessionVideoHeight = h;
+    setVideoHeight(h);
+  }, []);
 
   const clearVideoPreview = useCallback(() => {
     if (videoUrlRef.current) {
       URL.revokeObjectURL(videoUrlRef.current);
       videoUrlRef.current = null;
     }
-    setVideoUrl(null);
-  }, []);
+    setVideoUrlSession(null);
+  }, [setVideoUrlSession]);
 
   const clearFileInput = useCallback(() => {
     if (fileInputRef.current) fileInputRef.current.value = '';
   }, []);
+
+  const onVideoMetadata = useCallback(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    const w = v.videoWidth;
+    const h = v.videoHeight;
+    if (w === 0 || h === 0) { setVideoResolution(null); return; }
+    const label = w >= 7680 ? '8K' : w >= 3840 ? '4K' : w >= 2560 ? '2.5K' : w >= 1920 ? '1080p' : w >= 1280 ? '720p' : `${h}p`;
+    setVideoResolution(label);
+  }, []);
+
+  const onVideoResizeMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    videoResizeRef.current = { startY: e.clientY, startH: videoHeight };
+    document.body.style.cursor = 'row-resize';
+    document.body.style.userSelect = 'none';
+
+    const onMove = (ev: MouseEvent) => {
+      const ref = videoResizeRef.current;
+      if (!ref) return;
+      const next = Math.max(VIDEO_HEIGHT_MIN, ref.startH + (ev.clientY - ref.startY));
+      // Mutate DOM directly — zero React re-renders during drag
+      if (videoWrapRef.current) videoWrapRef.current.style.height = `${next}px`;
+    };
+    const onUp = (ev: MouseEvent) => {
+      const ref = videoResizeRef.current;
+      videoResizeRef.current = null;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      // Commit final height to state only once on release
+      if (ref) {
+        const final = Math.max(VIDEO_HEIGHT_MIN, ref.startH + (ev.clientY - ref.startY));
+        setVideoHeightSession(final);
+      }
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }, [videoHeight]);
+
+  const onFullscreen = useCallback(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    if (v.requestFullscreen) void v.requestFullscreen();
+  }, []);
+
+  // Fires when the video element can begin playback (including after remount).
+  // If the session is already playing, seek to the current audio position and play.
+  const onVideoCanPlay = useCallback(() => {
+    const video = videoRef.current;
+    if (!video || !transportRef.current.isPlaying) return;
+    const ct = audioEngine.currentTime;
+    video.currentTime = ct;
+    video.playbackRate = transportRef.current.playbackRate;
+    void video.play();
+  }, [audioEngine]);
 
   // Sync from engine
   useEffect(() => {
@@ -74,25 +161,24 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
     });
   }, [audioEngine]);
 
-  // Play/pause the video element in sync with the audio engine
+  // Play/pause the video on transport transitions only.
+  // Deliberately NOT in deps: transport.currentTime — the RAF loop handles
+  // continuous drift correction. Putting currentTime here caused a forced
+  // seek every 100 ms on the playing video, interrupting the decode pipeline.
   useEffect(() => {
     const video = videoRef.current;
     if (!video || !videoUrl) return;
-    video.playbackRate = transport.playbackRate;
     if (transport.isPlaying) {
       video.currentTime = audioEngine.currentTime;
+      video.playbackRate = transport.playbackRate;
       void video.play();
     } else {
       video.pause();
-      if (transport.currentTime === 0) video.currentTime = 0;
+      // On stop (not just pause), snap back to zero
+      if (audioEngine.currentTime === 0) video.currentTime = 0;
     }
-  }, [audioEngine, transport.isPlaying, videoUrl, transport.currentTime, transport.playbackRate]);
-
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video || !videoUrl) return;
-    video.playbackRate = transport.playbackRate;
-  }, [transport.playbackRate, videoUrl]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [transport.isPlaying, videoUrl]);
 
   // RAF loop — keeps seek bar and video in sync without React re-renders
   useEffect(() => {
@@ -131,10 +217,15 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
     return () => clearInterval(id);
   }, [audioEngine, transport.isPlaying]);
 
-  // Revoke object URL on unmount
+  // Revoke object URL on unmount — but NOT if it's still the active session URL.
+  // On RESET ALL the component unmounts and immediately remounts; revoking here
+  // would invalidate the URL before the remounted instance can use it.
   useEffect(() => {
     return () => {
-      if (videoUrlRef.current) URL.revokeObjectURL(videoUrlRef.current);
+      const url = videoUrlRef.current;
+      if (url && url !== _sessionVideoUrl) {
+        URL.revokeObjectURL(url);
+      }
     };
   }, []);
 
@@ -142,6 +233,7 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
     return audioEngine.onReset(() => {
       clearVideoPreview();
       clearFileInput();
+      setVideoResolution(null);
       if (videoRef.current) {
         videoRef.current.pause();
         videoRef.current.currentTime = 0;
@@ -159,7 +251,7 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
     if (file.type.startsWith('video/')) {
       const url = URL.createObjectURL(file);
       videoUrlRef.current = url;
-      setVideoUrl(url);
+      setVideoUrlSession(url);
       lastVideoSyncRef.current = 0;
     }
 
@@ -248,9 +340,9 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
         )}
       </div>
 
-      {/* Video preview — shown only for video files */}
+      {/* Video preview — resizable, shown only for video files */}
       {videoUrl && (
-        <div style={videoWrapStyle}>
+        <div ref={videoWrapRef} style={{ ...videoWrapStyle, height: videoHeight }}>
           <video
             ref={videoRef}
             src={videoUrl}
@@ -258,6 +350,23 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
             preload="auto"
             playsInline
             style={videoStyle}
+            onLoadedMetadata={onVideoMetadata}
+            onCanPlay={onVideoCanPlay}
+          />
+          {/* Overlay: resolution badge + fullscreen button */}
+          <div style={videoOverlayStyle}>
+            {videoResolution && (
+              <span style={videoBadgeStyle}>{videoResolution}</span>
+            )}
+            <button style={videoFsButtonStyle} onClick={onFullscreen} title="Fullscreen">
+              ⛶
+            </button>
+          </div>
+          {/* Drag handle — bottom edge */}
+          <div
+            style={videoResizeHandleStyle}
+            onMouseDown={onVideoResizeMouseDown}
+            title="Drag to resize"
           />
         </div>
       )}
@@ -375,8 +484,8 @@ const videoWrapStyle: React.CSSProperties = {
   overflow: 'hidden',
   flexShrink: 0,
   background: '#000',
-  // Fixed height; video letterboxes/pillarboxes inside
-  height: 120,
+  position: 'relative',
+  // height is set inline from state
 };
 
 const videoStyle: React.CSSProperties = {
@@ -384,6 +493,55 @@ const videoStyle: React.CSSProperties = {
   width: '100%',
   height: '100%',
   objectFit: 'contain',
+  // Promote to its own compositor layer — hardware-accelerated decode for 4K+
+  transform: 'translateZ(0)',
+};
+
+const videoOverlayStyle: React.CSSProperties = {
+  position: 'absolute',
+  top: 4,
+  right: 4,
+  display: 'flex',
+  alignItems: 'center',
+  gap: 4,
+  pointerEvents: 'none',
+};
+
+const videoBadgeStyle: React.CSSProperties = {
+  fontFamily: FONTS.mono,
+  fontSize: FONTS.sizeXs,
+  color: COLORS.textPrimary,
+  background: 'rgba(0,0,0,0.62)',
+  border: `1px solid ${COLORS.border}`,
+  borderRadius: 2,
+  padding: '1px 4px',
+  letterSpacing: '0.06em',
+  pointerEvents: 'none',
+};
+
+const videoFsButtonStyle: React.CSSProperties = {
+  fontFamily: FONTS.mono,
+  fontSize: '13px',
+  color: COLORS.textSecondary,
+  background: 'rgba(0,0,0,0.62)',
+  border: `1px solid ${COLORS.border}`,
+  borderRadius: 2,
+  padding: '1px 4px',
+  cursor: 'pointer',
+  lineHeight: 1,
+  outline: 'none',
+  pointerEvents: 'auto',
+};
+
+const videoResizeHandleStyle: React.CSSProperties = {
+  position: 'absolute',
+  bottom: 0,
+  left: 0,
+  right: 0,
+  height: 6,
+  cursor: 'row-resize',
+  background: 'transparent',
+  zIndex: 10,
 };
 
 const timeRowStyle: React.CSSProperties = {
