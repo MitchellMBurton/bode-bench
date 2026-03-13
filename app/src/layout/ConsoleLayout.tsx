@@ -22,6 +22,7 @@ const GAP = SPACING.panelGap;
 const CHROME_H = SPACING.chromeHeaderH;
 const GLOBAL_H = SPACING.globalHeaderH;
 const TOOLBAR_H = 26; // px — single-line layout toolbar
+const LEFT_COLUMN_DEFAULT = [24, 76] as const;
 
 interface PanelDef {
   category: string;
@@ -145,7 +146,7 @@ export function ConsoleLayout({ topLeft, topRight, bottomLeft, bottomRight, gray
             <SplitPane
               key="top"
               direction="row"
-              initialSizes={[340, 660]}
+              initialSizes={[...LEFT_COLUMN_DEFAULT]}
               minSizePx={[240, 320]}
             >
               {[
@@ -158,7 +159,7 @@ export function ConsoleLayout({ topLeft, topRight, bottomLeft, bottomRight, gray
             <SplitPane
               key="bottom"
               direction="row"
-              initialSizes={[340, 660]}
+              initialSizes={[...LEFT_COLUMN_DEFAULT]}
               minSizePx={[240, 320]}
             >
               {[
