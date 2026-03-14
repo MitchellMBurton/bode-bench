@@ -737,7 +737,7 @@ export function PerformanceDiagnostics(): React.ReactElement {
         />
       </div>
 
-      <PerformanceTracePanel samples={traceSamples} />
+      <PerformanceTracePanel samples={traceSamples} events={snapshot.recentEvents} />
 
       <div style={perfBodyStyle}>
         <div style={perfPanelStyle}>
@@ -825,12 +825,47 @@ function PerformanceMeter({
   );
 }
 
-function PerformanceTracePanel({ samples }: { samples: readonly PerformanceTraceSample[] }): React.ReactElement {
-  const width = 960;
-  const height = 188;
-  const plotLeft = 84;
-  const plotRight = 18;
-  const plotTop = 18;
+function classifyTraceEvent(event: PerformanceEvent): {
+  readonly label: string;
+  readonly laneIndex: number;
+  readonly tone: 'dim' | 'info' | 'warn';
+} | null {
+  const text = event.text.toLowerCase();
+  if (event.source === 'load') {
+    return { label: 'LOAD', laneIndex: 3, tone: event.tone };
+  }
+  if (event.source === 'ui' && text.includes('long task')) {
+    return { label: 'TASK', laneIndex: 2, tone: event.tone };
+  }
+  if (text.includes('hard resync') || text.includes('drift reset')) {
+    return { label: 'LOCK', laneIndex: 1, tone: event.tone };
+  }
+  if (text.includes('refreshed after') || text.includes('retuning')) {
+    return { label: 'RTN', laneIndex: 1, tone: event.tone };
+  }
+  if (text.includes('waiting')) {
+    return { label: 'WAIT', laneIndex: 1, tone: event.tone };
+  }
+  if (text.includes('stalled')) {
+    return { label: 'STALL', laneIndex: 1, tone: event.tone };
+  }
+  return null;
+}
+
+function PerformanceTracePanel({
+  samples,
+  events,
+}: {
+  samples: readonly PerformanceTraceSample[];
+  events: readonly PerformanceEvent[];
+}): React.ReactElement {
+  const width = 1180;
+  const height = 244;
+  const plotLeft = 168;
+  const plotRight = 24;
+  const headerTop = 18;
+  const contactBandHeight = 28;
+  const plotTop = headerTop + contactBandHeight + 14;
   const laneHeight = 28;
   const laneGap = 12;
   const plotWidth = width - plotLeft - plotRight;
@@ -844,13 +879,18 @@ function PerformanceTracePanel({ samples }: { samples: readonly PerformanceTrace
           <div style={perfSectionTitleStyle}>TIME TRACE</div>
           <div style={{ ...perfMeterValueStyle, color: COLORS.textDim }}>LAST {spanLabel}</div>
         </div>
-        <div style={perfEmptyStyle}>Keep Perf Lab open while you play, scrub, or retune. This strip will accumulate a rolling performance history over time.</div>
+        <div style={perfEmptyStyle}>Keep Perf Lab open while you play, scrub, or retune. This strip will accumulate a rolling contact trace over time.</div>
       </div>
     );
   }
 
-  const xForIndex = (index: number): number => plotLeft + (plotWidth * index) / Math.max(1, samples.length - 1);
+  const traceStartAt = samples[0].atMs;
+  const traceEndAt = latest.atMs;
+  const traceDurationMs = Math.max(1, traceEndAt - traceStartAt);
   const laneTopAt = (laneIndex: number): number => plotTop + laneIndex * (laneHeight + laneGap);
+  const plotBottom = laneTopAt(3) + laneHeight;
+  const plotHeight = plotBottom - headerTop;
+  const xForTime = (atMs: number): number => plotLeft + ((atMs - traceStartAt) / traceDurationMs) * plotWidth;
   const positiveY = (value: number, max: number, top: number): number => {
     const ratio = Math.max(0, Math.min(1, value / max));
     return top + laneHeight - ratio * (laneHeight - 4) - 2;
@@ -868,10 +908,8 @@ function PerformanceTracePanel({ samples }: { samples: readonly PerformanceTrace
     const top = laneTopAt(laneIndex);
     return samples
       .map((sample, index) => {
-        const x = xForIndex(index);
-        const y = centered
-          ? centeredY(selector(sample), max, top)
-          : positiveY(selector(sample), max, top);
+        const x = xForTime(sample.atMs);
+        const y = centered ? centeredY(selector(sample), max, top) : positiveY(selector(sample), max, top);
         return `${index === 0 ? 'M' : 'L'}${x.toFixed(2)} ${y.toFixed(2)}`;
       })
       .join(' ');
@@ -883,101 +921,222 @@ function PerformanceTracePanel({ samples }: { samples: readonly PerformanceTrace
   ): string => {
     const top = laneTopAt(laneIndex);
     const baseline = top + laneHeight - 2;
-    const points = samples.map((sample, index) => `${xForIndex(index).toFixed(2)} ${positiveY(selector(sample), max, top).toFixed(2)}`);
+    const points = samples.map((sample) => `${xForTime(sample.atMs).toFixed(2)} ${positiveY(selector(sample), max, top).toFixed(2)}`);
     if (points.length === 0) return '';
-    return `M${plotLeft} ${baseline.toFixed(2)} L${points.join(' L ')} L${xForIndex(samples.length - 1).toFixed(2)} ${baseline.toFixed(2)} Z`;
+    return `M${plotLeft} ${baseline.toFixed(2)} L${points.join(' L ')} L${xForTime(traceEndAt).toFixed(2)} ${baseline.toFixed(2)} Z`;
+  };
+  const formatRelativeTick = (fraction: number): string => {
+    const remainingMs = Math.max(0, Math.round((1 - fraction) * traceDurationMs));
+    if (remainingMs < 1000) return `${remainingMs}ms`;
+    const seconds = Math.round(remainingMs / 1000);
+    if (seconds < 60) return `${seconds}s`;
+    const minutes = Math.floor(seconds / 60);
+    const remSeconds = seconds % 60;
+    return remSeconds === 0 ? `${minutes}m` : `${minutes}m ${String(remSeconds).padStart(2, '0')}s`;
   };
 
   const lanes = [
     {
-      label: 'UI P95',
+      code: 'UI P95',
+      subtitle: 'FRAME PRESSURE',
+      scale: '0..40 ms',
       detail: formatPerfMs(latest.uiFrameP95Ms),
-      color: 'rgba(134, 222, 255, 0.95)',
-      fill: 'rgba(74, 126, 210, 0.16)',
+      status: latest.uiFrameP95Ms >= 24 ? 'HOT' : latest.uiFrameP95Ms >= 16 ? 'WATCH' : 'CLEAR',
+      color: '#8cdeff',
+      fill: 'rgba(76, 138, 220, 0.18)',
+      glow: 'rgba(140, 222, 255, 0.22)',
       max: 40,
       selector: (sample: PerformanceTraceSample) => sample.uiFrameP95Ms,
       centered: false,
+      threshold: 24,
     },
     {
-      label: 'DRIFT',
+      code: 'SYNC DT',
+      subtitle: 'TRANSPORT OFFSET',
+      scale: '+/-240 ms',
       detail: formatPerfSignedMs(latest.videoDriftMs),
-      color: 'rgba(214, 164, 255, 0.95)',
-      fill: 'rgba(118, 84, 180, 0.12)',
+      status: latest.videoCatchupActive ? 'TRACK' : Math.abs(latest.videoDriftMs) >= 90 ? 'OFF AXIS' : 'LOCKED',
+      color: '#d7a6ff',
+      fill: 'rgba(112, 82, 170, 0.12)',
+      glow: 'rgba(214, 164, 255, 0.24)',
       max: 240,
       selector: (sample: PerformanceTraceSample) => sample.videoDriftMs,
       centered: true,
+      threshold: 90,
     },
     {
-      label: 'LONG',
+      code: 'LONG',
+      subtitle: 'MAIN THREAD SPIKE',
+      scale: '0..180 ms',
       detail: latest.longTaskPulseMs > 0 ? formatPerfMs(latest.longTaskPulseMs, 0) : '--',
-      color: 'rgba(208, 170, 82, 0.95)',
-      fill: 'rgba(176, 144, 48, 0.18)',
+      status: latest.longTaskPulseMs >= 120 ? 'STRIKE' : latest.longTaskPulseMs > 0 ? 'SPIKE' : 'QUIET',
+      color: '#d7b064',
+      fill: 'rgba(176, 144, 48, 0.2)',
+      glow: 'rgba(208, 170, 82, 0.22)',
       max: 180,
       selector: (sample: PerformanceTraceSample) => sample.longTaskPulseMs,
       centered: false,
+      threshold: 40,
     },
     {
-      label: 'LOAD',
+      code: 'LOAD',
+      subtitle: 'INGEST ARC',
+      scale: '0..2400 ms',
       detail: latest.loadPulseMs > 0 ? formatPerfMs(latest.loadPulseMs, 0) : '--',
-      color: 'rgba(255, 192, 116, 0.95)',
-      fill: 'rgba(196, 126, 52, 0.18)',
+      status: latest.loadPulseMs >= 1200 ? 'HEAVY' : latest.loadPulseMs > 0 ? 'ACTIVE' : 'IDLE',
+      color: '#ffbf74',
+      fill: 'rgba(194, 122, 50, 0.18)',
+      glow: 'rgba(255, 192, 116, 0.2)',
       max: 2400,
       selector: (sample: PerformanceTraceSample) => sample.loadPulseMs,
       centered: false,
+      threshold: 900,
     },
   ] as const;
 
-  const catchupBandWidth = Math.max(3, plotWidth / Math.max(48, samples.length * 1.1));
+  const contactMarkers = events
+    .filter((event) => event.atMs >= traceStartAt)
+    .map((event) => {
+      const classification = classifyTraceEvent(event);
+      if (!classification) return null;
+      return {
+        ...classification,
+        atMs: event.atMs,
+      };
+    })
+    .filter((event): event is { readonly atMs: number; readonly label: string; readonly laneIndex: number; readonly tone: 'dim' | 'info' | 'warn' } => event !== null)
+    .slice(-10);
+
+  const tickFractions = [0, 0.2, 0.4, 0.6, 0.8, 1];
+  const contactColor = (tone: 'dim' | 'info' | 'warn'): string =>
+    tone === 'warn' ? '#ffcf76' : tone === 'info' ? '#91e0ff' : '#8a89c0';
+  const catchupBandWidth = Math.max(4, plotWidth / Math.max(42, samples.length * 0.95));
 
   return (
     <div style={perfPanelStyle}>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: SPACING.sm, alignItems: 'baseline' }}>
-        <div style={perfSectionTitleStyle}>TIME TRACE</div>
-        <div style={{ ...perfMeterValueStyle, color: COLORS.textDim }}>LAST {spanLabel}</div>
+        <div style={perfSectionTitleStyle}>TACTICAL TRACE</div>
+        <div style={{ ...perfMeterValueStyle, color: COLORS.textDim }}>LAST {spanLabel} / {samples.length} PINGS</div>
       </div>
       <div
         style={{
           border: `1px solid ${COLORS.border}`,
-          background: 'linear-gradient(180deg, rgba(7,10,16,0.84), rgba(10,12,18,0.92))',
+          background: 'radial-gradient(circle at 50% 0%, rgba(20,28,46,0.36), rgba(7,10,16,0.92) 44%, rgba(7,10,16,0.98) 100%)',
           padding: `${SPACING.xs}px ${SPACING.xs}px ${SPACING.sm}px`,
-          boxShadow: 'inset 0 1px 0 rgba(120, 134, 188, 0.06)',
+          boxShadow: 'inset 0 1px 0 rgba(120, 134, 188, 0.08), inset 0 0 0 1px rgba(40, 50, 74, 0.22)',
         }}
       >
-        <svg viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" style={{ display: 'block', width: '100%', height: 176 }}>
-          <rect x={plotLeft} y={plotTop - 6} width={plotWidth} height={height - plotTop - 18} fill="rgba(9, 12, 18, 0.68)" stroke={COLORS.border} strokeOpacity={0.4} />
-          {samples.map((sample, index) => sample.videoCatchupActive ? (
+        <svg viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" style={{ display: 'block', width: '100%', height: 212 }}>
+          <defs>
+            <linearGradient id="perfTraceSweep" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0%" stopColor="rgba(72, 96, 184, 0)" />
+              <stop offset="55%" stopColor="rgba(72, 96, 184, 0.04)" />
+              <stop offset="100%" stopColor="rgba(138, 222, 255, 0.12)" />
+            </linearGradient>
+            <linearGradient id="perfContactBand" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0%" stopColor="rgba(11, 14, 22, 0.96)" />
+              <stop offset="100%" stopColor="rgba(15, 18, 28, 0.82)" />
+            </linearGradient>
+          </defs>
+
+          <rect x={plotLeft} y={headerTop} width={plotWidth} height={plotHeight + contactBandHeight + 6} fill="rgba(7, 10, 16, 0.72)" stroke={COLORS.border} strokeOpacity={0.42} />
+          <rect x={plotLeft} y={headerTop} width={plotWidth} height={contactBandHeight} fill="url(#perfContactBand)" stroke={COLORS.border} strokeOpacity={0.2} />
+          <rect x={width - plotRight - 132} y={headerTop} width={132} height={plotHeight + contactBandHeight + 6} fill="url(#perfTraceSweep)" />
+
+          {tickFractions.map((fraction, index) => {
+            const x = plotLeft + plotWidth * fraction;
+            return (
+              <g key={`tick-${fraction}`}>
+                <line
+                  x1={x}
+                  y1={headerTop}
+                  x2={x}
+                  y2={plotBottom + 10}
+                  stroke={COLORS.border}
+                  strokeOpacity={index === tickFractions.length - 1 ? 0.42 : 0.18}
+                  strokeDasharray={index === tickFractions.length - 1 ? undefined : '3 7'}
+                />
+                <text
+                  x={x}
+                  y={plotBottom + 22}
+                  fill={COLORS.textDim}
+                  fontFamily={FONTS.mono}
+                  fontSize={10}
+                  textAnchor={index === 0 ? 'start' : index === tickFractions.length - 1 ? 'end' : 'middle'}
+                  letterSpacing="1.2"
+                >
+                  {index === tickFractions.length - 1 ? 'NOW' : `-${formatRelativeTick(fraction)}`}
+                </text>
+              </g>
+            );
+          })}
+
+          <text x={16} y={headerTop + 12} fill={COLORS.textCategory} fontFamily={FONTS.mono} fontSize={11} letterSpacing="1.8">EVENT CONTACT MAP</text>
+          <text x={width - 10} y={headerTop + 12} fill={COLORS.textDim} fontFamily={FONTS.mono} fontSize={10} textAnchor="end" letterSpacing="1.2">TACTICAL HISTORY</text>
+
+          {samples.map((sample) => sample.videoCatchupActive ? (
             <rect
               key={`catchup-${sample.atMs}`}
-              x={xForIndex(index) - catchupBandWidth * 0.5}
-              y={laneTopAt(1) - 4}
+              x={xForTime(sample.atMs) - catchupBandWidth * 0.5}
+              y={laneTopAt(1) - 3}
               width={catchupBandWidth}
-              height={laneHeight + 8}
-              fill="rgba(132, 106, 228, 0.14)"
+              height={laneHeight + 6}
+              fill="rgba(115, 92, 212, 0.14)"
             />
           ) : null)}
+
+          {contactMarkers.map((marker, index) => {
+            const x = xForTime(marker.atMs);
+            const laneTop = laneTopAt(marker.laneIndex);
+            const laneMid = laneTop + laneHeight / 2;
+            const markerY = headerTop + 16 + (index % 2 === 0 ? 0 : 8);
+            const color = contactColor(marker.tone);
+            return (
+              <g key={`contact-${marker.atMs}-${index}`}>
+                <line x1={x} y1={markerY + 4} x2={x} y2={laneMid} stroke={color} strokeOpacity={0.34} strokeDasharray="2 4" />
+                <rect x={x - 10} y={markerY - 8} width={20} height={11} rx={2} fill="rgba(8, 10, 16, 0.92)" stroke={color} strokeOpacity={0.8} />
+                <text x={x} y={markerY} fill={color} fontFamily={FONTS.mono} fontSize={8.5} textAnchor="middle" letterSpacing="0.9">{marker.label}</text>
+                <circle cx={x} cy={laneMid} r={2.4} fill={color} />
+              </g>
+            );
+          })}
+
           {lanes.map((lane, index) => {
             const top = laneTopAt(index);
             const baseline = lane.centered ? top + laneHeight / 2 : top + laneHeight - 2;
             const linePath = buildLinePath(lane.selector, lane.max, index, lane.centered);
             const areaPath = lane.centered ? '' : buildAreaPath(lane.selector, lane.max, index);
+            const thresholdY = lane.centered
+              ? top + 2 + ((lane.max - lane.threshold) / (lane.max * 2)) * (laneHeight - 6)
+              : positiveY(lane.threshold, lane.max, top);
             return (
-              <g key={lane.label}>
-                <line x1={plotLeft} y1={baseline} x2={width - plotRight} y2={baseline} stroke={COLORS.border} strokeOpacity={lane.centered ? 0.8 : 0.35} />
-                <line x1={plotLeft} y1={top - 6} x2={width - plotRight} y2={top - 6} stroke={COLORS.border} strokeOpacity={0.14} />
+              <g key={lane.code}>
+                <rect x={plotLeft} y={top} width={plotWidth} height={laneHeight} fill="rgba(10, 13, 20, 0.72)" stroke={COLORS.border} strokeOpacity={0.16} />
+                {!lane.centered ? (
+                  <rect x={plotLeft} y={top + 2} width={plotWidth} height={Math.max(0, thresholdY - top - 2)} fill="rgba(112, 86, 28, 0.06)" />
+                ) : null}
+                <line x1={plotLeft} y1={baseline} x2={width - plotRight} y2={baseline} stroke={lane.centered ? lane.color : COLORS.border} strokeOpacity={lane.centered ? 0.7 : 0.28} />
+                <line x1={plotLeft} y1={top + 1} x2={width - plotRight} y2={top + 1} stroke={COLORS.border} strokeOpacity={0.08} />
                 {areaPath ? <path d={areaPath} fill={lane.fill} /> : null}
-                <path d={linePath} fill="none" stroke={lane.color} strokeWidth={1.7} strokeLinejoin="round" strokeLinecap="round" />
-                <text x={12} y={top + 10} fill={COLORS.textCategory} fontFamily={FONTS.mono} fontSize={11} letterSpacing="1.6">{lane.label}</text>
-                <text x={width - 10} y={top + 10} fill={lane.color} fontFamily={FONTS.mono} fontSize={11} textAnchor="end">{lane.detail}</text>
+                <path d={linePath} fill="none" stroke={lane.glow} strokeWidth={5.2} strokeLinecap="round" strokeLinejoin="round" />
+                <path d={linePath} fill="none" stroke={lane.color} strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round" />
+                <text x={18} y={top + 10} fill={COLORS.textTitle} fontFamily={FONTS.mono} fontSize={12} letterSpacing="2.6">{lane.code}</text>
+                <text x={18} y={top + 22} fill={COLORS.textCategory} fontFamily={FONTS.mono} fontSize={8.5} letterSpacing="1.4">{lane.subtitle}</text>
+                <text x={102} y={top + 10} fill={COLORS.textDim} fontFamily={FONTS.mono} fontSize={9} letterSpacing="1.1">{lane.scale}</text>
+                <text x={width - 12} y={top + 10} fill={lane.color} fontFamily={FONTS.mono} fontSize={12} textAnchor="end" letterSpacing="1.1">{lane.detail}</text>
+                <text x={width - 12} y={top + 22} fill={COLORS.textDim} fontFamily={FONTS.mono} fontSize={8.5} textAnchor="end" letterSpacing="1.4">{lane.status}</text>
+                {lane.centered ? (
+                  <text x={plotLeft - 8} y={baseline + 3} fill={COLORS.textDim} fontFamily={FONTS.mono} fontSize={8.5} textAnchor="end">0</text>
+                ) : null}
               </g>
             );
           })}
-          <text x={plotLeft} y={height - 6} fill={COLORS.textDim} fontFamily={FONTS.mono} fontSize={10} letterSpacing="1.2">-{spanLabel}</text>
-          <text x={width - 10} y={height - 6} fill={COLORS.textDim} fontFamily={FONTS.mono} fontSize={10} textAnchor="end" letterSpacing="1.2">NOW</text>
         </svg>
       </div>
     </div>
   );
 }
+
 
 function PerformanceEventLine({ event }: { event: PerformanceEvent }): React.ReactElement {
   const color =
