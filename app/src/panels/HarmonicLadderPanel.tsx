@@ -5,7 +5,7 @@
 // ============================================================
 
 import { useEffect, useRef } from 'react';
-import { useAudioEngine, useFrameBus } from '../core/session';
+import { useAudioEngine, useFrameBus, useTheaterMode } from '../core/session';
 import { COLORS, FONTS, SPACING, CANVAS } from '../theme';
 import type { AudioFrame } from '../types';
 
@@ -55,6 +55,7 @@ function getPartialDb(
 export function HarmonicLadderPanel(): React.ReactElement {
   const frameBus = useFrameBus();
   const audioEngine = useAudioEngine();
+  const theaterMode = useTheaterMode();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const frameRef = useRef<AudioFrame | null>(null);
   const smoothedRef = useRef<Float32Array>(new Float32Array(NUM_PARTIALS).fill(Number(CANVAS.dbMin)));
@@ -84,6 +85,12 @@ export function HarmonicLadderPanel(): React.ReactElement {
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
+
+    if (theaterMode) {
+      return () => {
+        if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
+      };
+    }
 
     const draw = () => {
       rafRef.current = requestAnimationFrame(draw);
@@ -191,7 +198,7 @@ export function HarmonicLadderPanel(): React.ReactElement {
 
     rafRef.current = requestAnimationFrame(draw);
     return () => { if (rafRef.current !== null) cancelAnimationFrame(rafRef.current); };
-  }, []);
+  }, [theaterMode]);
 
   return (
     <div style={panelStyle}>

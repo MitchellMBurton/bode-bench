@@ -67,6 +67,11 @@ interface VideoSyncProfile {
   readonly rateTrimMax: number;
 }
 
+interface LoadNotice {
+  readonly tone: 'warn' | 'info';
+  readonly message: string;
+}
+
 function formatTime(s: number): string {
   const m = Math.floor(s / 60);
   const sec = Math.floor(s % 60);
@@ -76,6 +81,24 @@ function formatTime(s: number): string {
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
+}
+
+function describeLoadError(error: unknown): string {
+  if (error instanceof DOMException) {
+    if (error.name === 'EncodingError') {
+      return 'The browser could not decode this media file.';
+    }
+    if (error.name === 'NotSupportedError') {
+      return 'This media format is not supported in the current runtime.';
+    }
+    if (error.name === 'AbortError') {
+      return 'File loading was interrupted before decode completed.';
+    }
+  }
+  if (error instanceof Error && error.message.trim()) {
+    return error.message.trim();
+  }
+  return 'This file could not be opened.';
 }
 
 function isPlaybackInterruptedError(error: unknown): boolean {
@@ -310,6 +333,7 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
   const [videoOverlayMode, setVideoOverlayMode] = useState<VideoOverlayMode>(null);
   const [videoWindowRect, setVideoWindowRect] = useState<VideoWindowRect>(() => createDefaultWindowRect(null));
   const [videoSyncIndicator, setVideoSyncIndicator] = useState<VideoSyncIndicator>(null);
+  const [loadNotice, setLoadNotice] = useState<LoadNotice | null>(null);
 
   const seekInputRef = useRef<HTMLInputElement>(null);
   const seekFillRef = useRef<HTMLDivElement>(null);
@@ -1152,6 +1176,7 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
     return audioEngine.onReset(() => {
       clearVideoPreview();
       clearFileInput();
+      setLoadNotice(null);
       setVideoResolution(null);
       setVideoSourceSize(null);
       setDisplayCurrentTime(0);
@@ -1182,6 +1207,7 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
     clearVideoPreview();
     setVideoResolution(null);
     setVideoSourceSize(null);
+    setLoadNotice(null);
     videoEventTimesRef.current = {};
     lastVideoRateRef.current = 1;
     lastVideoRateSetAtRef.current = 0;
@@ -1208,7 +1234,14 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
     setIsLoading(true);
     try {
       await audioEngine.load(file);
+      setLoadNotice(null);
       onFileLoaded?.();
+    } catch (error) {
+      const message = describeLoadError(error);
+      clearVideoPreview();
+      setLoadNotice({ tone: 'warn', message });
+      diagnosticsLog.push(`load failed for ${file.name} - ${message}`, 'warn', 'transport');
+      console.error('media load failed', error);
     } finally {
       clearFileInput();
       setIsLoading(false);
@@ -1315,6 +1348,24 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
           <span style={ingestTextStyle}>DROP AUDIO / VIDEO - OR CLICK TO OPEN</span>
         )}
       </div>
+
+      {loadNotice ? (
+        <div
+          style={{
+            ...loadNoticeStyle,
+            ...(loadNotice.tone === 'warn' ? loadNoticeWarnStyle : loadNoticeInfoStyle),
+          }}
+        >
+          <span style={loadNoticeMessageStyle}>{loadNotice.message}</span>
+          <button
+            style={loadNoticeDismissStyle}
+            onClick={() => setLoadNotice(null)}
+            title="Dismiss message"
+          >
+            X
+          </button>
+        </div>
+      ) : null}
 
       {videoUrl && (
         <div
@@ -1542,6 +1593,55 @@ const ingestTextStyle: React.CSSProperties = {
   overflow: 'hidden',
   textOverflow: 'ellipsis',
   whiteSpace: 'nowrap',
+};
+
+const loadNoticeStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  gap: SPACING.sm,
+  minHeight: 28,
+  padding: `4px ${SPACING.sm}px`,
+  borderWidth: 1,
+  borderStyle: 'solid',
+  borderRadius: 2,
+  background: COLORS.bg1,
+  flexShrink: 0,
+};
+
+const loadNoticeWarnStyle: React.CSSProperties = {
+  borderColor: COLORS.statusWarn,
+  background: 'rgba(42, 34, 0, 0.3)',
+};
+
+const loadNoticeInfoStyle: React.CSSProperties = {
+  borderColor: COLORS.borderHighlight,
+  background: 'rgba(18, 26, 60, 0.28)',
+};
+
+const loadNoticeMessageStyle: React.CSSProperties = {
+  fontFamily: FONTS.mono,
+  fontSize: FONTS.sizeXs,
+  color: COLORS.textPrimary,
+  letterSpacing: '0.05em',
+  lineHeight: 1.45,
+  flex: 1,
+  minWidth: 0,
+};
+
+const loadNoticeDismissStyle: React.CSSProperties = {
+  fontFamily: FONTS.mono,
+  fontSize: FONTS.sizeXs,
+  color: COLORS.textSecondary,
+  background: 'transparent',
+  borderWidth: 1,
+  borderStyle: 'solid',
+  borderColor: COLORS.border,
+  borderRadius: 2,
+  padding: '1px 4px',
+  cursor: 'pointer',
+  lineHeight: 1.2,
+  flexShrink: 0,
 };
 
 const videoWrapStyle: React.CSSProperties = {

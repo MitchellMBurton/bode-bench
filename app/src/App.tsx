@@ -27,6 +27,21 @@ import { COLORS, FONTS, SPACING } from './theme';
 
 const SEEK_STEP = 5;
 const SEEK_STEP_LARGE = 15;
+const GLOBAL_HOTKEY_BLOCK_SELECTOR = [
+  'input',
+  'textarea',
+  'select',
+  'button',
+  'summary',
+  '[contenteditable=""]',
+  '[contenteditable="true"]',
+  '[role="textbox"]',
+  '[role="button"]',
+  '[role="dialog"]',
+  '[aria-modal="true"]',
+  '[data-shell-interactive="true"]',
+  '[data-shell-overlay="true"]',
+].join(', ');
 
 function formatTransportTime(seconds: number): string {
   const minutes = Math.floor(seconds / 60);
@@ -45,6 +60,12 @@ function getRuntimeStatus(snapshot: PerformanceDiagnosticsSnapshot): string {
   if (snapshot.uiFrameP95Ms >= 24 || snapshot.uiJankPercent >= 14 || (snapshot.lastLongTaskMs ?? 0) >= 40) return 'UI PRESSURE';
   if (snapshot.videoCatchupActive || Math.abs(snapshot.videoDriftMs) >= 80) return 'SYNC ACTIVE';
   return 'CLEAN';
+}
+
+function shouldIgnoreGlobalTransportHotkeys(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) return false;
+  if ((target as HTMLElement).isContentEditable) return true;
+  return target.closest(GLOBAL_HOTKEY_BLOCK_SELECTOR) !== null;
 }
 
 export default function App(): React.ReactElement {
@@ -105,8 +126,7 @@ export default function App(): React.ReactElement {
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      const tag = (e.target as HTMLElement)?.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+      if (e.defaultPrevented || shouldIgnoreGlobalTransportHotkeys(e.target)) return;
 
       switch (e.code) {
         case 'Space':
@@ -250,7 +270,7 @@ export default function App(): React.ReactElement {
             <TheaterPanelShell
               active={theaterMode}
               title="SURFACES IDLED"
-              detail="Instrumentation remains mounted so state is preserved when theater mode closes."
+              detail="Instrumentation is held in place during video priority mode, then resumes instantly."
             >
               <SplitPane
                 direction="column"
