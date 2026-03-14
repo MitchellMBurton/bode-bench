@@ -11,22 +11,22 @@ import type { TransportState } from '../types';
 const VIDEO_HEIGHT_MIN = 72;
 const VIDEO_HEIGHT_DEFAULT = 160;
 const VIDEO_TIME_DISPLAY_MS = 100;
-const VIDEO_SOFT_SYNC_DRIFT_S = 0.045;
-const VIDEO_HARD_SYNC_DRIFT_S = 0.35;
-const VIDEO_RATE_TRIM_GAIN = 0.35;
-const VIDEO_RATE_TRIM_MAX = 0.08;
-const VIDEO_HARD_SYNC_COOLDOWN_MS = 900;
-const HIGH_RES_SOFT_SYNC_DRIFT_S = 0.09;
-const HIGH_RES_HARD_SYNC_DRIFT_S = 0.5;
-const HIGH_RES_RATE_TRIM_GAIN = 0.18;
-const HIGH_RES_RATE_TRIM_MAX = 0.04;
-const VIDEO_SYNC_GRACE_MS = 550;
-const WINDOWED_VIDEO_SETTLE_MS = 900;
-const WINDOWED_TRANSPORT_SETTLE_MS = 420;
+const VIDEO_SOFT_SYNC_DRIFT_S = 0.040;
+const VIDEO_HARD_SYNC_DRIFT_S = 0.30;
+const VIDEO_RATE_TRIM_GAIN = 0.40;
+const VIDEO_RATE_TRIM_MAX = 0.09;
+const VIDEO_HARD_SYNC_COOLDOWN_MS = 550;
+const HIGH_RES_SOFT_SYNC_DRIFT_S = 0.075;
+const HIGH_RES_HARD_SYNC_DRIFT_S = 0.42;
+const HIGH_RES_RATE_TRIM_GAIN = 0.22;
+const HIGH_RES_RATE_TRIM_MAX = 0.05;
+const VIDEO_SYNC_GRACE_MS = 380;
+const WINDOWED_VIDEO_SETTLE_MS = 600;
+const WINDOWED_TRANSPORT_SETTLE_MS = 260;
 const VIDEO_PLAYING_LOG_INTERVAL_MS = 6000;
 const VIDEO_SETTLE_LOG_INTERVAL_MS = 7000;
-const VIDEO_SCRUB_PREVIEW_INTERVAL_MS = 90;
-const VIDEO_SCRUB_PREVIEW_STEP_S = 0.14;
+const VIDEO_SCRUB_PREVIEW_INTERVAL_MS = 55;
+const VIDEO_SCRUB_PREVIEW_STEP_S = 0.08;
 const VIDEO_END_TAIL_S = 0.25;
 const VIDEO_LARGE_DRIFT_LOG_MS = 10000;
 const APP_FULLSCREEN_MARGIN_PX = 14;
@@ -109,12 +109,12 @@ function isHighResVideo(size: VideoSourceSize | null): boolean {
 function getTransportStressFactor(playbackRate: number, pitchSemitones: number): number {
   let factor = 1;
   if (playbackRate < 1) {
-    factor += (1 - playbackRate) * 1.4;
+    factor += (1 - playbackRate) * 0.90;
   } else if (playbackRate > 1.2) {
-    factor += Math.min(0.45, (playbackRate - 1.2) * 0.35);
+    factor += Math.min(0.30, (playbackRate - 1.2) * 0.24);
   }
-  factor += Math.min(0.55, (Math.abs(pitchSemitones) / 12) * 0.45);
-  return clamp(factor, 1, 2.35);
+  factor += Math.min(0.38, (Math.abs(pitchSemitones) / 12) * 0.32);
+  return clamp(factor, 1, 1.72);
 }
 
 function getAdaptiveVideoSyncProfile(
