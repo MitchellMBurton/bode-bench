@@ -2,13 +2,13 @@
 // App root - wires layout, panels, controls, and score loader.
 // ============================================================
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useSyncExternalStore } from 'react';
 import { ConsoleLayout } from './layout/ConsoleLayout';
 import { SplitPane } from './layout/SplitPane';
 import { TransportControls } from './controls/TransportControls';
 import { MetadataDisplay } from './controls/MetadataDisplay';
 import { SessionControls } from './controls/SessionControls';
-import { DiagnosticsLog } from './controls/DiagnosticsLog';
+import { DiagnosticsLog, PerformanceDiagnostics } from './controls/DiagnosticsLog';
 import { WaveformOverviewPanel } from './panels/WaveformOverviewPanel';
 import { OscilloscopePanel } from './panels/OscilloscopePanel';
 import { OscilloscopeScrollPanel } from './panels/OscilloscopeScrollPanel';
@@ -20,8 +20,9 @@ import { FrequencyBandsPanel } from './panels/FrequencyBandsPanel';
 import { PitchTrackerPanel } from './panels/PitchTrackerPanel';
 import { HarmonicLadderPanel } from './panels/HarmonicLadderPanel';
 import { LoudnessHistoryPanel } from './panels/LoudnessHistoryPanel';
-import { useAudioEngine, useDiagnosticsLog, useDisplayMode, useTheaterMode } from './core/session';
+import { useAudioEngine, useDiagnosticsLog, useDisplayMode, usePerformanceDiagnosticsStore, useTheaterMode } from './core/session';
 import type { VisualMode } from './audio/displayMode';
+import type { PerformanceDiagnosticsSnapshot } from './diagnostics/logStore';
 import { COLORS, FONTS, SPACING } from './theme';
 
 const SEEK_STEP = 5;
@@ -34,12 +35,31 @@ function formatTransportTime(seconds: number): string {
   return `${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}.${tenths}`;
 }
 
+function formatRuntimeMs(value: number | null, digits = 0): string {
+  if (value === null || !Number.isFinite(value)) return '--';
+  return `${value.toFixed(digits)} ms`;
+}
+
+function getRuntimeStatus(snapshot: PerformanceDiagnosticsSnapshot): string {
+  if (snapshot.videoRecoveryCount > 0 || snapshot.videoStallCount > 0) return 'VIDEO PRESSURE';
+  if (snapshot.uiFrameP95Ms >= 24 || snapshot.uiJankPercent >= 14 || (snapshot.lastLongTaskMs ?? 0) >= 40) return 'UI PRESSURE';
+  if (snapshot.videoCatchupActive || Math.abs(snapshot.videoDriftMs) >= 80) return 'SYNC ACTIVE';
+  return 'CLEAN';
+}
+
 export default function App(): React.ReactElement {
   const audioEngine = useAudioEngine();
   const diagnosticsLog = useDiagnosticsLog();
   const displayMode = useDisplayMode();
+  const performanceDiagnostics = usePerformanceDiagnosticsStore();
+  const perfSnapshot = useSyncExternalStore(
+    performanceDiagnostics.subscribe,
+    performanceDiagnostics.getSnapshot,
+    performanceDiagnostics.getSnapshot,
+  );
   const theaterMode = useTheaterMode();
   const [filename, setFilename] = useState<string | null>(null);
+  const [performanceLabOpen, setPerformanceLabOpen] = useState(false);
   const [grayscale, setGrayscale] = useState(false);
   const [visualMode, setVisualMode] = useState<VisualMode>('default');
   const [layoutResetToken, setLayoutResetToken] = useState(0);
@@ -47,8 +67,37 @@ export default function App(): React.ReactElement {
   useEffect(() => {
     return audioEngine.onTransport((state) => {
       setFilename(state.filename);
+      performanceDiagnostics.noteTransport(state);
     });
-  }, [audioEngine]);
+  }, [audioEngine, performanceDiagnostics]);
+
+  useEffect(() => {
+    let rafId = 0;
+    let lastAt = 0;
+    const tick = (now: number) => {
+      if (lastAt !== 0) {
+        performanceDiagnostics.noteUiFrame(now - lastAt);
+      }
+      lastAt = now;
+      rafId = requestAnimationFrame(tick);
+    };
+    rafId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafId);
+  }, [performanceDiagnostics]);
+
+  useEffect(() => {
+    if (typeof PerformanceObserver === 'undefined') return;
+    if (!PerformanceObserver.supportedEntryTypes?.includes('longtask')) return;
+
+    const observer = new PerformanceObserver((list) => {
+      for (const entry of list.getEntries()) {
+        performanceDiagnostics.noteLongTask(entry.duration);
+      }
+    });
+
+    observer.observe({ entryTypes: ['longtask'] });
+    return () => observer.disconnect();
+  }, [performanceDiagnostics]);
 
   useEffect(() => {
     displayMode.setMode(visualMode);
@@ -102,6 +151,7 @@ export default function App(): React.ReactElement {
   const fileTitle = filename ? filename.replace(/\.[^/.]+$/, '') : null;
   const panelTitle = fileTitle ?? 'NO SESSION';
   const showScanLines = visualMode === 'nge' || visualMode === 'hyper';
+  const runtimeStatus = getRuntimeStatus(perfSnapshot);
 
   return (
     <>
@@ -110,6 +160,43 @@ export default function App(): React.ReactElement {
         visualMode={visualMode}
         layoutResetToken={layoutResetToken}
         onResetLayout={() => setLayoutResetToken((token) => token + 1)}
+        runtimeDock={{
+          label: 'RUNTIME PROFILE',
+          value: runtimeStatus,
+          actionLabel: 'PERF LAB',
+          open: performanceLabOpen,
+          onToggle: () => setPerformanceLabOpen((open) => !open),
+          summary: (
+            <>
+              <RuntimeMetricPill
+                label="UI"
+                value={`${perfSnapshot.uiFps.toFixed(0)} FPS`}
+                tone={perfSnapshot.uiFrameP95Ms >= 24 || perfSnapshot.uiJankPercent >= 14 ? 'warn' : 'dim'}
+              />
+              <RuntimeMetricPill
+                label="JANK"
+                value={`${perfSnapshot.uiJankPercent.toFixed(0)}%`}
+                tone={perfSnapshot.uiJankPercent >= 14 ? 'warn' : 'dim'}
+              />
+              <RuntimeMetricPill
+                label="VIDEO"
+                value={`${perfSnapshot.videoState.toUpperCase()} ${Math.round(Math.abs(perfSnapshot.videoDriftMs))} MS`}
+                tone={perfSnapshot.videoState === 'waiting' || perfSnapshot.videoState === 'stalled' ? 'warn' : perfSnapshot.videoCatchupActive ? 'info' : 'dim'}
+              />
+              <RuntimeMetricPill
+                label="LOAD"
+                value={perfSnapshot.lastLoad ? `${perfSnapshot.lastLoad.totalMs.toFixed(0)} MS` : '--'}
+                tone={perfSnapshot.lastLoad && perfSnapshot.lastLoad.totalMs >= 1200 ? 'warn' : perfSnapshot.lastLoad && perfSnapshot.lastLoad.totalMs >= 900 ? 'info' : 'dim'}
+              />
+              <RuntimeMetricPill
+                label="LONG"
+                value={formatRuntimeMs(perfSnapshot.lastLongTaskMs)}
+                tone={(perfSnapshot.lastLongTaskMs ?? 0) >= 40 ? 'warn' : 'dim'}
+              />
+            </>
+          ),
+          content: <PerformanceDiagnostics />,
+        }}
         topLeft={{
           category: 'SUITE CONSOLE',
           title: panelTitle,
@@ -211,6 +298,37 @@ export default function App(): React.ReactElement {
   );
 }
 
+
+function RuntimeMetricPill({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: string;
+  tone: 'dim' | 'info' | 'warn';
+}): React.ReactElement {
+  const borderColor =
+    tone === 'warn'
+      ? COLORS.statusWarn
+      : tone === 'info'
+        ? COLORS.borderHighlight
+        : COLORS.border;
+  const textColor =
+    tone === 'warn'
+      ? COLORS.textPrimary
+      : tone === 'info'
+        ? COLORS.textPrimary
+        : COLORS.textSecondary;
+
+  return (
+    <span style={{ ...runtimeMetricPillStyle, borderColor }}>
+      <span style={runtimeMetricLabelStyle}>{label}</span>
+      <span style={{ ...runtimeMetricValueStyle, color: textColor }}>{value}</span>
+    </span>
+  );
+}
+
 function TheaterPanelShell({
   active,
   title,
@@ -234,6 +352,34 @@ function TheaterPanelShell({
     </div>
   );
 }
+
+
+const runtimeMetricPillStyle: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: SPACING.xs,
+  padding: `2px ${SPACING.sm}px`,
+  borderWidth: 1,
+  borderStyle: 'solid',
+  borderColor: COLORS.border,
+  borderRadius: 999,
+  background: COLORS.bg1,
+  minWidth: 0,
+};
+
+const runtimeMetricLabelStyle: React.CSSProperties = {
+  fontFamily: FONTS.mono,
+  fontSize: FONTS.sizeXs,
+  color: COLORS.textCategory,
+  letterSpacing: '0.12em',
+};
+
+const runtimeMetricValueStyle: React.CSSProperties = {
+  fontFamily: FONTS.mono,
+  fontSize: FONTS.sizeXs,
+  letterSpacing: '0.06em',
+  color: COLORS.textSecondary,
+};
 
 const controlPanelStyle: React.CSSProperties = {
   display: 'flex',

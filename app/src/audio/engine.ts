@@ -18,6 +18,7 @@ import { createStretchNode, type StretchNode, type StretchSchedule } from './str
 import { CANVAS } from '../theme';
 import type { AudioFrame, FileAnalysis, ScrubStyle, TransportState } from '../types';
 import { RATE_MIN, RATE_MAX, PITCH_MIN, PITCH_MAX } from '../constants';
+import type { PerformanceDiagnosticsStore } from '../diagnostics/logStore';
 
 type TransportListener = (state: TransportState) => void;
 
@@ -70,9 +71,11 @@ const SCRUB_STYLE_CONFIG: Record<ScrubStyle, ScrubStyleConfig> = {
 
 export class AudioEngine {
   private readonly frameBus: FrameBus;
+  private readonly performanceDiagnostics: PerformanceDiagnosticsStore | null;
 
-  constructor(frameBus: FrameBus) {
+  constructor(frameBus: FrameBus, performanceDiagnostics: PerformanceDiagnosticsStore | null = null) {
     this.frameBus = frameBus;
+    this.performanceDiagnostics = performanceDiagnostics;
   }
 
   private ctx: AudioContext | null = null;
@@ -276,6 +279,10 @@ export class AudioEngine {
   async load(file: File): Promise<void> {
     const ctx = this.ensureContext();
     const loadVersion = ++this.loadVersion;
+    const loadStartedAt = performance.now();
+    let readMs = 0;
+    let decodeMs = 0;
+    let stretchMs = 0;
     if (ctx.state === 'suspended') {
       await ctx.resume();
     }
@@ -303,11 +310,17 @@ export class AudioEngine {
     this.pitchShiftAvailable = true;
     this.emitTransport();
 
+    const readStartedAt = performance.now();
     const arrayBuffer = await file.arrayBuffer();
-    if (loadVersion !== this.loadVersion) return;
-    const decodedBuffer = await ctx.decodeAudioData(arrayBuffer);
+    readMs = performance.now() - readStartedAt;
     if (loadVersion !== this.loadVersion) return;
 
+    const decodeStartedAt = performance.now();
+    const decodedBuffer = await ctx.decodeAudioData(arrayBuffer);
+    decodeMs = performance.now() - decodeStartedAt;
+    if (loadVersion !== this.loadVersion) return;
+
+    const stretchStartedAt = performance.now();
     let stretchEnabledForBuffer = false;
     await this.runSerializedStretchMutation(async () => {
       if (loadVersion !== this.loadVersion) return;
@@ -326,6 +339,7 @@ export class AudioEngine {
         }
       }
     });
+    stretchMs = performance.now() - stretchStartedAt;
     if (loadVersion !== this.loadVersion) return;
 
     this.stretchEnabledForBuffer = stretchEnabledForBuffer;
@@ -334,6 +348,17 @@ export class AudioEngine {
     this._filename = file.name;
     this.offsetAt = 0;
     this.fileId++;
+
+    this.performanceDiagnostics?.noteLoadSample({
+      filename: file.name,
+      totalMs: performance.now() - loadStartedAt,
+      readMs,
+      decodeMs,
+      stretchMs,
+      channels: decodedBuffer.numberOfChannels,
+      durationS: decodedBuffer.duration,
+      stretchEnabled: stretchEnabledForBuffer,
+    });
 
     this.emitTransport();
 

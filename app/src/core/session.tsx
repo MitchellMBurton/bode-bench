@@ -5,7 +5,7 @@ import { AudioEngine } from '../audio/engine';
 import { DisplayModeStore } from '../audio/displayMode';
 import { FrameBus } from '../audio/frameBus';
 import { ScrollSpeedStore } from '../audio/scrollSpeed';
-import { DiagnosticsLogStore } from '../diagnostics/logStore';
+import { DiagnosticsLogStore, PerformanceDiagnosticsStore } from '../diagnostics/logStore';
 import { TheaterModeStore } from '../video/theaterMode';
 
 export interface AppSession {
@@ -14,6 +14,7 @@ export interface AppSession {
   displayMode: DisplayModeStore;
   scrollSpeed: ScrollSpeedStore;
   diagnosticsLog: DiagnosticsLogStore;
+  performanceDiagnostics: PerformanceDiagnosticsStore;
   theaterMode: TheaterModeStore;
 }
 
@@ -27,15 +28,17 @@ const AppSessionContext = createContext<AppSession | null>(null);
 export function createAppSession(): AppSession {
   const frameBus = new FrameBus();
   const diagnosticsLog = new DiagnosticsLogStore();
+  const performanceDiagnostics = new PerformanceDiagnosticsStore();
   const theaterMode = new TheaterModeStore();
   diagnosticsLog.attachGlobalCapture();
 
   return {
     frameBus,
-    audioEngine: new AudioEngine(frameBus),
+    audioEngine: new AudioEngine(frameBus, performanceDiagnostics),
     displayMode: new DisplayModeStore(),
     scrollSpeed: new ScrollSpeedStore(),
     diagnosticsLog,
+    performanceDiagnostics,
     theaterMode,
   };
 }
@@ -77,6 +80,10 @@ export function useScrollSpeed(): ScrollSpeedStore {
 
 export function useDiagnosticsLog(): DiagnosticsLogStore {
   return useAppSession().diagnosticsLog;
+}
+
+export function usePerformanceDiagnosticsStore(): PerformanceDiagnosticsStore {
+  return useAppSession().performanceDiagnostics;
 }
 
 export function useTheaterModeStore(): TheaterModeStore {

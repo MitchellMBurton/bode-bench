@@ -31,11 +31,22 @@ interface PanelDef {
   content: React.ReactNode;
 }
 
+interface RuntimeDockDef {
+  label: string;
+  value: string;
+  actionLabel: string;
+  open: boolean;
+  summary: React.ReactNode;
+  content: React.ReactNode;
+  onToggle: () => void;
+}
+
 interface Props {
   topLeft: PanelDef;
   topRight: PanelDef;
   bottomLeft: PanelDef;
   bottomRight: PanelDef;
+  runtimeDock?: RuntimeDockDef;
   grayscale?: boolean;
   visualMode?: VisualMode;
   layoutResetToken: number;
@@ -96,6 +107,7 @@ export function ConsoleLayout({
   topRight,
   bottomLeft,
   bottomRight,
+  runtimeDock,
   grayscale,
   visualMode = 'default',
   layoutResetToken,
@@ -153,6 +165,36 @@ export function ConsoleLayout({
           <span style={{ ...headerTagStyle, color: chromeCategory }}>SUITE NO. 1 PRELUDE MILESTONE</span>
         </div>
       </div>
+
+
+      {runtimeDock ? (
+        <>
+          <div style={{ ...toolbarStyle, ...runtimeToolbarStyle, borderBottom: `1px solid ${toolbarBorder}` }}>
+            <span style={{ ...toolbarLabelStyle, color: toolbarText }}>{runtimeDock.label}</span>
+            <span style={{ ...toolbarValueStyle, color: toolbarText }}>{runtimeDock.value}</span>
+            <div style={toolbarDividerStyle} />
+            <div style={runtimeSummaryStyle}>{runtimeDock.summary}</div>
+            <div style={{ flex: 1 }} />
+            <button
+              style={{
+                ...toolbarButtonStyle,
+                color: toolbarButtonText,
+                borderColor: toolbarButtonBorder,
+                background: runtimeDock.open ? toolbarButtonBorder : toolbarButtonBg,
+              }}
+              onClick={runtimeDock.onToggle}
+              title="Open the internal performance diagnostics tray"
+            >
+              {runtimeDock.open ? `HIDE ${runtimeDock.actionLabel}` : runtimeDock.actionLabel}
+            </button>
+          </div>
+          {runtimeDock.open ? (
+            <div style={{ ...runtimeTrayStyle, borderBottom: `1px solid ${toolbarBorder}` }}>
+              {runtimeDock.content}
+            </div>
+          ) : null}
+        </>
+      ) : null}
 
       {/* Layout toolbar */}
       <div style={{ ...toolbarStyle, borderBottom: `1px solid ${toolbarBorder}` }}>
@@ -336,6 +378,29 @@ const toolbarButtonStyle: React.CSSProperties = {
   cursor: 'pointer',
   outline: 'none',
   flexShrink: 0,
+};
+
+const runtimeToolbarStyle: React.CSSProperties = {
+  minHeight: TOOLBAR_H,
+  height: 'auto',
+  paddingTop: 4,
+  paddingBottom: 4,
+};
+
+const runtimeSummaryStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: SPACING.xs,
+  minWidth: 0,
+  flexWrap: 'wrap',
+};
+
+const runtimeTrayStyle: React.CSSProperties = {
+  flexShrink: 0,
+  height: 'min(34vh, 272px)',
+  minHeight: 208,
+  background: COLORS.bg0,
+  boxSizing: 'border-box',
 };
 
 const chromeStyle: React.CSSProperties = {

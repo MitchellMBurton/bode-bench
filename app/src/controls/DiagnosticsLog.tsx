@@ -1,8 +1,8 @@
 ﻿import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
-import { useAudioEngine, useDiagnosticsLog } from '../core/session';
+import { useAudioEngine, useDiagnosticsLog, usePerformanceDiagnosticsStore } from '../core/session';
 import { CANVAS, COLORS, FONTS, SPACING } from '../theme';
 import type { FileAnalysis, TransportState } from '../types';
-import type { DiagnosticsEntry } from '../diagnostics/logStore';
+import type { DiagnosticsEntry, PerformanceDiagnosticsSnapshot, PerformanceEvent } from '../diagnostics/logStore';
 
 function formatPlaybackTime(seconds: number): string {
   const minutes = Math.floor(seconds / 60);
@@ -529,3 +529,488 @@ const messageStyle: React.CSSProperties = {
   wordBreak: 'break-word',
 };
 
+
+function formatPerfMs(value: number | null, digits = 1): string {
+  if (value === null || !Number.isFinite(value)) return '--';
+  return `${value.toFixed(digits)} ms`;
+}
+
+function formatPerfSignedMs(value: number): string {
+  if (!Number.isFinite(value)) return '--';
+  const rounded = Math.round(value);
+  return `${rounded > 0 ? '+' : ''}${rounded} ms`;
+}
+
+function clampMeter(value: number, max: number): number {
+  if (!Number.isFinite(value) || max <= 0) return 0;
+  return Math.max(0, Math.min(100, (value / max) * 100));
+}
+
+function inferPerformanceHealth(snapshot: PerformanceDiagnosticsSnapshot): {
+  readonly title: string;
+  readonly detail: string;
+  readonly tone: 'dim' | 'info' | 'warn';
+} {
+  if (snapshot.videoRecoveryCount > 0 || snapshot.videoStallCount > 0) {
+    return {
+      title: 'VIDEO DECODE PRESSURE',
+      detail: 'The preview has needed recovery or stalled events. Focus on video waiting, ready state, and drift correction churn.',
+      tone: 'warn',
+    };
+  }
+  if (snapshot.uiJankPercent >= 14 || snapshot.uiFrameP95Ms >= 24) {
+    return {
+      title: 'UI THREAD SATURATION',
+      detail: 'Frame pacing is inconsistent. Look for expensive React work, layout churn, or heavy canvas redraws during interaction.',
+      tone: 'warn',
+    };
+  }
+  if (snapshot.lastLongTaskMs !== null && snapshot.lastLongTaskMs >= 40) {
+    return {
+      title: 'MAIN THREAD SPIKE',
+      detail: 'A long task was captured. That usually points to decode, heavy JS, or a layout/paint spike blocking input and video.',
+      tone: 'warn',
+    };
+  }
+  if (snapshot.lastLoad && snapshot.lastLoad.totalMs >= 1200) {
+    return {
+      title: 'LOAD PIPELINE HEAVY',
+      detail: 'File ingest is taking a while. Decode or stretch preparation may be the biggest cost for the current media.',
+      tone: 'info',
+    };
+  }
+  if (Math.abs(snapshot.videoDriftMs) >= 70 || snapshot.videoCatchupActive) {
+    return {
+      title: 'SYNC CORRECTION ACTIVE',
+      detail: 'The preview is still catching back up after a transport or settings change. Watch drift, wait events, and hard sync counts.',
+      tone: 'info',
+    };
+  }
+  return {
+    title: 'NO DOMINANT BOTTLENECK',
+    detail: 'The runtime looks steady right now. If stutter appears, leave this panel open and reproduce it to capture the culprit.',
+    tone: 'dim',
+  };
+}
+
+function buildPerformanceExport(snapshot: PerformanceDiagnosticsSnapshot): string {
+  const health = inferPerformanceHealth(snapshot);
+  const lines = [
+    'Bach Cello Console Performance Snapshot',
+    `${health.title} :: ${health.detail}`,
+    '',
+    `Session      ${snapshot.filename ?? 'NO SESSION'}`,
+    `UI FPS       ${snapshot.uiFps.toFixed(1)}`,
+    `UI AVG       ${formatPerfMs(snapshot.uiFrameAvgMs)}`,
+    `UI P95       ${formatPerfMs(snapshot.uiFrameP95Ms)}`,
+    `Jank         ${snapshot.uiJankPercent.toFixed(1)}%`,
+    `Long Tasks   ${snapshot.longTaskCount}${snapshot.lastLongTaskMs !== null ? ` / last ${formatPerfMs(snapshot.lastLongTaskMs, 0)}` : ''}`,
+    `Video State  ${snapshot.videoState.toUpperCase()}`,
+    `Video Drift  ${formatPerfSignedMs(snapshot.videoDriftMs)}`,
+    `Video Rate   ${snapshot.videoPreviewRate.toFixed(2)}x`,
+    `Ready State  ${snapshot.videoReadyState}`,
+    `Catchup      ${snapshot.videoCatchupActive ? 'ACTIVE' : 'IDLE'}`,
+    `Hard Syncs   ${snapshot.videoHardSyncCount}`,
+    `Recoveries   ${snapshot.videoRecoveryCount}`,
+    `Wait/Stall   ${snapshot.videoWaitCount} / ${snapshot.videoStallCount}`,
+    `Transport    ${snapshot.transportRate.toFixed(2)}x / ${snapshot.pitchSemitones.toFixed(0)} st`,
+  ];
+
+  if (snapshot.lastLoad) {
+    lines.push(`Load         ${snapshot.lastLoad.totalMs.toFixed(0)} ms total / ${snapshot.lastLoad.decodeMs.toFixed(0)} ms decode / ${snapshot.lastLoad.stretchMs.toFixed(0)} ms stretch / ${snapshot.lastLoad.channels}ch`);
+  }
+
+  lines.push('', 'Recent Signals');
+  for (const event of snapshot.recentEvents.slice(-16)) {
+    lines.push(`${event.clock}  [${event.source.toUpperCase()}]  ${event.text}`);
+  }
+  return lines.join('\n');
+}
+
+export function PerformanceDiagnostics(): React.ReactElement {
+  const performanceDiagnostics = usePerformanceDiagnosticsStore();
+  const snapshot = useSyncExternalStore(
+    performanceDiagnostics.subscribe,
+    performanceDiagnostics.getSnapshot,
+    performanceDiagnostics.getSnapshot,
+  );
+  const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle');
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const health = useMemo(() => inferPerformanceHealth(snapshot), [snapshot]);
+  const recentEvents = useMemo(() => [...snapshot.recentEvents].slice(-12).reverse(), [snapshot.recentEvents]);
+
+  useEffect(() => {
+    return () => {
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+    };
+  }, []);
+
+  const setCopyStateWithReset = useCallback((next: 'copied' | 'failed') => {
+    setCopyState(next);
+    if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+    copyTimerRef.current = setTimeout(() => {
+      setCopyState('idle');
+      copyTimerRef.current = null;
+    }, 1600);
+  }, []);
+
+  const onCopy = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(buildPerformanceExport(snapshot));
+      setCopyStateWithReset('copied');
+    } catch {
+      setCopyStateWithReset('failed');
+    }
+  }, [setCopyStateWithReset, snapshot]);
+
+  const onClear = useCallback(() => {
+    performanceDiagnostics.clearEvents();
+  }, [performanceDiagnostics]);
+
+  const healthColor =
+    health.tone === 'warn'
+      ? COLORS.statusWarn
+      : health.tone === 'info'
+        ? COLORS.textPrimary
+        : COLORS.textSecondary;
+
+  return (
+    <div style={perfWrapStyle}>
+      <div style={perfHeaderStyle}>
+        <div style={perfHeaderTextStyle}>
+          <div style={perfEyebrowStyle}>PERF LAB / INTERNAL TELEMETRY</div>
+          <div style={{ ...perfHealthTitleStyle, color: healthColor }}>{health.title}</div>
+          <div style={perfHealthDetailStyle}>{health.detail}</div>
+        </div>
+        <div style={perfActionsStyle}>
+          <button style={actionButtonStyle} onClick={onCopy}>
+            {copyState === 'copied' ? 'COPIED' : copyState === 'failed' ? 'COPY FAIL' : 'COPY SNAPSHOT'}
+          </button>
+          <button style={actionButtonStyle} onClick={onClear}>CLEAR TRACE</button>
+        </div>
+      </div>
+
+      <div style={perfCardGridStyle}>
+        <PerformanceStatCard
+          label="UI PACE"
+          value={`${snapshot.uiFps.toFixed(0)} FPS`}
+          detail={`avg ${formatPerfMs(snapshot.uiFrameAvgMs)} / p95 ${formatPerfMs(snapshot.uiFrameP95Ms)}`}
+          tone={snapshot.uiFrameP95Ms >= 24 || snapshot.uiJankPercent >= 14 ? 'warn' : 'dim'}
+        />
+        <PerformanceStatCard
+          label="VIDEO SYNC"
+          value={formatPerfSignedMs(snapshot.videoDriftMs)}
+          detail={`${snapshot.videoState.toUpperCase()} / preview ${snapshot.videoPreviewRate.toFixed(2)}x`}
+          tone={snapshot.videoState === 'waiting' || snapshot.videoState === 'stalled' ? 'warn' : snapshot.videoCatchupActive ? 'info' : 'dim'}
+        />
+        <PerformanceStatCard
+          label="TRANSPORT"
+          value={`${snapshot.transportRate.toFixed(2)}x / ${snapshot.pitchSemitones.toFixed(0)} st`}
+          detail={snapshot.transportPlaying ? 'playing' : 'paused'}
+          tone="dim"
+        />
+        <PerformanceStatCard
+          label="LOAD"
+          value={snapshot.lastLoad ? `${snapshot.lastLoad.totalMs.toFixed(0)} ms` : '--'}
+          detail={snapshot.lastLoad ? `${snapshot.lastLoad.decodeMs.toFixed(0)} ms decode / ${snapshot.lastLoad.stretchMs.toFixed(0)} ms stretch` : 'Awaiting media load'}
+          tone={snapshot.lastLoad && snapshot.lastLoad.totalMs >= 1200 ? 'warn' : snapshot.lastLoad && snapshot.lastLoad.totalMs >= 900 ? 'info' : 'dim'}
+        />
+        <PerformanceStatCard
+          label="RECOVERY"
+          value={`${snapshot.videoHardSyncCount} HS / ${snapshot.videoRecoveryCount} RC`}
+          detail={`${snapshot.videoWaitCount} waits / ${snapshot.videoStallCount} stalls / ready ${snapshot.videoReadyState}`}
+          tone={snapshot.videoRecoveryCount > 0 || snapshot.videoStallCount > 0 ? 'warn' : snapshot.videoHardSyncCount > 0 ? 'info' : 'dim'}
+        />
+      </div>
+
+      <div style={perfBodyStyle}>
+        <div style={perfPanelStyle}>
+          <div style={perfSectionTitleStyle}>PRESSURE MAP</div>
+          <PerformanceMeter label="UI P95" value={snapshot.uiFrameP95Ms} max={40} detail={formatPerfMs(snapshot.uiFrameP95Ms)} tone={snapshot.uiFrameP95Ms >= 24 ? 'warn' : 'dim'} />
+          <PerformanceMeter label="JANK" value={snapshot.uiJankPercent} max={30} detail={`${snapshot.uiJankPercent.toFixed(1)}%`} tone={snapshot.uiJankPercent >= 14 ? 'warn' : 'dim'} />
+          <PerformanceMeter label="DRIFT" value={Math.abs(snapshot.videoDriftMs)} max={240} detail={formatPerfSignedMs(snapshot.videoDriftMs)} tone={Math.abs(snapshot.videoDriftMs) >= 90 ? 'warn' : snapshot.videoCatchupActive ? 'info' : 'dim'} />
+          <PerformanceMeter label="LONG TASK" value={snapshot.lastLongTaskMs ?? 0} max={120} detail={snapshot.lastLongTaskMs !== null ? formatPerfMs(snapshot.lastLongTaskMs, 0) : '--'} tone={(snapshot.lastLongTaskMs ?? 0) >= 40 ? 'warn' : 'dim'} />
+          <PerformanceMeter label="LOAD" value={snapshot.lastLoad?.totalMs ?? 0} max={2400} detail={snapshot.lastLoad ? `${snapshot.lastLoad.totalMs.toFixed(0)} ms` : '--'} tone={snapshot.lastLoad && snapshot.lastLoad.totalMs >= 1200 ? 'warn' : snapshot.lastLoad && snapshot.lastLoad.totalMs >= 900 ? 'info' : 'dim'} />
+        </div>
+
+        <div style={perfPanelStyle}>
+          <div style={perfSectionTitleStyle}>RECENT SIGNALS</div>
+          <div style={perfEventsStyle}>
+            {recentEvents.length === 0 ? (
+              <div style={perfEmptyStyle}>Open this panel, reproduce the stutter, and the runtime trace will collect the last few important signals here.</div>
+            ) : (
+              recentEvents.map((event) => <PerformanceEventLine key={event.id} event={event} />)
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PerformanceStatCard({
+  label,
+  value,
+  detail,
+  tone,
+}: {
+  label: string;
+  value: string;
+  detail: string;
+  tone: 'dim' | 'info' | 'warn';
+}): React.ReactElement {
+  const accent =
+    tone === 'warn'
+      ? COLORS.statusWarn
+      : tone === 'info'
+        ? COLORS.borderHighlight
+        : COLORS.border;
+
+  return (
+    <div style={{ ...perfCardStyle, borderColor: accent }}>
+      <div style={perfCardLabelStyle}>{label}</div>
+      <div style={{ ...perfCardValueStyle, color: tone === 'warn' ? COLORS.textPrimary : COLORS.textTitle }}>{value}</div>
+      <div style={perfCardDetailStyle}>{detail}</div>
+    </div>
+  );
+}
+
+function PerformanceMeter({
+  label,
+  value,
+  max,
+  detail,
+  tone,
+}: {
+  label: string;
+  value: number;
+  max: number;
+  detail: string;
+  tone: 'dim' | 'info' | 'warn';
+}): React.ReactElement {
+  const fill = clampMeter(value, max);
+  const fillColor =
+    tone === 'warn'
+      ? 'linear-gradient(90deg, rgba(176,144,48,0.85), rgba(200,146,42,0.92))'
+      : tone === 'info'
+        ? 'linear-gradient(90deg, rgba(80,96,192,0.8), rgba(120,154,255,0.88))'
+        : 'linear-gradient(90deg, rgba(64,64,88,0.72), rgba(96,96,120,0.8))';
+
+  return (
+    <div style={perfMeterWrapStyle}>
+      <div style={perfMeterHeaderStyle}>
+        <span style={perfMeterLabelStyle}>{label}</span>
+        <span style={perfMeterValueStyle}>{detail}</span>
+      </div>
+      <div style={perfMeterTrackStyle}>
+        <div style={{ ...perfMeterFillStyle, width: `${fill}%`, background: fillColor }} />
+      </div>
+    </div>
+  );
+}
+
+function PerformanceEventLine({ event }: { event: PerformanceEvent }): React.ReactElement {
+  const color =
+    event.tone === 'warn'
+      ? COLORS.statusWarn
+      : event.tone === 'info'
+        ? COLORS.textPrimary
+        : COLORS.textSecondary;
+
+  return (
+    <div style={perfEventLineStyle}>
+      <span style={clockStyle}>{event.clock}</span>
+      <span style={sourceStyle}>{event.source.toUpperCase()}</span>
+      <span style={{ ...messageStyle, color }}>{event.text}</span>
+    </div>
+  );
+}
+
+const perfWrapStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: SPACING.md,
+  height: '100%',
+  padding: `${SPACING.md}px ${SPACING.lg}px`,
+  boxSizing: 'border-box',
+  background: 'linear-gradient(180deg, rgba(8,10,16,0.96), rgba(14,16,24,0.98))',
+};
+
+const perfHeaderStyle: React.CSSProperties = {
+  display: 'flex',
+  justifyContent: 'space-between',
+  gap: SPACING.lg,
+  alignItems: 'flex-start',
+};
+
+const perfHeaderTextStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 4,
+  minWidth: 0,
+};
+
+const perfEyebrowStyle: React.CSSProperties = {
+  fontFamily: FONTS.mono,
+  fontSize: FONTS.sizeXs,
+  color: COLORS.textCategory,
+  letterSpacing: '0.16em',
+};
+
+const perfHealthTitleStyle: React.CSSProperties = {
+  fontFamily: FONTS.mono,
+  fontSize: FONTS.sizeLg,
+  letterSpacing: '0.08em',
+  color: COLORS.textPrimary,
+};
+
+const perfHealthDetailStyle: React.CSSProperties = {
+  fontFamily: FONTS.mono,
+  fontSize: FONTS.sizeSm,
+  color: COLORS.textSecondary,
+  letterSpacing: '0.04em',
+  maxWidth: 720,
+  lineHeight: 1.6,
+};
+
+const perfActionsStyle: React.CSSProperties = {
+  display: 'flex',
+  gap: SPACING.xs,
+  flexWrap: 'wrap',
+  justifyContent: 'flex-end',
+};
+
+const perfCardGridStyle: React.CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(5, minmax(0, 1fr))',
+  gap: SPACING.sm,
+};
+
+const perfCardStyle: React.CSSProperties = {
+  borderWidth: 1,
+  borderStyle: 'solid',
+  borderColor: COLORS.border,
+  background: 'linear-gradient(180deg, rgba(20,22,32,0.92), rgba(11,13,20,0.95))',
+  padding: `${SPACING.sm}px ${SPACING.md}px`,
+  borderRadius: 2,
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 4,
+  minWidth: 0,
+};
+
+const perfCardLabelStyle: React.CSSProperties = {
+  fontFamily: FONTS.mono,
+  fontSize: FONTS.sizeXs,
+  color: COLORS.textCategory,
+  letterSpacing: '0.12em',
+};
+
+const perfCardValueStyle: React.CSSProperties = {
+  fontFamily: FONTS.mono,
+  fontSize: FONTS.sizeLg,
+  letterSpacing: '0.06em',
+};
+
+const perfCardDetailStyle: React.CSSProperties = {
+  fontFamily: FONTS.mono,
+  fontSize: FONTS.sizeXs,
+  color: COLORS.textSecondary,
+  letterSpacing: '0.03em',
+  lineHeight: 1.5,
+};
+
+const perfBodyStyle: React.CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'minmax(280px, 0.95fr) minmax(360px, 1.05fr)',
+  gap: SPACING.md,
+  minHeight: 0,
+  flex: 1,
+};
+
+const perfPanelStyle: React.CSSProperties = {
+  minHeight: 0,
+  display: 'flex',
+  flexDirection: 'column',
+  gap: SPACING.sm,
+  border: `1px solid ${COLORS.border}`,
+  background: 'rgba(11, 14, 20, 0.88)',
+  padding: SPACING.md,
+  borderRadius: 2,
+};
+
+const perfSectionTitleStyle: React.CSSProperties = {
+  fontFamily: FONTS.mono,
+  fontSize: FONTS.sizeXs,
+  color: COLORS.textCategory,
+  letterSpacing: '0.14em',
+};
+
+const perfMeterWrapStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 4,
+};
+
+const perfMeterHeaderStyle: React.CSSProperties = {
+  display: 'flex',
+  justifyContent: 'space-between',
+  gap: SPACING.sm,
+  alignItems: 'baseline',
+};
+
+const perfMeterLabelStyle: React.CSSProperties = {
+  fontFamily: FONTS.mono,
+  fontSize: FONTS.sizeXs,
+  color: COLORS.textPrimary,
+  letterSpacing: '0.08em',
+};
+
+const perfMeterValueStyle: React.CSSProperties = {
+  fontFamily: FONTS.mono,
+  fontSize: FONTS.sizeXs,
+  color: COLORS.textSecondary,
+  letterSpacing: '0.03em',
+};
+
+const perfMeterTrackStyle: React.CSSProperties = {
+  position: 'relative',
+  height: 8,
+  borderRadius: 999,
+  background: COLORS.levelTrack,
+  overflow: 'hidden',
+};
+
+const perfMeterFillStyle: React.CSSProperties = {
+  position: 'absolute',
+  left: 0,
+  top: 0,
+  bottom: 0,
+  borderRadius: 999,
+};
+
+const perfEventsStyle: React.CSSProperties = {
+  minHeight: 0,
+  flex: 1,
+  overflowY: 'auto',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 2,
+  paddingRight: 2,
+};
+
+const perfEventLineStyle: React.CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: '62px 58px minmax(0, 1fr)',
+  gap: SPACING.sm,
+  alignItems: 'start',
+};
+
+const perfEmptyStyle: React.CSSProperties = {
+  fontFamily: FONTS.mono,
+  fontSize: FONTS.sizeXs,
+  color: COLORS.textDim,
+  lineHeight: 1.6,
+  letterSpacing: '0.03em',
+};

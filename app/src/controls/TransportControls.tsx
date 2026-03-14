@@ -4,7 +4,7 @@
 // ============================================================
 
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { useAudioEngine, useDiagnosticsLog, useTheaterModeStore } from '../core/session';
+import { useAudioEngine, useDiagnosticsLog, usePerformanceDiagnosticsStore, useTheaterModeStore } from '../core/session';
 import { COLORS, FONTS, SPACING } from '../theme';
 import type { TransportState } from '../types';
 
@@ -283,6 +283,7 @@ function resizeWindowRectFromDrag(
 export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
   const audioEngine = useAudioEngine();
   const diagnosticsLog = useDiagnosticsLog();
+  const performanceDiagnostics = usePerformanceDiagnosticsStore();
   const theaterModeStore = useTheaterModeStore();
   const [transport, setTransport] = useState<TransportState>({
     isPlaying: false,
@@ -496,11 +497,12 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
     videoSeekPendingRef.current = true;
     videoPendingPlayRef.current = transportRef.current.isPlaying;
     setVideoSyncIndicator('sync');
+    performanceDiagnostics.setVideoState('sync');
     const syncProfile = getCurrentVideoSyncProfile(videoBaseModeRef.current === 'window' || videoOverlayModeRef.current !== null);
     markVideoSyncGrace(syncProfile.settleMs);
     video.currentTime = nextTime;
     lastVideoHardSyncAtRef.current = performance.now();
-  }, [getCurrentVideoSyncProfile, markVideoSyncGrace]);
+  }, [getCurrentVideoSyncProfile, markVideoSyncGrace, performanceDiagnostics]);
 
   const playVideo = useCallback(() => {
     const video = videoRef.current;
@@ -553,8 +555,9 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
       if (!videoRef.current || !transportRef.current.isPlaying) return;
       playVideo();
     });
+    performanceDiagnostics.noteVideoEvent('recover', `video preview refreshed after ${reason}`, 'info', 1600);
     logVideoEvent(`recover-${reason}`, `video preview refreshed after ${reason}`, 'dim', 2500);
-  }, [audioEngine, getCurrentVideoSyncProfile, logVideoEvent, markVideoSyncGrace, playVideo, setVideoPlaybackRate]);
+  }, [audioEngine, getCurrentVideoSyncProfile, logVideoEvent, markVideoSyncGrace, performanceDiagnostics, playVideo, setVideoPlaybackRate]);
 
   const scheduleVideoRecovery = useCallback((reason: 'waiting' | 'stalled') => {
     if (videoTransportRecoveryTimerRef.current !== null) return;
@@ -791,9 +794,10 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
     markVideoSyncGrace(settleMs);
     if (transport.isPlaying) {
       setVideoSyncIndicator('sync');
+      performanceDiagnostics.noteVideoEvent('retune', 'video retuning after transport change', 'dim', 1400);
       logVideoEvent('transport-retune', 'video preview retuning to transport change', 'dim', 1800);
     }
-  }, [logVideoEvent, markVideoSyncGrace, markWindowedVideoSettle, transport.isPlaying, transport.pitchSemitones, transport.playbackRate]);
+  }, [logVideoEvent, markVideoSyncGrace, markWindowedVideoSettle, performanceDiagnostics, transport.isPlaying, transport.pitchSemitones, transport.playbackRate]);
 
   const onVideoCanPlay = useCallback(() => {
     const video = videoRef.current;
@@ -815,9 +819,10 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
   const onVideoSeeking = useCallback(() => {
     videoSeekPendingRef.current = true;
     setVideoSyncIndicator('sync');
+    performanceDiagnostics.setVideoState('sync');
     const syncProfile = getCurrentVideoSyncProfile(videoBaseModeRef.current === 'window' || videoOverlayModeRef.current !== null);
     markVideoSyncGrace(syncProfile.settleMs);
-  }, [getCurrentVideoSyncProfile, markVideoSyncGrace]);
+  }, [getCurrentVideoSyncProfile, markVideoSyncGrace, performanceDiagnostics]);
 
   const onVideoSeeked = useCallback(() => {
     videoSeekPendingRef.current = false;
@@ -832,9 +837,10 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
       playVideo();
     } else {
       videoPendingPlayRef.current = false;
+      performanceDiagnostics.setVideoState('idle');
       setVideoSyncIndicator(null);
     }
-  }, [getCurrentVideoSyncProfile, markVideoSyncGrace, playVideo, setVideoPlaybackRate]);
+  }, [getCurrentVideoSyncProfile, markVideoSyncGrace, performanceDiagnostics, playVideo, setVideoPlaybackRate]);
 
   const onVideoPlaying = useCallback(() => {
     if (videoTransportRecoveryTimerRef.current !== null) {
@@ -845,8 +851,9 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
     if (now >= videoTransportCatchupUntilRef.current && now >= videoSyncGraceUntilRef.current) {
       setVideoSyncIndicator(null);
     }
+    performanceDiagnostics.noteVideoEvent('playing', 'video preview running', 'dim', 2200);
     logVideoEvent('playing', 'video preview playing', 'info', VIDEO_PLAYING_LOG_INTERVAL_MS);
-  }, [logVideoEvent]);
+  }, [logVideoEvent, performanceDiagnostics]);
 
   const onVideoWaiting = useCallback(() => {
     const video = videoRef.current;
@@ -868,8 +875,9 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
       scheduleVideoRecovery('waiting');
     }
     setVideoSyncIndicator('wait');
+    performanceDiagnostics.noteVideoEvent('waiting', 'video waiting for decode / buffer', 'warn', 1200);
     logVideoEvent('waiting', 'video waiting for decode / buffer', 'warn');
-  }, [logVideoEvent, scheduleVideoRecovery]);
+  }, [logVideoEvent, performanceDiagnostics, scheduleVideoRecovery]);
 
   const onVideoStalled = useCallback(() => {
     const video = videoRef.current;
@@ -891,25 +899,28 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
       scheduleVideoRecovery('stalled');
     }
     setVideoSyncIndicator('wait');
+    performanceDiagnostics.noteVideoEvent('stalled', 'video stalled', 'warn', 1200);
     logVideoEvent('stalled', 'video stalled', 'warn');
-  }, [logVideoEvent, scheduleVideoRecovery]);
+  }, [logVideoEvent, performanceDiagnostics, scheduleVideoRecovery]);
 
   const onVideoEnded = useCallback(() => {
     videoPendingPlayRef.current = false;
     videoSeekPendingRef.current = false;
+    performanceDiagnostics.setVideoState('idle');
     setVideoSyncIndicator(null);
     if (isFullFileLoopActive(transportRef.current)) {
       logVideoEvent('loop-wrap', 'video loop wrap', 'dim', 2000);
       return;
     }
     logVideoEvent('ended', 'video preview reached end', 'dim', 2500);
-  }, [logVideoEvent]);
+  }, [logVideoEvent, performanceDiagnostics]);
 
   const onVideoError = useCallback(() => {
     const code = videoRef.current?.error?.code;
     setVideoSyncIndicator('wait');
+    performanceDiagnostics.noteVideoEvent('stalled', `video error${code ? ` code ${code}` : ''}`, 'warn', 1800);
     logVideoEvent('error', `video error${code ? ` code ${code}` : ''}`, 'warn', 4000);
-  }, [logVideoEvent]);
+  }, [logVideoEvent, performanceDiagnostics]);
 
   useEffect(() => {
     return audioEngine.onTransport((state) => {
@@ -938,6 +949,7 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
 
     if (transport.scrubActive) {
       videoPendingPlayRef.current = false;
+      performanceDiagnostics.setVideoState('scrub');
       setVideoSyncIndicator('sync');
       if (videoTransportRecoveryTimerRef.current !== null) {
         window.clearTimeout(videoTransportRecoveryTimerRef.current);
@@ -975,6 +987,7 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
     } else {
       videoPendingPlayRef.current = false;
       videoTransportCatchupUntilRef.current = 0;
+      performanceDiagnostics.setVideoState('idle');
       if (videoTransportRecoveryTimerRef.current !== null) {
         window.clearTimeout(videoTransportRecoveryTimerRef.current);
         videoTransportRecoveryTimerRef.current = null;
@@ -986,7 +999,7 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
       }
     }
     lastVideoTransportStateRef.current = transport;
-  }, [audioEngine, getCurrentVideoSyncProfile, hardSyncVideo, markVideoSyncGrace, playVideo, setVideoPlaybackRate, transport, videoUrl]);
+  }, [audioEngine, getCurrentVideoSyncProfile, hardSyncVideo, markVideoSyncGrace, performanceDiagnostics, playVideo, setVideoPlaybackRate, transport, videoUrl]);
 
   useEffect(() => {
     let rafId: number;
@@ -1026,6 +1039,12 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
       let rateTrimGain = syncProfile.rateTrimGain;
       let rateTrimMax = syncProfile.rateTrimMax;
       const transportCatchupActive = now < videoTransportCatchupUntilRef.current;
+      performanceDiagnostics.noteVideoTelemetry({
+        driftMs: drift * 1000,
+        previewRate: video.playbackRate,
+        readyState: video.readyState,
+        catchupActive: transportCatchupActive,
+      });
 
       // After a live rate/pitch change, prefer brief rate nudges before any hard seek.
       if (transportCatchupActive) {
@@ -1060,6 +1079,7 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
         now - lastVideoHardSyncAtRef.current >= VIDEO_HARD_SYNC_COOLDOWN_MS
       ) {
         hardSyncVideo(currentTime);
+        performanceDiagnostics.noteVideoEvent('hard-sync', `hard video resync ${Math.round(drift * 1000)} ms`, 'warn', 1200);
         setVideoPlaybackRate(baseRate);
         const driftMs = Math.round(drift * 1000);
         logVideoEvent(
@@ -1090,7 +1110,7 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
     };
     rafId = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(rafId);
-  }, [audioEngine, hardSyncVideo, logVideoEvent, setVideoPlaybackRate, videoSourceSize, videoUrl]);
+  }, [audioEngine, hardSyncVideo, logVideoEvent, performanceDiagnostics, setVideoPlaybackRate, videoSourceSize, videoUrl]);
 
   useEffect(() => {
     if (!transport.isPlaying) return;
@@ -1136,9 +1156,10 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
         window.clearTimeout(videoTransportRecoveryTimerRef.current);
         videoTransportRecoveryTimerRef.current = null;
       }
+      performanceDiagnostics.setVideoState('idle');
       setVideoSyncIndicator(null);
     });
-  }, [audioEngine, clearFileInput, clearVideoPreview]);
+  }, [audioEngine, clearFileInput, clearVideoPreview, performanceDiagnostics]);
 
   const handleFile = useCallback(async (file: File) => {
     clearVideoPreview();
@@ -1157,6 +1178,7 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
       window.clearTimeout(videoTransportRecoveryTimerRef.current);
       videoTransportRecoveryTimerRef.current = null;
     }
+    performanceDiagnostics.setVideoState('idle');
     setVideoSyncIndicator(null);
 
     if (file.type.startsWith('video/')) {
@@ -1174,7 +1196,7 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
       clearFileInput();
       setIsLoading(false);
     }
-  }, [audioEngine, clearFileInput, clearVideoPreview, diagnosticsLog, onFileLoaded, setVideoUrlSession]);
+  }, [audioEngine, clearFileInput, clearVideoPreview, diagnosticsLog, onFileLoaded, performanceDiagnostics, setVideoUrlSession]);
 
   const onDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
