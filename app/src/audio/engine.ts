@@ -40,6 +40,8 @@ const SEEK_RESUME_DELAY_MS = 140;
 const STRETCH_WATCHDOG_GRACE_S = 0.75;
 const STRETCH_WATCHDOG_TIMEOUT_S = 0.6;
 const MAX_STRETCH_PREP_BYTES = 512 * 1024 * 1024;
+const DEFERRED_ANALYSIS_SLICE_MS = 6;
+const DEFERRED_ANALYSIS_SAMPLE_BATCH = 16_384;
 const SCRUB_STYLE_CONFIG: Record<ScrubStyle, ScrubStyleConfig> = {
   step: {
     delayMs: 28,
@@ -134,6 +136,7 @@ export class AudioEngine {
   private _filename: string | null = null;
   private lastAnalysisAt = 0;
   private stretchMutationChain: Promise<void> = Promise.resolve();
+  private deferredAnalysisCancel: (() => void) | null = null;
 
   private ensureContext(): AudioContext {
     if (!this.ctx) {
@@ -281,6 +284,114 @@ export class AudioEngine {
     return buffer.length * buffer.numberOfChannels * Float32Array.BYTES_PER_ELEMENT;
   }
 
+  private cancelDeferredAnalysis(): void {
+    if (this.deferredAnalysisCancel) {
+      this.deferredAnalysisCancel();
+      this.deferredAnalysisCancel = null;
+    }
+  }
+
+  private scheduleDeferredBufferAnalysis(
+    buffer: AudioBuffer,
+    fileId: number,
+    loadVersion: number,
+  ): void {
+    this.cancelDeferredAnalysis();
+
+    const channelData = Array.from({ length: buffer.numberOfChannels }, (_, channel) => buffer.getChannelData(channel));
+    const binSamples = AudioEngine.WAVEFORM_BIN_SAMPLES;
+    const numBins = Math.ceil(buffer.length / binSamples);
+    const peaks = new Float32Array(numBins * 2);
+    let channelIndex = 0;
+    let sampleIndex = 0;
+    let peak = 0;
+    let rmsSum = 0;
+    let totalSamples = 0;
+    let clipCount = 0;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const finalize = (): void => {
+      if (cancelled) return;
+      const rms = totalSamples > 0 ? Math.sqrt(rmsSum / totalSamples) : 0;
+      const peakDb = peak > 0 ? 20 * Math.log10(peak) : -100;
+      const rmsDb = rms > 0 ? 20 * Math.log10(rms) : -100;
+
+      if (this.fileId !== fileId || loadVersion !== this.loadVersion || this.buffer !== buffer) {
+        return;
+      }
+
+      this._displayGain = peak > 0.001 ? 0.95 / peak : 1;
+      this._fileAnalysis = {
+        crestFactorDb: peakDb - rmsDb,
+        peakDb,
+        rmsDb,
+        clipCount,
+        duration: buffer.duration,
+        channels: buffer.numberOfChannels,
+        decodedSampleRate: buffer.sampleRate,
+        contextSampleRate: this.ctx?.sampleRate ?? buffer.sampleRate,
+        fileId,
+      };
+      this._waveformPeaks = peaks;
+      this.deferredAnalysisCancel = null;
+
+      for (const fn of this.fileReadyListeners) {
+        fn(this._fileAnalysis);
+      }
+    };
+
+    const step = (): void => {
+      timer = null;
+      if (cancelled) return;
+
+      const sliceStartedAt = performance.now();
+      while (channelIndex < channelData.length) {
+        const data = channelData[channelIndex];
+        const end = Math.min(sampleIndex + DEFERRED_ANALYSIS_SAMPLE_BATCH, data.length);
+
+        for (let sample = sampleIndex; sample < end; sample++) {
+          const value = data[sample];
+          const abs = Math.abs(value);
+          if (abs > peak) peak = abs;
+          rmsSum += value * value;
+          totalSamples++;
+          if (abs >= 0.9999) clipCount++;
+
+          if (channelIndex === 0) {
+            const bin = Math.floor(sample / binSamples);
+            const peakIndex = bin * 2;
+            if (value < peaks[peakIndex]) peaks[peakIndex] = value;
+            if (value > peaks[peakIndex + 1]) peaks[peakIndex + 1] = value;
+          }
+        }
+
+        sampleIndex = end;
+        if (sampleIndex >= data.length) {
+          channelIndex++;
+          sampleIndex = 0;
+        }
+
+        if (performance.now() - sliceStartedAt >= DEFERRED_ANALYSIS_SLICE_MS) {
+          timer = window.setTimeout(step, 0);
+          return;
+        }
+      }
+
+      finalize();
+    };
+
+    this.deferredAnalysisCancel = () => {
+      cancelled = true;
+      if (timer !== null) {
+        window.clearTimeout(timer);
+        timer = null;
+      }
+    };
+
+    timer = window.setTimeout(step, 0);
+  }
+
   async load(file: File): Promise<void> {
     const ctx = this.ensureContext();
     const loadVersion = ++this.loadVersion;
@@ -295,6 +406,7 @@ export class AudioEngine {
 
     this.clearSeekResume();
     this.clearScrubTimers();
+    this.cancelDeferredAnalysis();
     this.scrubActive = false;
     this.scrubResumeAfter = false;
     this.scrubPreviewRate = 1;
@@ -377,17 +489,8 @@ export class AudioEngine {
 
     this.emitTransport();
 
-    const capturedBuffer = this.buffer;
     const capturedFileId = this.fileId;
-    setTimeout(() => {
-      if (this.fileId !== capturedFileId || loadVersion !== this.loadVersion) return;
-      this._displayGain = this.computeDisplayGain(capturedBuffer);
-      this._fileAnalysis = this.computeFileAnalysis(capturedBuffer);
-      this._waveformPeaks = this.computeWaveformPeaks(capturedBuffer);
-      for (const fn of this.fileReadyListeners) {
-        fn(this._fileAnalysis!);
-      }
-    }, 0);
+    this.scheduleDeferredBufferAnalysis(decodedBuffer, capturedFileId, loadVersion);
   }
 
   private rampPlayGain(target: number, durationSeconds: number, startAt?: number): void {
@@ -645,6 +748,7 @@ export class AudioEngine {
   stop(): void {
     this.clearSeekResume();
     this.clearScrubTimers();
+    this.cancelDeferredAnalysis();
     this.scrubActive = false;
     this.scrubResumeAfter = false;
     this.scrubPreviewRate = 1;
@@ -812,18 +916,6 @@ export class AudioEngine {
 
   get duration(): number {
     return this.buffer?.duration ?? 0;
-  }
-
-  private computeDisplayGain(buffer: AudioBuffer): number {
-    let peak = 0;
-    for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
-      const data = buffer.getChannelData(channel);
-      for (let i = 0; i < data.length; i++) {
-        const value = Math.abs(data[i]);
-        if (value > peak) peak = value;
-      }
-    }
-    return peak > 0.001 ? 0.95 / peak : 1;
   }
 
   private rebasePlaybackClock(): void {
@@ -1084,61 +1176,6 @@ export class AudioEngine {
     };
   }
 
-  private computeWaveformPeaks(buffer: AudioBuffer): Float32Array {
-    const data = buffer.getChannelData(0);
-    const binSamples = AudioEngine.WAVEFORM_BIN_SAMPLES;
-    const numBins = Math.ceil(data.length / binSamples);
-    const peaks = new Float32Array(numBins * 2);
-    for (let bin = 0; bin < numBins; bin++) {
-      const start = bin * binSamples;
-      const end = Math.min(start + binSamples, data.length);
-      let min = 0;
-      let max = 0;
-      for (let sample = start; sample < end; sample++) {
-        const value = data[sample];
-        if (value < min) min = value;
-        if (value > max) max = value;
-      }
-      peaks[bin * 2] = min;
-      peaks[bin * 2 + 1] = max;
-    }
-    return peaks;
-  }
-
-  private computeFileAnalysis(buffer: AudioBuffer): FileAnalysis {
-    let peak = 0;
-    let rmsSum = 0;
-    let totalSamples = 0;
-    let clipCount = 0;
-
-    for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
-      const data = buffer.getChannelData(channel);
-      for (let i = 0; i < data.length; i++) {
-        const value = Math.abs(data[i]);
-        if (value > peak) peak = value;
-        rmsSum += data[i] * data[i];
-        totalSamples++;
-        if (value >= 0.9999) clipCount++;
-      }
-    }
-
-    const rms = Math.sqrt(rmsSum / totalSamples);
-    const peakDb = peak > 0 ? 20 * Math.log10(peak) : -100;
-    const rmsDb = rms > 0 ? 20 * Math.log10(rms) : -100;
-
-    return {
-      crestFactorDb: peakDb - rmsDb,
-      peakDb,
-      rmsDb,
-      clipCount,
-      duration: buffer.duration,
-      channels: buffer.numberOfChannels,
-      decodedSampleRate: buffer.sampleRate,
-      contextSampleRate: this.ctx?.sampleRate ?? buffer.sampleRate,
-      fileId: this.fileId,
-    };
-  }
-
   private createTransportState(): TransportState {
     return {
       isPlaying: this._isPlaying && !this.scrubActive,
@@ -1162,6 +1199,4 @@ export class AudioEngine {
     }
   }
 }
-
-
 
