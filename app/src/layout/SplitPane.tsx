@@ -17,7 +17,7 @@
 //     fracs state to a parent layout store and passing it back down.
 // ============================================================
 
-import { useCallback, useEffect, useId, useReducer, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useReducer, useRef, useState } from 'react';
 import { useLayoutInteraction } from './LayoutInteraction';
 import { COLORS } from '../theme';
 
@@ -26,6 +26,7 @@ const HANDLE_HIT_PX = 14;
 const PREVIEW_LINE_PX = 2;
 
 const DEFAULT_MIN_PX = 48;
+const COMPRESSED_MIN_PX = 24;
 const EMPTY_SIZES: number[] = [];
 const persistedPaneFractions = new Map<string, number[]>();
 
@@ -67,6 +68,36 @@ function readInitialFracs(initialSizes: number[], persistKey?: string): number[]
   }
 
   return normalize(stored);
+}
+
+function getRequestedMinSizes(paneCount: number, minSizePx: number[]): number[] {
+  return Array.from({ length: paneCount }, (_, index) => {
+    const requested = minSizePx[index] ?? DEFAULT_MIN_PX;
+    return Math.max(0, requested);
+  });
+}
+
+function fitMinSizesToAvailable(requestedMinSizes: number[], availPx: number): number[] {
+  if (!Number.isFinite(availPx) || availPx <= 0) return requestedMinSizes;
+
+  const totalRequested = requestedMinSizes.reduce((sum, size) => sum + size, 0);
+  if (totalRequested <= availPx) return requestedMinSizes;
+
+  const paneCount = requestedMinSizes.length;
+  const compressedFloor = Math.min(COMPRESSED_MIN_PX, availPx / Math.max(1, paneCount));
+  const compressedFloorTotal = compressedFloor * paneCount;
+  if (compressedFloorTotal >= availPx) {
+    return Array.from({ length: paneCount }, () => availPx / Math.max(1, paneCount));
+  }
+
+  const requestedExtra = requestedMinSizes.map((size) => Math.max(0, size - compressedFloor));
+  const requestedExtraTotal = requestedExtra.reduce((sum, size) => sum + size, 0);
+  if (requestedExtraTotal <= 0) {
+    return Array.from({ length: paneCount }, () => compressedFloor);
+  }
+
+  const extraBudget = availPx - compressedFloorTotal;
+  return requestedExtra.map((size) => compressedFloor + (size / requestedExtraTotal) * extraBudget);
 }
 
 // ── ResizeHandle ──────────────────────────────────────────────────────────────
@@ -206,6 +237,7 @@ export function SplitPane({
   const previewGuideRef = useRef<HTMLDivElement>(null);
   const pendingFracsRef = useRef<number[] | null>(null);
   const dragFrameRef = useRef<number | null>(null);
+  const [containerMainPx, setContainerMainPx] = useState<number>(0);
   const interactionId = useId();
   const { beginResize, endInteraction } = useLayoutInteraction();
   const isColumn = direction === 'column';
@@ -213,10 +245,33 @@ export function SplitPane({
   const initialSizesKey = initialSizes.join('|');
   const lastResetTokenRef = useRef(resetToken);
   const latestInitialSizesRef = useRef(initialSizes);
+  const requestedMinSizes = useMemo(() => getRequestedMinSizes(n, minSizePx), [minSizePx, n]);
+  const paneAvailPx = containerMainPx > 0
+    ? Math.max(0, containerMainPx - (n - 1) * HANDLE_HIT_PX)
+    : Number.POSITIVE_INFINITY;
+  const effectiveMinSizePx = useMemo(
+    () => fitMinSizesToAvailable(requestedMinSizes, paneAvailPx),
+    [paneAvailPx, requestedMinSizes],
+  );
 
   useEffect(() => {
     latestInitialSizesRef.current = initialSizes;
   }, [initialSizes]);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const updateMainPx = () => {
+      const rect = container.getBoundingClientRect();
+      setContainerMainPx(isColumn ? rect.height : rect.width);
+    };
+
+    updateMainPx();
+    const observer = new ResizeObserver(() => updateMainPx());
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, [isColumn]);
 
   useEffect(() => {
     if (!persistKey) return;
@@ -231,6 +286,7 @@ export function SplitPane({
     availPx: number;
     previewFracs: number[];
     pointerId: number;
+    effectiveMinSizePx: number[];
   } | null>(null);
 
   // Compute pixel space available for panes (container minus all handle slices).
@@ -276,6 +332,7 @@ export function SplitPane({
         availPx,
         previewFracs: startFracs,
         pointerId: e.pointerId,
+        effectiveMinSizePx,
       };
       pendingFracsRef.current = null;
       setPreviewPosition(handleIdx, startFracs);
@@ -284,7 +341,7 @@ export function SplitPane({
       document.body.style.cursor = isColumn ? 'row-resize' : 'col-resize';
       document.body.style.userSelect = 'none';
     },
-    [beginResize, computeAvailPx, fracs, interactionId, isColumn, setPreviewPosition, setPreviewVisible],
+    [beginResize, computeAvailPx, effectiveMinSizePx, fracs, interactionId, isColumn, setPreviewPosition, setPreviewVisible],
   );
 
   useEffect(() => {
@@ -299,8 +356,8 @@ export function SplitPane({
       const combined = drag.startFracs[i] + drag.startFracs[i + 1];
 
       // Per-pane minimum fractions derived from pixel minimums.
-      const minA = (minSizePx[i]     ?? DEFAULT_MIN_PX) / drag.availPx;
-      const minB = (minSizePx[i + 1] ?? DEFAULT_MIN_PX) / drag.availPx;
+      const minA = (drag.effectiveMinSizePx[i]     ?? DEFAULT_MIN_PX) / drag.availPx;
+      const minB = (drag.effectiveMinSizePx[i + 1] ?? DEFAULT_MIN_PX) / drag.availPx;
 
       // Per-pane maximum fractions (optional).
       const maxA = maxSizePx[i]     ? maxSizePx[i]     / drag.availPx : combined - minB;
@@ -372,7 +429,7 @@ export function SplitPane({
       window.removeEventListener('pointerup', onPointerUp);
       window.removeEventListener('pointercancel', onPointerCancel);
     };
-  }, [endInteraction, isColumn, maxSizePx, minSizePx, setPreviewPosition, setPreviewVisible]);
+  }, [endInteraction, isColumn, maxSizePx, setPreviewPosition, setPreviewVisible]);
 
   useEffect(() => {
     if (resetToken === undefined) return;
@@ -398,7 +455,7 @@ export function SplitPane({
   // Build interleaved [pane, handle, pane, handle, pane, …] children.
   const items: React.ReactElement[] = [];
   children.forEach((child, i) => {
-    const minPx = minSizePx[i] ?? DEFAULT_MIN_PX;
+    const minPx = effectiveMinSizePx[i] ?? requestedMinSizes[i] ?? DEFAULT_MIN_PX;
     items.push(
       <div
         key={`pane-${i}`}
