@@ -165,30 +165,30 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
   }, []);
 
   const setVideoPresentationMode = useCallback((nextMode: VideoViewMode, shouldLog = true) => {
-    setVideoViewMode((prevMode) => {
-      if (prevMode === nextMode) return prevMode;
+    const prevMode = videoViewModeRef.current;
+    if (prevMode === nextMode) return;
 
-      const wasOverlay = prevMode !== 'inline';
-      const isOverlay = nextMode !== 'inline';
-      theaterModeStore.setActive(isOverlay);
+    videoViewModeRef.current = nextMode;
+    setVideoViewMode(nextMode);
 
-      if (shouldLog) {
-        if (prevMode === 'theater') diagnosticsLog.push('theater mode off', 'info', 'video');
-        if (prevMode === 'full') diagnosticsLog.push('in-app full screen off', 'info', 'video');
-        if (!wasOverlay && isOverlay) diagnosticsLog.push('analysis surfaces suspended for video priority', 'info', 'video');
-        if (wasOverlay && !isOverlay) diagnosticsLog.push('analysis surfaces restored', 'info', 'video');
-        if (nextMode === 'theater') diagnosticsLog.push('theater mode on', 'info', 'video');
-        if (nextMode === 'full') diagnosticsLog.push('in-app full screen on', 'info', 'video');
-        if (nextMode === 'theater' && isHighResVideo(videoSourceSize)) {
-          diagnosticsLog.push('high-res theater playback active - preview render capped for smoother decode', 'warn', 'video');
-        }
-        if (nextMode === 'full' && isHighResVideo(videoSourceSize)) {
-          diagnosticsLog.push('high-res in-app full screen active - video priority mode engaged', 'warn', 'video');
-        }
-      }
+    const wasOverlay = prevMode !== 'inline';
+    const isOverlay = nextMode !== 'inline';
+    theaterModeStore.setActive(isOverlay);
 
-      return nextMode;
-    });
+    if (!shouldLog) return;
+
+    if (prevMode === 'theater') diagnosticsLog.push('theater mode off', 'info', 'video');
+    if (prevMode === 'full') diagnosticsLog.push('in-app full screen off', 'info', 'video');
+    if (!wasOverlay && isOverlay) diagnosticsLog.push('analysis surfaces suspended for video priority', 'info', 'video');
+    if (wasOverlay && !isOverlay) diagnosticsLog.push('analysis surfaces restored', 'info', 'video');
+    if (nextMode === 'theater') diagnosticsLog.push('theater mode on', 'info', 'video');
+    if (nextMode === 'full') diagnosticsLog.push('in-app full screen on', 'info', 'video');
+    if (nextMode === 'theater' && isHighResVideo(videoSourceSize)) {
+      diagnosticsLog.push('high-res theater playback active - preview render capped for smoother decode', 'warn', 'video');
+    }
+    if (nextMode === 'full' && isHighResVideo(videoSourceSize)) {
+      diagnosticsLog.push('high-res in-app full screen active - video priority mode engaged', 'warn', 'video');
+    }
   }, [diagnosticsLog, theaterModeStore, videoSourceSize]);
 
   useEffect(() => {
@@ -278,12 +278,12 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
   }, [logVideoEvent, markVideoSyncGrace]);
 
   const onToggleTheater = useCallback(() => {
-    setVideoPresentationMode(videoViewMode === 'theater' ? 'inline' : 'theater');
-  }, [setVideoPresentationMode, videoViewMode]);
+    setVideoPresentationMode(videoViewModeRef.current === 'theater' ? 'inline' : 'theater');
+  }, [setVideoPresentationMode]);
 
   const onToggleFullscreen = useCallback(() => {
-    setVideoPresentationMode(videoViewMode === 'full' ? 'inline' : 'full');
-  }, [setVideoPresentationMode, videoViewMode]);
+    setVideoPresentationMode(videoViewModeRef.current === 'full' ? 'inline' : 'full');
+  }, [setVideoPresentationMode]);
 
   const clearVideoPreview = useCallback(() => {
     setVideoPresentationMode('inline', false);
