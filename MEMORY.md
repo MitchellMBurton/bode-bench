@@ -28,6 +28,23 @@
 - Heavy ingest and deferred analysis still deserve longer-term worker/off-main-thread treatment.
 - The next reliability step is a small regression suite around transport, large-media fallback, and layout behavior.
 
+### Next AI Handoff
+
+- Start from `dev` commit `93c8213`.
+- Treat `main` as the stable/share-safe branch and `dev` as the active integration branch.
+- The current large-media strategy is intentional:
+  - streamed fallback for oversized media
+  - live-learned overview for streamed media
+  - restored live pitch for streamed high-quality video
+  - continuous scrubbing for streamed media
+- Do not revert toward unconditional full-file decode for large video just to recover features.
+- Highest-value next work:
+  - improve subjective quality of streamed live pitch on difficult material
+  - move more ingest/analysis work off the main thread
+  - add a small regression suite for transport, large-media fallback, and layout resizing
+- Perf Lab is part of the intended product UX, not temporary debugging clutter.
+- Public Cloudflare share links are temporary and should not be treated as durable release URLs.
+
 ## 2026-03-14
 
 ### Accepted Direction
