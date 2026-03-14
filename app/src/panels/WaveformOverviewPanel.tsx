@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useRef } from 'react';
-import { useAudioEngine, useDisplayMode, useFrameBus } from '../core/session';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useAudioEngine, useDisplayMode, useFrameBus, useTheaterMode } from '../core/session';
 import { CANVAS, COLORS, FONTS, SPACING } from '../theme';
-import type { FileAnalysis } from '../types';
+import type { FileAnalysis, ScrubStyle } from '../types';
 
 interface EnvelopeData {
   peakEnv: Float32Array;
@@ -11,6 +11,15 @@ interface EnvelopeData {
 
 const CLIP_THRESHOLD = 0.9999;
 const PANEL_DPR_MAX = 1.25;
+const SCRUB_STYLE_OPTIONS: ReadonlyArray<{
+  readonly value: ScrubStyle;
+  readonly label: string;
+  readonly detail: string;
+}> = [
+  { value: 'step', label: 'STEP', detail: 'precise bite' },
+  { value: 'tape', label: 'TAPE', detail: 'smooth shuttle' },
+  { value: 'wheel', label: 'WHEEL', detail: 'jog emphasis' },
+];
 
 function computeEnvelopeAndClipMap(buffer: AudioBuffer, cols: number): EnvelopeData {
   const left = buffer.getChannelData(0);
@@ -100,6 +109,8 @@ export function WaveformOverviewPanel(): React.ReactElement {
   const frameBus = useFrameBus();
   const audioEngine = useAudioEngine();
   const displayMode = useDisplayMode();
+  const theaterMode = useTheaterMode();
+  const [scrubStyle, setScrubStyle] = useState<ScrubStyle>(() => audioEngine.scrubStyle);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const peakEnvRef = useRef<Float32Array | null>(null);
   const rmsEnvRef = useRef<Float32Array | null>(null);
@@ -142,10 +153,25 @@ export function WaveformOverviewPanel(): React.ReactElement {
     return Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
   }, []);
 
-  const seekFromPointer = useCallback((event: React.PointerEvent<HTMLCanvasElement>) => {
+  const scrubFromPointer = useCallback((event: React.PointerEvent<HTMLCanvasElement>) => {
     const duration = audioEngine.duration;
-    if (duration > 0) audioEngine.seek(fractionFromPointer(event) * duration);
+    if (duration > 0) audioEngine.scrubTo(fractionFromPointer(event) * duration);
   }, [audioEngine, fractionFromPointer]);
+
+  const finishPointerGesture = useCallback(() => {
+    const shouldEndScrub = !isShiftDragRef.current;
+    isDraggingRef.current = false;
+    isShiftDragRef.current = false;
+    loopDragStartRef.current = null;
+    if (shouldEndScrub) {
+      audioEngine.endScrub();
+    }
+  }, [audioEngine]);
+
+  const onScrubStyleChange = useCallback((nextStyle: ScrubStyle) => {
+    setScrubStyle(nextStyle);
+    audioEngine.setScrubStyle(nextStyle);
+  }, [audioEngine]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -174,7 +200,7 @@ export function WaveformOverviewPanel(): React.ReactElement {
 
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas) return;
+    if (!canvas || theaterMode) return;
 
     const draw = () => {
       rafRef.current = requestAnimationFrame(draw);
@@ -363,10 +389,34 @@ export function WaveformOverviewPanel(): React.ReactElement {
     return () => {
       if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
     };
-  }, [audioEngine, displayMode]);
+  }, [audioEngine, displayMode, theaterMode]);
 
   return (
     <div style={panelStyle}>
+      <div style={scrubToolbarStyle}>
+        <div style={scrubToolbarHeaderStyle}>
+          <span style={scrubToolbarLabelStyle}>SCRUB</span>
+          <span style={scrubToolbarValueStyle}>
+            {SCRUB_STYLE_OPTIONS.find((option) => option.value === scrubStyle)?.detail ?? 'smooth shuttle'}
+          </span>
+        </div>
+        <div style={scrubButtonRowStyle}>
+          {SCRUB_STYLE_OPTIONS.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              style={{
+                ...scrubButtonStyle,
+                ...(scrubStyle === option.value ? scrubButtonActiveStyle : {}),
+              }}
+              onClick={() => onScrubStyleChange(option.value)}
+              title={`Scrub feel: ${option.detail}`}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      </div>
       <canvas
         ref={canvasRef}
         style={canvasStyle}
@@ -379,7 +429,8 @@ export function WaveformOverviewPanel(): React.ReactElement {
             loopDragStartRef.current = t;
           } else {
             loopDragStartRef.current = null;
-            seekFromPointer(event);
+            audioEngine.beginScrub();
+            scrubFromPointer(event);
           }
         }}
         onPointerMove={(event) => {
@@ -390,29 +441,107 @@ export function WaveformOverviewPanel(): React.ReactElement {
             const end = Math.max(loopDragStartRef.current, t2);
             if (end - start > 0.1) audioEngine.setLoop(start, end);
           } else {
-            seekFromPointer(event);
+            scrubFromPointer(event);
           }
         }}
-        onPointerUp={() => {
-          isDraggingRef.current = false;
-          isShiftDragRef.current = false;
-          loopDragStartRef.current = null;
+        onPointerUp={(event) => {
+          if (!isShiftDragRef.current) {
+            scrubFromPointer(event);
+          }
+          finishPointerGesture();
         }}
+        onPointerCancel={finishPointerGesture}
+        onLostPointerCapture={finishPointerGesture}
       />
     </div>
   );
 }
 
 const panelStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
   width: '100%',
   height: '100%',
   background: COLORS.bg2,
   overflow: 'hidden',
-  cursor: 'crosshair',
+};
+
+const scrubToolbarStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  gap: SPACING.sm,
+  padding: `${SPACING.xs}px ${SPACING.sm}px`,
+  borderBottom: `1px solid ${COLORS.border}`,
+  background: COLORS.bg1,
+  flexShrink: 0,
+};
+
+const scrubToolbarHeaderStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'baseline',
+  gap: SPACING.sm,
+  minWidth: 0,
+};
+
+const scrubToolbarLabelStyle: React.CSSProperties = {
+  fontFamily: FONTS.mono,
+  fontSize: FONTS.sizeXs,
+  color: COLORS.textCategory,
+  letterSpacing: '0.12em',
+};
+
+const scrubToolbarValueStyle: React.CSSProperties = {
+  fontFamily: FONTS.mono,
+  fontSize: FONTS.sizeXs,
+  color: COLORS.textSecondary,
+  letterSpacing: '0.08em',
+  textTransform: 'uppercase',
+  whiteSpace: 'nowrap',
+};
+
+const scrubButtonRowStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: SPACING.xs,
+  flexShrink: 0,
+};
+
+const scrubButtonStyle: React.CSSProperties = {
+  fontFamily: FONTS.mono,
+  fontSize: FONTS.sizeXs,
+  color: COLORS.textSecondary,
+  background: COLORS.bg2,
+  borderWidth: 1,
+  borderStyle: 'solid',
+  borderColor: COLORS.border,
+  borderRadius: 2,
+  padding: '2px 6px',
+  cursor: 'pointer',
+  letterSpacing: '0.08em',
+  lineHeight: 1.2,
+};
+
+const scrubButtonActiveStyle: React.CSSProperties = {
+  color: COLORS.textPrimary,
+  background: COLORS.accentDim,
+  borderColor: COLORS.borderHighlight,
 };
 
 const canvasStyle: React.CSSProperties = {
   display: 'block',
   width: '100%',
   height: '100%',
+  minHeight: 0,
+  flex: 1,
+  cursor: 'crosshair',
 };
+
+
+
+
+
+
+
+
+

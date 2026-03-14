@@ -1,20 +1,30 @@
 // ============================================================
-// Transport Controls — ingest, play/pause/stop, seek, time readout.
+// Transport Controls - ingest, play/pause/stop, seek, time readout.
 // When a video file is loaded, shows a small muted preview frame.
 // ============================================================
 
-import { useEffect, useRef, useState, useCallback } from 'react';
-import { useAudioEngine } from '../core/session';
+import { useEffect, useRef, useState, useCallback, useSyncExternalStore } from 'react';
+import { useAudioEngine, useDiagnosticsLog, useTheaterModeStore } from '../core/session';
 import { COLORS, FONTS, SPACING } from '../theme';
 import type { TransportState } from '../types';
 
 const VIDEO_HEIGHT_MIN = 72;
 const VIDEO_HEIGHT_DEFAULT = 160;
+const VIDEO_TIME_DISPLAY_MS = 100;
+const VIDEO_SOFT_SYNC_DRIFT_S = 0.045;
+const VIDEO_HARD_SYNC_DRIFT_S = 0.35;
+const VIDEO_RATE_TRIM_GAIN = 0.35;
+const VIDEO_RATE_TRIM_MAX = 0.08;
+const VIDEO_HARD_SYNC_COOLDOWN_MS = 900;
+const HIGH_RES_SOFT_SYNC_DRIFT_S = 0.09;
+const HIGH_RES_HARD_SYNC_DRIFT_S = 0.5;
+const HIGH_RES_RATE_TRIM_GAIN = 0.18;
+const HIGH_RES_RATE_TRIM_MAX = 0.04;
+const VIDEO_SYNC_GRACE_MS = 550;
+const VIDEO_END_TAIL_S = 0.25;
+const VIDEO_LARGE_DRIFT_LOG_MS = 10000;
 
-// Module-level: survives TransportControls remount (e.g. layout reset) within
-// the same page session. The component reinitialises from these on mount.
 let _sessionVideoUrl: string | null = null;
-let _sessionVideoHeight: number = VIDEO_HEIGHT_DEFAULT;
 
 function formatTime(s: number): string {
   const m = Math.floor(s / 60);
@@ -23,28 +33,85 @@ function formatTime(s: number): string {
   return `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}.${ms}`;
 }
 
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}
+
+function isPlaybackInterruptedError(error: unknown): boolean {
+  if (!(error instanceof DOMException)) return false;
+  return error.name === 'AbortError';
+}
+
+function isNearVideoEnd(video: HTMLVideoElement | null, transport: TransportState): boolean {
+  if (!video) return false;
+  const duration = Number.isFinite(video.duration) && video.duration > 0
+    ? video.duration
+    : transport.duration;
+  if (!Number.isFinite(duration) || duration <= 0) return false;
+  return duration - Math.max(video.currentTime, transport.currentTime) <= VIDEO_END_TAIL_S;
+}
+
 interface Props {
   onFileLoaded?: () => void;
 }
 
+interface VideoSourceSize {
+  readonly width: number;
+  readonly height: number;
+}
+
+function isHighResVideo(size: VideoSourceSize | null): boolean {
+  if (!size) return false;
+  return size.width >= 1600 || size.height >= 900;
+}
+
+function getTheaterVideoWrapStyle(size: VideoSourceSize | null): React.CSSProperties {
+  const highRes = isHighResVideo(size);
+  const widthCap = highRes ? 'min(76vw, 960px)' : 'min(84vw, 1180px)';
+  const heightCap = highRes ? 'min(54vh, 540px)' : 'min(64vh, 664px)';
+
+  return {
+    ...videoWrapStyle,
+    position: 'fixed',
+    top: '50%',
+    left: '50%',
+    transform: 'translate(-50%, -50%)',
+    width: widthCap,
+    height: heightCap,
+    zIndex: 10001,
+    border: `1px solid ${COLORS.borderActive}`,
+    boxShadow: '0 28px 90px rgba(0, 0, 0, 0.55)',
+  };
+}
+
 export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
   const audioEngine = useAudioEngine();
+  const diagnosticsLog = useDiagnosticsLog();
+  const theaterModeStore = useTheaterModeStore();
+  const theaterMode = useSyncExternalStore(
+    theaterModeStore.subscribe,
+    theaterModeStore.getSnapshot,
+    theaterModeStore.getSnapshot,
+  );
   const [transport, setTransport] = useState<TransportState>({
     isPlaying: false,
     currentTime: 0,
     duration: 0,
     filename: null,
+    scrubActive: false,
     playbackRate: 1,
     pitchSemitones: 0,
     pitchShiftAvailable: true,
     loopStart: null,
     loopEnd: null,
   });
+  const [displayCurrentTime, setDisplayCurrentTime] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [videoUrl, setVideoUrl] = useState<string | null>(() => _sessionVideoUrl);
-  const [videoHeight, setVideoHeight] = useState(() => _sessionVideoHeight);
+  const [videoHeight, setVideoHeight] = useState(VIDEO_HEIGHT_DEFAULT);
   const [videoResolution, setVideoResolution] = useState<string | null>(null);
+  const [videoSourceSize, setVideoSourceSize] = useState<VideoSourceSize | null>(null);
 
   const seekInputRef = useRef<HTMLInputElement>(null);
   const seekFillRef = useRef<HTMLDivElement>(null);
@@ -52,19 +119,36 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const videoWrapRef = useRef<HTMLDivElement>(null);
-  const videoUrlRef = useRef<string | null>(null); // tracks current object URL for revocation
+  const videoUrlRef = useRef<string | null>(null);
   const transportRef = useRef(transport);
   transportRef.current = transport;
-  const lastVideoSyncRef = useRef(0);
   const videoResizeRef = useRef<{ startY: number; startH: number } | null>(null);
+  const lastVideoRateRef = useRef(1);
+  const lastVideoHardSyncAtRef = useRef(0);
+  const videoEventTimesRef = useRef<Record<string, number>>({});
+  const videoSyncGraceUntilRef = useRef(0);
+  const videoSeekPendingRef = useRef(false);
+  const videoPendingPlayRef = useRef(false);
 
-  // Restore the ref on mount so clearVideoPreview can revoke the URL if a new file is loaded.
   useEffect(() => {
     if (_sessionVideoUrl && !videoUrlRef.current) {
       videoUrlRef.current = _sessionVideoUrl;
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (!theaterMode) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.code !== 'Escape') return;
+      event.preventDefault();
+      event.stopPropagation();
+      theaterModeStore.setActive(false);
+      diagnosticsLog.push('theater mode off', 'info', 'video');
+      diagnosticsLog.push('analysis surfaces restored', 'info', 'video');
+    };
+    window.addEventListener('keydown', onKeyDown, true);
+    return () => window.removeEventListener('keydown', onKeyDown, true);
+  }, [diagnosticsLog, theaterMode, theaterModeStore]);
 
   const setVideoUrlSession = useCallback((url: string | null) => {
     _sessionVideoUrl = url;
@@ -72,31 +156,118 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
   }, []);
 
   const setVideoHeightSession = useCallback((h: number) => {
-    _sessionVideoHeight = h;
     setVideoHeight(h);
   }, []);
 
+  const logVideoEvent = useCallback((key: string, text: string, tone: 'dim' | 'info' | 'warn' = 'dim', minIntervalMs = 1200) => {
+    const now = performance.now();
+    const lastAt = videoEventTimesRef.current[key] ?? 0;
+    if (now - lastAt < minIntervalMs) return;
+    videoEventTimesRef.current[key] = now;
+    diagnosticsLog.push(text, tone, 'video');
+  }, [diagnosticsLog]);
+
+  const markVideoSyncGrace = useCallback((durationMs = VIDEO_SYNC_GRACE_MS) => {
+    videoSyncGraceUntilRef.current = Math.max(
+      videoSyncGraceUntilRef.current,
+      performance.now() + durationMs,
+    );
+  }, []);
+
+  const setVideoPlaybackRate = useCallback((rate: number) => {
+    const video = videoRef.current;
+    if (!video) return;
+    const nextRate = Math.max(0.1, rate);
+    if (Math.abs(lastVideoRateRef.current - nextRate) < 0.005) return;
+    video.playbackRate = nextRate;
+    lastVideoRateRef.current = nextRate;
+  }, []);
+
+  const hardSyncVideo = useCallback((targetTime: number) => {
+    const video = videoRef.current;
+    if (!video || !Number.isFinite(targetTime)) return;
+
+    const nextTime = Math.max(0, targetTime);
+    if (Math.abs(video.currentTime - nextTime) <= 0.01) return;
+
+    videoSeekPendingRef.current = true;
+    videoPendingPlayRef.current = transportRef.current.isPlaying;
+    markVideoSyncGrace();
+    video.currentTime = nextTime;
+    lastVideoHardSyncAtRef.current = performance.now();
+  }, [markVideoSyncGrace]);
+
+  const playVideo = useCallback(() => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    if (video.seeking || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
+      videoPendingPlayRef.current = true;
+      markVideoSyncGrace();
+      return;
+    }
+
+    videoPendingPlayRef.current = false;
+    void video.play().catch((error: unknown) => {
+      if (
+        isPlaybackInterruptedError(error) ||
+        video.seeking ||
+        videoSeekPendingRef.current ||
+        performance.now() < videoSyncGraceUntilRef.current
+      ) {
+        videoPendingPlayRef.current = transportRef.current.isPlaying;
+        markVideoSyncGrace(250);
+        logVideoEvent('play-interrupted', 'video play deferred while seek settles', 'dim', 2500);
+        return;
+      }
+      logVideoEvent('play-reject', 'video play request was blocked by the runtime', 'warn', 4000);
+    });
+  }, [logVideoEvent, markVideoSyncGrace]);
+
+  const onToggleTheater = useCallback(() => {
+    const next = !theaterMode;
+    theaterModeStore.setActive(next);
+    diagnosticsLog.push(next ? 'theater mode on' : 'theater mode off', 'info', 'video');
+    diagnosticsLog.push(next ? 'analysis surfaces suspended for video priority' : 'analysis surfaces restored', 'info', 'video');
+    if (next && isHighResVideo(videoSourceSize)) {
+      diagnosticsLog.push('high-res theater playback active - preview render capped for smoother decode', 'warn', 'video');
+    }
+  }, [diagnosticsLog, theaterMode, theaterModeStore, videoSourceSize]);
+
   const clearVideoPreview = useCallback(() => {
+    theaterModeStore.setActive(false);
+    if (videoRef.current) {
+      videoRef.current.pause();
+      videoRef.current.currentTime = 0;
+    }
     if (videoUrlRef.current) {
       URL.revokeObjectURL(videoUrlRef.current);
       videoUrlRef.current = null;
     }
     setVideoUrlSession(null);
-  }, [setVideoUrlSession]);
+  }, [setVideoUrlSession, theaterModeStore]);
 
   const clearFileInput = useCallback(() => {
     if (fileInputRef.current) fileInputRef.current.value = '';
   }, []);
 
   const onVideoMetadata = useCallback(() => {
-    const v = videoRef.current;
-    if (!v) return;
-    const w = v.videoWidth;
-    const h = v.videoHeight;
-    if (w === 0 || h === 0) { setVideoResolution(null); return; }
-    const label = w >= 7680 ? '8K' : w >= 3840 ? '4K' : w >= 2560 ? '2.5K' : w >= 1920 ? '1080p' : w >= 1280 ? '720p' : `${h}p`;
+    const video = videoRef.current;
+    if (!video) return;
+    const width = video.videoWidth;
+    const height = video.videoHeight;
+    if (width === 0 || height === 0) {
+      setVideoResolution(null);
+      return;
+    }
+    setVideoSourceSize({ width, height });
+    const label = width >= 7680 ? '8K' : width >= 3840 ? '4K' : width >= 2560 ? '2.5K' : width >= 1920 ? '1080p' : width >= 1280 ? '720p' : `${height}p`;
     setVideoResolution(label);
-  }, []);
+    diagnosticsLog.push(`preview ${width}x${height} / ${label}`, 'info', 'video');
+    if (width >= 1920 || height >= 1080) {
+      diagnosticsLog.push('high-res source detected - theater preview render is capped for stability', 'warn', 'video');
+    }
+  }, [diagnosticsLog]);
 
   const onVideoResizeMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -108,7 +279,6 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
       const ref = videoResizeRef.current;
       if (!ref) return;
       const next = Math.max(VIDEO_HEIGHT_MIN, ref.startH + (ev.clientY - ref.startY));
-      // Mutate DOM directly — zero React re-renders during drag
       if (videoWrapRef.current) videoWrapRef.current.style.height = `${next}px`;
     };
     const onUp = (ev: MouseEvent) => {
@@ -118,7 +288,6 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
       document.body.style.userSelect = '';
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
-      // Commit final height to state only once on release
       if (ref) {
         const final = Math.max(VIDEO_HEIGHT_MIN, ref.startH + (ev.clientY - ref.startY));
         setVideoHeightSession(final);
@@ -126,29 +295,83 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
     };
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
-  }, [videoHeight]);
+  }, [setVideoHeightSession, videoHeight]);
 
-  const onFullscreen = useCallback(() => {
-    const v = videoRef.current;
-    if (!v) return;
-    if (v.requestFullscreen) void v.requestFullscreen();
-  }, []);
-
-  // Fires when the video element can begin playback (including after remount).
-  // If the session is already playing, seek to the current audio position and play.
   const onVideoCanPlay = useCallback(() => {
     const video = videoRef.current;
-    if (!video || !transportRef.current.isPlaying) return;
-    const ct = audioEngine.currentTime;
-    video.currentTime = ct;
-    video.playbackRate = transportRef.current.playbackRate;
-    void video.play();
-  }, [audioEngine]);
+    if (!video) return;
+    videoSeekPendingRef.current = false;
+    markVideoSyncGrace(250);
+    hardSyncVideo(audioEngine.currentTime);
+    setVideoPlaybackRate(transportRef.current.playbackRate);
+    if (transportRef.current.isPlaying || videoPendingPlayRef.current) {
+      playVideo();
+    }
+  }, [audioEngine, hardSyncVideo, markVideoSyncGrace, playVideo, setVideoPlaybackRate]);
 
-  // Sync from engine
+  const onVideoSeeking = useCallback(() => {
+    videoSeekPendingRef.current = true;
+    markVideoSyncGrace();
+  }, [markVideoSyncGrace]);
+
+  const onVideoSeeked = useCallback(() => {
+    videoSeekPendingRef.current = false;
+    markVideoSyncGrace(250);
+    setVideoPlaybackRate(transportRef.current.playbackRate);
+    if (transportRef.current.isPlaying || videoPendingPlayRef.current) {
+      playVideo();
+    } else {
+      videoPendingPlayRef.current = false;
+    }
+  }, [markVideoSyncGrace, playVideo, setVideoPlaybackRate]);
+
+  const onVideoPlaying = useCallback(() => {
+    logVideoEvent('playing', 'video preview playing', 'info', 2000);
+  }, [logVideoEvent]);
+
+  const onVideoWaiting = useCallback(() => {
+    const video = videoRef.current;
+    const now = performance.now();
+    if (videoSeekPendingRef.current || now < videoSyncGraceUntilRef.current) {
+      logVideoEvent('waiting-settle', 'video seek settling', 'dim', 2500);
+      return;
+    }
+    if (isNearVideoEnd(video, transportRef.current) || video?.ended) {
+      logVideoEvent('waiting-end', 'video preview reached end', 'dim', 2500);
+      return;
+    }
+    logVideoEvent('waiting', 'video waiting for decode / buffer', 'warn');
+  }, [logVideoEvent]);
+
+  const onVideoStalled = useCallback(() => {
+    const video = videoRef.current;
+    const now = performance.now();
+    if (videoSeekPendingRef.current || now < videoSyncGraceUntilRef.current) {
+      logVideoEvent('stalled-settle', 'video still settling after seek', 'dim', 2500);
+      return;
+    }
+    if (isNearVideoEnd(video, transportRef.current) || video?.ended) {
+      logVideoEvent('stalled-end', 'video preview reached end', 'dim', 2500);
+      return;
+    }
+    logVideoEvent('stalled', 'video stalled', 'warn');
+  }, [logVideoEvent]);
+
+  const onVideoEnded = useCallback(() => {
+    videoPendingPlayRef.current = false;
+    videoSeekPendingRef.current = false;
+    logVideoEvent('ended', 'video preview reached end', 'dim', 2500);
+  }, [logVideoEvent]);
+
+  const onVideoError = useCallback(() => {
+    const code = videoRef.current?.error?.code;
+    logVideoEvent('error', `video error${code ? ` code ${code}` : ''}`, 'warn', 4000);
+  }, [logVideoEvent]);
+
   useEffect(() => {
     return audioEngine.onTransport((state) => {
       setTransport(state);
+      setDisplayCurrentTime(state.currentTime);
       if (!isSeekingRef.current && seekInputRef.current) {
         const input = seekInputRef.current;
         if (state.duration > 0) {
@@ -161,65 +384,113 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
     });
   }, [audioEngine]);
 
-  // Play/pause the video on transport transitions only.
-  // Deliberately NOT in deps: transport.currentTime — the RAF loop handles
-  // continuous drift correction. Putting currentTime here caused a forced
-  // seek every 100 ms on the playing video, interrupting the decode pipeline.
   useEffect(() => {
     const video = videoRef.current;
     if (!video || !videoUrl) return;
-    if (transport.isPlaying) {
-      video.currentTime = audioEngine.currentTime;
-      video.playbackRate = transport.playbackRate;
-      void video.play();
-    } else {
-      video.pause();
-      // On stop (not just pause), snap back to zero
-      if (audioEngine.currentTime === 0) video.currentTime = 0;
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [transport.isPlaying, videoUrl]);
 
-  // RAF loop — keeps seek bar and video in sync without React re-renders
+    setVideoPlaybackRate(transport.playbackRate);
+
+    if (transport.scrubActive) {
+      videoPendingPlayRef.current = false;
+      video.pause();
+      hardSyncVideo(transport.currentTime);
+      return;
+    }
+
+    if (transport.isPlaying) {
+      hardSyncVideo(audioEngine.currentTime);
+      playVideo();
+    } else {
+      videoPendingPlayRef.current = false;
+      video.pause();
+      if (audioEngine.currentTime === 0) {
+        hardSyncVideo(0);
+      }
+    }
+  }, [audioEngine, hardSyncVideo, playVideo, setVideoPlaybackRate, transport.currentTime, transport.isPlaying, transport.playbackRate, transport.scrubActive, videoUrl]);
+
   useEffect(() => {
     let rafId: number;
     const tick = () => {
       rafId = requestAnimationFrame(tick);
       if (isSeekingRef.current) return;
-      const ct = audioEngine.currentTime;
-      const dur = audioEngine.duration;
-      if (seekInputRef.current && dur > 0) {
-        seekInputRef.current.value = String(ct);
+
+      const currentTime = audioEngine.currentTime;
+      const duration = audioEngine.duration;
+      if (seekInputRef.current && duration > 0) {
+        seekInputRef.current.value = String(currentTime);
       }
-      if (seekFillRef.current && dur > 0) {
-        seekFillRef.current.style.width = `${(ct / dur) * 100}%`;
+      if (seekFillRef.current && duration > 0) {
+        seekFillRef.current.style.width = `${(currentTime / duration) * 100}%`;
       }
+
       const video = videoRef.current;
-      if (video && videoUrl && transportRef.current.isPlaying) {
-        video.playbackRate = audioEngine.playbackRate;
-        const drift = Math.abs(video.currentTime - ct);
-        if (drift > 0.12 && Math.abs(ct - lastVideoSyncRef.current) > 0.05) {
-          video.currentTime = ct;
-          lastVideoSyncRef.current = ct;
-        }
+      if (!video || !videoUrl || !transportRef.current.isPlaying) return;
+
+      const baseRate = audioEngine.playbackRate;
+      const drift = currentTime - video.currentTime;
+      const absDrift = Math.abs(drift);
+      const now = performance.now();
+      const highResTheater = theaterMode && isHighResVideo(videoSourceSize);
+      const softSyncDrift = highResTheater ? HIGH_RES_SOFT_SYNC_DRIFT_S : VIDEO_SOFT_SYNC_DRIFT_S;
+      const hardSyncDrift = highResTheater ? HIGH_RES_HARD_SYNC_DRIFT_S : VIDEO_HARD_SYNC_DRIFT_S;
+      const rateTrimGain = highResTheater ? HIGH_RES_RATE_TRIM_GAIN : VIDEO_RATE_TRIM_GAIN;
+      const rateTrimMax = highResTheater ? HIGH_RES_RATE_TRIM_MAX : VIDEO_RATE_TRIM_MAX;
+
+      if (
+        video.seeking ||
+        videoSeekPendingRef.current ||
+        now < videoSyncGraceUntilRef.current ||
+        video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA
+      ) {
+        setVideoPlaybackRate(baseRate);
+        return;
+      }
+
+      if (video.ended && currentTime <= VIDEO_END_TAIL_S) {
+        setVideoPlaybackRate(baseRate);
+        return;
+      }
+
+      if (
+        absDrift >= hardSyncDrift &&
+        now - lastVideoHardSyncAtRef.current >= VIDEO_HARD_SYNC_COOLDOWN_MS
+      ) {
+        hardSyncVideo(currentTime);
+        setVideoPlaybackRate(baseRate);
+        const driftMs = Math.round(drift * 1000);
+        logVideoEvent(
+          'hard-sync',
+          Math.abs(driftMs) >= VIDEO_LARGE_DRIFT_LOG_MS
+            ? 'large video drift reset'
+            : `hard resync ${driftMs} ms`,
+          'warn',
+          1500,
+        );
+        return;
+      }
+
+      if (absDrift >= softSyncDrift) {
+        const correction = clamp(drift * rateTrimGain, -rateTrimMax, rateTrimMax);
+        setVideoPlaybackRate(baseRate + correction);
+      } else {
+        setVideoPlaybackRate(baseRate);
       }
     };
     rafId = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(rafId);
-  }, [audioEngine, videoUrl]);
+  }, [audioEngine, hardSyncVideo, logVideoEvent, setVideoPlaybackRate, theaterMode, videoSourceSize, videoUrl]);
 
-  // Throttled time display
   useEffect(() => {
     if (!transport.isPlaying) return;
     const id = setInterval(() => {
-      setTransport((prev) => ({ ...prev, currentTime: audioEngine.currentTime }));
-    }, 100);
+      if (!isSeekingRef.current) {
+        setDisplayCurrentTime(audioEngine.currentTime);
+      }
+    }, VIDEO_TIME_DISPLAY_MS);
     return () => clearInterval(id);
   }, [audioEngine, transport.isPlaying]);
 
-  // Revoke object URL on unmount — but NOT if it's still the active session URL.
-  // On RESET ALL the component unmounts and immediately remounts; revoking here
-  // would invalidate the URL before the remounted instance can use it.
   useEffect(() => {
     return () => {
       const url = videoUrlRef.current;
@@ -234,25 +505,38 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
       clearVideoPreview();
       clearFileInput();
       setVideoResolution(null);
+      setVideoSourceSize(null);
+      setDisplayCurrentTime(0);
       if (videoRef.current) {
         videoRef.current.pause();
         videoRef.current.currentTime = 0;
         videoRef.current.playbackRate = 1;
       }
-      lastVideoSyncRef.current = 0;
+      lastVideoRateRef.current = 1;
+      lastVideoHardSyncAtRef.current = 0;
+      videoEventTimesRef.current = {};
+      videoSyncGraceUntilRef.current = 0;
+      videoSeekPendingRef.current = false;
+      videoPendingPlayRef.current = false;
     });
   }, [audioEngine, clearFileInput, clearVideoPreview]);
 
   const handleFile = useCallback(async (file: File) => {
-    // Revoke previous object URL
     clearVideoPreview();
+    setVideoResolution(null);
+    setVideoSourceSize(null);
+    videoEventTimesRef.current = {};
+    lastVideoRateRef.current = 1;
+    lastVideoHardSyncAtRef.current = 0;
+    videoSyncGraceUntilRef.current = 0;
+    videoSeekPendingRef.current = false;
+    videoPendingPlayRef.current = false;
 
-    // Create video preview URL for video files
     if (file.type.startsWith('video/')) {
       const url = URL.createObjectURL(file);
       videoUrlRef.current = url;
       setVideoUrlSession(url);
-      lastVideoSyncRef.current = 0;
+      diagnosticsLog.push(`preview source attached for ${file.name}`, 'info', 'video');
     }
 
     setIsLoading(true);
@@ -263,7 +547,7 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
       clearFileInput();
       setIsLoading(false);
     }
-  }, [audioEngine, clearFileInput, clearVideoPreview, onFileLoaded]);
+  }, [audioEngine, clearFileInput, clearVideoPreview, diagnosticsLog, onFileLoaded, setVideoUrlSession]);
 
   const onDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -280,34 +564,43 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
 
   const onSeekPointerDown = useCallback(() => {
     isSeekingRef.current = true;
-  }, []);
+    if (transportRef.current.duration === 0) return;
+    audioEngine.beginScrub();
+  }, [audioEngine]);
 
   const onSeekPointerUp = useCallback(() => {
+    if (!isSeekingRef.current) return;
     isSeekingRef.current = false;
     const input = seekInputRef.current;
     if (!input || transportRef.current.duration === 0) return;
     const seekTo = parseFloat(input.value);
-    audioEngine.seek(seekTo);
-    if (videoRef.current) videoRef.current.currentTime = seekTo;
-    lastVideoSyncRef.current = seekTo;
-  }, [audioEngine]);
+    setDisplayCurrentTime(seekTo);
+    audioEngine.scrubTo(seekTo);
+    audioEngine.endScrub();
+    hardSyncVideo(seekTo);
+    setVideoPlaybackRate(audioEngine.playbackRate);
+  }, [audioEngine, hardSyncVideo, setVideoPlaybackRate]);
 
   const onSeekInput = useCallback(() => {
     const input = seekInputRef.current;
     const fill = seekFillRef.current;
     if (!input || !fill || transportRef.current.duration === 0) return;
-    const fraction = parseFloat(input.value) / transportRef.current.duration;
+    const seekTo = parseFloat(input.value);
+    const fraction = seekTo / transportRef.current.duration;
     fill.style.width = `${fraction * 100}%`;
-    // Scrub video frame while dragging
-    if (videoRef.current) videoRef.current.currentTime = parseFloat(input.value);
-    lastVideoSyncRef.current = parseFloat(input.value);
-  }, []);
+    setDisplayCurrentTime(seekTo);
+    if (isSeekingRef.current) {
+      audioEngine.scrubTo(seekTo);
+    } else {
+      audioEngine.seek(seekTo);
+    }
+    hardSyncVideo(seekTo);
+  }, [audioEngine, hardSyncVideo]);
 
-  const seekFraction = transport.duration > 0 ? transport.currentTime / transport.duration : 0;
+  const seekFraction = transport.duration > 0 ? displayCurrentTime / transport.duration : 0;
 
   return (
     <div style={wrapStyle}>
-      {/* Ingest zone */}
       <div
         style={{
           ...ingestStyle,
@@ -336,49 +629,74 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
             {transport.filename}
           </span>
         ) : (
-          <span style={ingestTextStyle}>DROP AUDIO / VIDEO — OR CLICK TO OPEN</span>
+          <span style={ingestTextStyle}>DROP AUDIO / VIDEO - OR CLICK TO OPEN</span>
         )}
       </div>
 
-      {/* Video preview — resizable, shown only for video files */}
       {videoUrl && (
-        <div ref={videoWrapRef} style={{ ...videoWrapStyle, height: videoHeight }}>
+        <div
+          style={theaterMode ? theaterBackdropStyle : hiddenTheaterBackdropStyle}
+          onClick={theaterMode ? onToggleTheater : undefined}
+        />
+      )}
+
+      {videoUrl && (
+        <div
+          ref={videoWrapRef}
+          style={theaterMode ? getTheaterVideoWrapStyle(videoSourceSize) : { ...videoWrapStyle, height: videoHeight }}
+        >
           <video
             ref={videoRef}
             src={videoUrl}
             muted
             preload="auto"
             playsInline
+            disablePictureInPicture
             style={videoStyle}
             onLoadedMetadata={onVideoMetadata}
             onCanPlay={onVideoCanPlay}
+            onSeeking={onVideoSeeking}
+            onSeeked={onVideoSeeked}
+            onPlaying={onVideoPlaying}
+            onWaiting={onVideoWaiting}
+            onStalled={onVideoStalled}
+            onEnded={onVideoEnded}
+            onError={onVideoError}
           />
-          {/* Overlay: resolution badge + fullscreen button */}
           <div style={videoOverlayStyle}>
             {videoResolution && (
               <span style={videoBadgeStyle}>{videoResolution}</span>
             )}
-            <button style={videoFsButtonStyle} onClick={onFullscreen} title="Fullscreen">
-              ⛶
+            <button
+              style={{ ...videoFsButtonStyle, ...(theaterMode ? videoFsButtonActiveStyle : {}) }}
+              onClick={onToggleTheater}
+              title={theaterMode ? 'Return to inline preview' : 'Open theater mode'}
+            >
+              THR
             </button>
           </div>
-          {/* Drag handle — bottom edge */}
-          <div
-            style={videoResizeHandleStyle}
-            onMouseDown={onVideoResizeMouseDown}
-            title="Drag to resize"
-          />
+          {theaterMode && (
+            <div style={theaterHintStyle}>
+              ESC OR CLICK OUTSIDE TO CLOSE
+              {isHighResVideo(videoSourceSize) ? '  /  VIDEO PRIORITY MODE ACTIVE' : ''}
+            </div>
+          )}
+          {!theaterMode && (
+            <div
+              style={videoResizeHandleStyle}
+              onMouseDown={onVideoResizeMouseDown}
+              title="Drag to resize"
+            />
+          )}
         </div>
       )}
 
-      {/* Time display */}
       <div style={timeRowStyle}>
-        <span style={timeStyle}>{formatTime(transport.currentTime)}</span>
+        <span style={timeStyle}>{formatTime(displayCurrentTime)}</span>
         <span style={timeSepStyle}>/</span>
         <span style={{ ...timeStyle, color: COLORS.textDim }}>{formatTime(transport.duration)}</span>
       </div>
 
-      {/* Seek bar */}
       <div style={seekTrackStyle}>
         <div
           ref={seekFillRef}
@@ -394,36 +712,36 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
           disabled={transport.duration === 0}
           onPointerDown={onSeekPointerDown}
           onPointerUp={onSeekPointerUp}
+          onPointerCancel={onSeekPointerUp}
+          onLostPointerCapture={onSeekPointerUp}
           onInput={onSeekInput}
         />
       </div>
 
-      {/* Loop region indicator */}
       {transport.loopStart !== null && transport.loopEnd !== null && (
         <div style={loopRowStyle}>
           <span style={loopLabelStyle}>LOOP</span>
           <span style={loopTimeStyle}>
-            {formatTime(transport.loopStart)} → {formatTime(transport.loopEnd)}
+            {formatTime(transport.loopStart)} {'->'} {formatTime(transport.loopEnd)}
           </span>
           <button
             style={loopClearStyle}
             onClick={() => audioEngine.clearLoop()}
             title="Clear loop region"
           >
-            ✕
+            X
           </button>
         </div>
       )}
 
-      {/* Transport buttons */}
       <div style={buttonRowStyle}>
         <button
           style={btnStyle}
           onClick={() => audioEngine.stop()}
           disabled={!transport.filename}
-          title="Stop — return to start"
+          title="Stop - return to start"
         >
-          ■
+          STOP
         </button>
         <button
           style={{ ...btnStyle, ...(transport.isPlaying ? btnActiveStyle : {}) }}
@@ -431,15 +749,15 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
           disabled={!transport.filename}
           title={transport.isPlaying ? 'Pause' : 'Play'}
         >
-          {transport.isPlaying ? '⏸' : '▶'}
+          {transport.isPlaying ? 'PAUSE' : 'PLAY'}
         </button>
         <button
           style={{ ...btnStyle, ...btnResetStyle }}
           onClick={() => audioEngine.reset()}
           disabled={!transport.filename}
-          title="Reset — clear file and all visuals"
+          title="Reset - clear file and all visuals"
         >
-          ↺ RESET
+          RESET
         </button>
       </div>
     </div>
@@ -456,7 +774,9 @@ const wrapStyle: React.CSSProperties = {
 };
 
 const ingestStyle: React.CSSProperties = {
-  border: `1px solid ${COLORS.border}`,
+  borderWidth: 1,
+  borderStyle: 'solid',
+  borderColor: COLORS.border,
   borderRadius: 2,
   padding: `${SPACING.sm}px ${SPACING.md}px`,
   cursor: 'pointer',
@@ -485,7 +805,20 @@ const videoWrapStyle: React.CSSProperties = {
   flexShrink: 0,
   background: '#000',
   position: 'relative',
-  // height is set inline from state
+  contain: 'layout paint',
+};
+
+const theaterBackdropStyle: React.CSSProperties = {
+  position: 'fixed',
+  inset: 0,
+  background: 'rgba(4, 6, 12, 0.78)',
+  zIndex: 10000,
+};
+
+const hiddenTheaterBackdropStyle: React.CSSProperties = {
+  ...theaterBackdropStyle,
+  opacity: 0,
+  pointerEvents: 'none',
 };
 
 const videoStyle: React.CSSProperties = {
@@ -493,8 +826,8 @@ const videoStyle: React.CSSProperties = {
   width: '100%',
   height: '100%',
   objectFit: 'contain',
-  // Promote to its own compositor layer — hardware-accelerated decode for 4K+
   transform: 'translateZ(0)',
+  backfaceVisibility: 'hidden',
 };
 
 const videoOverlayStyle: React.CSSProperties = {
@@ -521,16 +854,39 @@ const videoBadgeStyle: React.CSSProperties = {
 
 const videoFsButtonStyle: React.CSSProperties = {
   fontFamily: FONTS.mono,
-  fontSize: '13px',
+  fontSize: FONTS.sizeXs,
   color: COLORS.textSecondary,
   background: 'rgba(0,0,0,0.62)',
-  border: `1px solid ${COLORS.border}`,
+  borderWidth: 1,
+  borderStyle: 'solid',
+  borderColor: COLORS.border,
   borderRadius: 2,
   padding: '1px 4px',
   cursor: 'pointer',
   lineHeight: 1,
   outline: 'none',
   pointerEvents: 'auto',
+};
+
+const videoFsButtonActiveStyle: React.CSSProperties = {
+  color: COLORS.textPrimary,
+  borderColor: COLORS.borderActive,
+  background: 'rgba(18, 24, 44, 0.88)',
+};
+
+const theaterHintStyle: React.CSSProperties = {
+  position: 'absolute',
+  left: 10,
+  bottom: 10,
+  fontFamily: FONTS.mono,
+  fontSize: FONTS.sizeXs,
+  letterSpacing: '0.08em',
+  color: COLORS.textDim,
+  background: 'rgba(0, 0, 0, 0.58)',
+  border: `1px solid ${COLORS.border}`,
+  borderRadius: 2,
+  padding: '4px 6px',
+  pointerEvents: 'none',
 };
 
 const videoResizeHandleStyle: React.CSSProperties = {
@@ -602,14 +958,16 @@ const buttonRowStyle: React.CSSProperties = {
 
 const btnStyle: React.CSSProperties = {
   background: COLORS.bg3,
-  border: `1px solid ${COLORS.border}`,
+  borderWidth: 1,
+  borderStyle: 'solid',
+  borderColor: COLORS.border,
   color: COLORS.textPrimary,
   fontFamily: FONTS.mono,
-  fontSize: FONTS.sizeLg,
+  fontSize: FONTS.sizeSm,
   padding: `${SPACING.xs}px ${SPACING.sm}px`,
   cursor: 'pointer',
   borderRadius: 2,
-  lineHeight: 1,
+  lineHeight: 1.2,
   outline: 'none',
   transition: 'background 0.1s, border-color 0.1s',
 };
@@ -620,10 +978,8 @@ const btnActiveStyle: React.CSSProperties = {
 };
 
 const btnResetStyle: React.CSSProperties = {
-  marginLeft: 'auto',          // push to the right side of the button row
-  fontSize: FONTS.sizeSm,
+  marginLeft: 'auto',
   letterSpacing: '0.06em',
-  color: COLORS.textPrimary,
   borderColor: COLORS.borderActive,
   background: COLORS.bg1,
 };
@@ -666,3 +1022,24 @@ const loopClearStyle: React.CSSProperties = {
   outline: 'none',
   flexShrink: 0,
 };
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

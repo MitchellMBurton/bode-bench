@@ -1,5 +1,5 @@
 // ============================================================
-// App root — wires layout, panels, controls, and score loader.
+// App root - wires layout, panels, controls, and score loader.
 // ============================================================
 
 import { useState, useEffect } from 'react';
@@ -20,20 +20,19 @@ import { FrequencyBandsPanel } from './panels/FrequencyBandsPanel';
 import { PitchTrackerPanel } from './panels/PitchTrackerPanel';
 import { HarmonicLadderPanel } from './panels/HarmonicLadderPanel';
 import { LoudnessHistoryPanel } from './panels/LoudnessHistoryPanel';
-import { useAudioEngine, useDisplayMode } from './core/session';
+import { useAudioEngine, useDisplayMode, useTheaterMode } from './core/session';
 import type { VisualMode } from './audio/displayMode';
-import { COLORS, SPACING } from './theme';
+import { COLORS, FONTS, SPACING } from './theme';
 
-const SEEK_STEP = 5; // seconds per arrow key press
+const SEEK_STEP = 5;
 
 export default function App(): React.ReactElement {
   const audioEngine = useAudioEngine();
   const displayMode = useDisplayMode();
+  const theaterMode = useTheaterMode();
   const [filename, setFilename] = useState<string | null>(null);
   const [grayscale, setGrayscale] = useState(false);
   const [visualMode, setVisualMode] = useState<VisualMode>('default');
-  // Incrementing this triggers SessionControls to reset all audio/display settings.
-  const [sessionResetKey, setSessionResetKey] = useState(0);
 
   useEffect(() => {
     return audioEngine.onTransport((state) => {
@@ -45,7 +44,6 @@ export default function App(): React.ReactElement {
     displayMode.setMode(visualMode);
   }, [displayMode, visualMode]);
 
-  // Global keyboard shortcuts
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName;
@@ -83,89 +81,124 @@ export default function App(): React.ReactElement {
   return (
     <>
       <ConsoleLayout
-      grayscale={grayscale}
-      visualMode={visualMode}
-      onResetAll={() => {
-        setGrayscale(false);
-        setVisualMode('default');
-        setSessionResetKey(k => k + 1);
-      }}
-      topLeft={{
-        category: 'SUITE CONSOLE',
-        title: panelTitle,
-        content: (
-          <div style={controlPanelStyle}>
-            <MetadataDisplay filename={filename} />
-            <div style={dividerStyle} />
-            <TransportControls />
-            <SessionControls
-              grayscale={grayscale}
-              onGrayscale={setGrayscale}
-              visualMode={visualMode}
-              onVisualMode={setVisualMode}
-              resetKey={sessionResetKey}
-            />
-            <DiagnosticsLog />
-          </div>
-        ),
-      }}
-      topRight={{
-        category: 'LIVE DIAGNOSTIC',
-        title: 'OVERVIEW / WAVEFORM / PITCH / OSC / RESPONSE',
-        content: (
-          // Six independent vertical panes — each handle moves only that boundary.
-          <SplitPane
-            direction="column"
-            initialSizes={[10, 22, 12, 12, 12, 32]}
-            minSizePx={[56, 72, 56, 56, 56, 80]}
-          >
-            {[
-              <WaveformOverviewPanel key="overview" />,
-              <WaveformScrollPanel key="wave-scroll" />,
-              <PitchTrackerPanel key="pitch" />,
-              <OscilloscopePanel key="osc" />,
-              <OscilloscopeScrollPanel key="osc-scroll" />,
-              <FrequencyResponsePanel key="response" />,
-            ]}
-          </SplitPane>
-        ),
-      }}
-      bottomLeft={{
-        category: 'SUPPORT INSTRUMENTATION',
-        title: 'LEVELS / BANDS / PARTIALS',
-        content: (
-          <SplitPane
-            direction="column"
-            initialSizes={[30, 30, 40]}
-            minSizePx={[72, 72, 56]}
-          >
-            {[
-              <LevelsPanel key="levels" />,
-              <FrequencyBandsPanel key="bands" />,
-              <HarmonicLadderPanel key="ladder" />,
-            ]}
-          </SplitPane>
-        ),
-      }}
-      bottomRight={{
-        category: 'SPECTRAL ANATOMY',
-        title: 'LOUDNESS / SPECTROGRAM',
-        content: (
-          <SplitPane
-            direction="column"
-            initialSizes={[18, 82]}
-            minSizePx={[48, 96]}
-          >
-            {[
-              <LoudnessHistoryPanel key="loudness" />,
-              <SpectrogramPanel key="spectrogram" />,
-            ]}
-          </SplitPane>
-        ),
-      }}
+        grayscale={grayscale}
+        visualMode={visualMode}
+        topLeft={{
+          category: 'SUITE CONSOLE',
+          title: panelTitle,
+          content: (
+            <div style={controlPanelStyle}>
+              <MetadataDisplay filename={filename} />
+              <div style={dividerStyle} />
+              <TransportControls />
+              <SessionControls
+                grayscale={grayscale}
+                onGrayscale={setGrayscale}
+                visualMode={visualMode}
+                onVisualMode={setVisualMode}
+              />
+              <DiagnosticsLog />
+            </div>
+          ),
+        }}
+        topRight={{
+          category: 'LIVE DIAGNOSTIC',
+          title: 'OVERVIEW / WAVEFORM / PITCH / OSC / RESPONSE',
+          content: (
+            <TheaterPanelShell
+              active={theaterMode}
+              title="VIDEO PRIORITY"
+              detail="Live diagnostic surfaces are paused in place while theater mode is active."
+            >
+              <SplitPane
+                direction="column"
+                initialSizes={[24, 18, 9, 9, 10, 30]}
+                minSizePx={[96, 72, 56, 56, 56, 80]}
+              >
+                {[
+                  <WaveformOverviewPanel key="overview" />,
+                  <WaveformScrollPanel key="wave-scroll" />,
+                  <PitchTrackerPanel key="pitch" />,
+                  <OscilloscopePanel key="osc" />,
+                  <OscilloscopeScrollPanel key="osc-scroll" />,
+                  <FrequencyResponsePanel key="response" />,
+                ]}
+              </SplitPane>
+            </TheaterPanelShell>
+          ),
+        }}
+        bottomLeft={{
+          category: 'SUPPORT INSTRUMENTATION',
+          title: 'LEVELS / BANDS / PARTIALS',
+          content: (
+            <TheaterPanelShell
+              active={theaterMode}
+              title="SURFACES IDLED"
+              detail="Instrumentation remains mounted so state is preserved when theater mode closes."
+            >
+              <SplitPane
+                direction="column"
+                initialSizes={[30, 30, 40]}
+                minSizePx={[72, 72, 56]}
+              >
+                {[
+                  <LevelsPanel key="levels" />,
+                  <FrequencyBandsPanel key="bands" />,
+                  <HarmonicLadderPanel key="ladder" />,
+                ]}
+              </SplitPane>
+            </TheaterPanelShell>
+          ),
+        }}
+        bottomRight={{
+          category: 'SPECTRAL ANATOMY',
+          title: 'LOUDNESS / SPECTROGRAM',
+          content: (
+            <TheaterPanelShell
+              active={theaterMode}
+              title="SPECTRAL PAUSE"
+              detail="Loudness and spectrum views are held in place during theater mode, then resume from the same session."
+            >
+              <SplitPane
+                direction="column"
+                initialSizes={[18, 82]}
+                minSizePx={[48, 96]}
+              >
+                {[
+                  <LoudnessHistoryPanel key="loudness" />,
+                  <SpectrogramPanel key="spectrogram" />,
+                ]}
+              </SplitPane>
+            </TheaterPanelShell>
+          ),
+        }}
       />
       {showScanLines && <div style={scanLineStyle} />}
     </>
+  );
+}
+
+function TheaterPanelShell({
+  active,
+  title,
+  detail,
+  children,
+}: {
+  active: boolean;
+  title: string;
+  detail: string;
+  children: React.ReactNode;
+}): React.ReactElement {
+  return (
+    <div style={theaterShellStyle}>
+      <div style={theaterShellContentStyle}>{children}</div>
+      {active ? (
+        <div style={theaterStandbyOverlayStyle}>
+          <div style={theaterStandbyTitleStyle}>{title}</div>
+          <div style={theaterStandbyDetailStyle}>{detail}</div>
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -183,11 +216,52 @@ const dividerStyle: React.CSSProperties = {
   flexShrink: 0,
 };
 
-// NGE mode: horizontal scan lines across the entire viewport.
+const theaterShellStyle: React.CSSProperties = {
+  position: 'relative',
+  width: '100%',
+  height: '100%',
+  overflow: 'hidden',
+};
+
+const theaterShellContentStyle: React.CSSProperties = {
+  width: '100%',
+  height: '100%',
+};
+
+const theaterStandbyOverlayStyle: React.CSSProperties = {
+  position: 'absolute',
+  inset: 0,
+  display: 'flex',
+  flexDirection: 'column',
+  justifyContent: 'center',
+  alignItems: 'center',
+  gap: SPACING.sm,
+  padding: SPACING.lg,
+  background: 'linear-gradient(180deg, rgba(10,12,18,0.88), rgba(14,16,22,0.94))',
+  textAlign: 'center',
+  pointerEvents: 'auto',
+};
+
+const theaterStandbyTitleStyle: React.CSSProperties = {
+  fontFamily: FONTS.mono,
+  fontSize: FONTS.sizeMd,
+  color: COLORS.textPrimary,
+  letterSpacing: '0.14em',
+};
+
+const theaterStandbyDetailStyle: React.CSSProperties = {
+  fontFamily: FONTS.mono,
+  fontSize: FONTS.sizeSm,
+  color: COLORS.textSecondary,
+  letterSpacing: '0.04em',
+  maxWidth: 440,
+  lineHeight: 1.6,
+};
+
 const scanLineStyle: React.CSSProperties = {
   position: 'fixed',
   inset: 0,
-  pointerEvents: 'none',
+  pointerEvents: 'auto',
   zIndex: 9999,
   backgroundImage:
     'repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.10) 2px, rgba(0,0,0,0.10) 3px)',
@@ -195,3 +269,4 @@ const scanLineStyle: React.CSSProperties = {
   mixBlendMode: 'overlay',
   willChange: 'background-position',
 };
+

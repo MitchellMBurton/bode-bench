@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { useAudioEngine, useDisplayMode, useFrameBus, useScrollSpeed } from '../core/session';
+import { useAudioEngine, useDisplayMode, useFrameBus, useScrollSpeed, useTheaterMode } from '../core/session';
 import type { VisualMode } from '../audio/displayMode';
 import { COLORS, FONTS, CANVAS, SPACING } from '../theme';
 import { hexToRgb, remapMonochromeCanvas } from '../utils/canvas';
@@ -69,11 +69,77 @@ function getVisualPalette(mode: VisualMode): {
   };
 }
 
+function clearWaveformHistory(offscreen: HTMLCanvasElement | null, mode: VisualMode): void {
+  if (!offscreen) return;
+  const octx = offscreen.getContext('2d');
+  if (!octx) return;
+  const palette = getVisualPalette(mode);
+  octx.fillStyle = palette.backgroundFill;
+  octx.fillRect(0, 0, offscreen.width, offscreen.height);
+}
+
+function rebuildWaveformHistory(
+  offscreen: HTMLCanvasElement | null,
+  mode: VisualMode,
+  audioEngine: ReturnType<typeof useAudioEngine>,
+  scrollSpeedValue: number,
+): void {
+  if (!offscreen || offscreen.width === 0 || offscreen.height === 0) return;
+
+  const octx = offscreen.getContext('2d');
+  if (!octx) return;
+
+  const peaks = audioEngine.waveformPeaks;
+  const sampleRate = audioEngine.sampleRate;
+  const binSamples = audioEngine.waveformBinSamples;
+  const palette = getVisualPalette(mode);
+  const W = offscreen.width;
+  const H = offscreen.height;
+  const dpr = Math.min(devicePixelRatio, PANEL_DPR_MAX);
+  const padX = PAD * dpr;
+  const padY = PAD * dpr;
+  const drawW = W - padX * 2;
+  const drawH = H - padY * 2;
+  const midY = padY + drawH / 2;
+  const halfH = drawH / 2;
+  const pxPerSec = BASE_SCROLL_PX * 20 * scrollSpeedValue * audioEngine.playbackRate;
+
+  octx.fillStyle = palette.backgroundFill;
+  octx.fillRect(0, 0, W, H);
+
+  if (!peaks || drawW <= 0 || drawH <= 0 || pxPerSec <= 0) {
+    return;
+  }
+
+  const gain = audioEngine.displayGain;
+  const startX = Math.max(0, Math.floor(padX));
+  const endX = Math.min(W, Math.ceil(padX + drawW));
+  const rightmostX = endX - 1;
+  const secondsPerPixel = 1 / pxPerSec;
+
+  octx.fillStyle = palette.traceColor;
+  for (let x = startX; x < endX; x++) {
+    const agePx = rightmostX - x;
+    const time = audioEngine.currentTime - agePx * secondsPerPixel;
+    if (time < 0) continue;
+
+    const bin = Math.floor((time * sampleRate) / binSamples);
+    if (bin < 0 || bin * 2 + 1 >= peaks.length) continue;
+
+    const mn = peaks[bin * 2] * gain;
+    const mx = peaks[bin * 2 + 1] * gain;
+    const y1 = Math.round(midY - mx * halfH);
+    const y2 = Math.round(midY - mn * halfH);
+    octx.fillRect(x, y1, 1, Math.max(1, y2 - y1));
+  }
+}
+
 export function WaveformScrollPanel(): React.ReactElement {
   const frameBus = useFrameBus();
   const audioEngine = useAudioEngine();
   const displayMode = useDisplayMode();
   const scrollSpeed = useScrollSpeed();
+  const theaterMode = useTheaterMode();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const offscreenRef = useRef<HTMLCanvasElement | null>(null);
   const frameRef = useRef<AudioFrame | null>(null);
@@ -81,7 +147,7 @@ export function WaveformScrollPanel(): React.ReactElement {
   const lastFileIdRef = useRef(-1);
   const scrollCarryRef = useRef(0);
   const lastModeRef = useRef<VisualMode>(displayMode.mode);
-  const lastRafTimeRef = useRef(0); // performance.now() of last RAF tick
+  const lastRafTimeRef = useRef(0);
 
   useEffect(() => {
     return frameBus.subscribe((frame) => {
@@ -94,13 +160,7 @@ export function WaveformScrollPanel(): React.ReactElement {
       frameRef.current = null;
       lastRafTimeRef.current = 0;
       scrollCarryRef.current = 0;
-      const offscreen = offscreenRef.current;
-      if (!offscreen) return;
-      const octx = offscreen.getContext('2d');
-      if (octx) {
-        octx.fillStyle = getVisualPalette(displayMode.mode).backgroundFill;
-        octx.fillRect(0, 0, offscreen.width, offscreen.height);
-      }
+      clearWaveformHistory(offscreenRef.current, displayMode.mode);
     });
   }, [audioEngine, displayMode]);
 
@@ -118,35 +178,37 @@ export function WaveformScrollPanel(): React.ReactElement {
         const w = Math.round(width * dpr);
         const h = Math.round(height * dpr);
 
-        // Snapshot existing content before resize clears it, then blit back
-        // right-aligned so the newest (right-edge) history is always preserved.
-        const prevW = offscreen.width;
-        const prevH = offscreen.height;
-        let snapshot: HTMLCanvasElement | null = null;
-        if (prevW > 0 && prevH > 0) {
-          snapshot = document.createElement('canvas');
-          snapshot.width = prevW;
-          snapshot.height = prevH;
-          snapshot.getContext('2d')?.drawImage(offscreen, 0, 0);
-        }
-
         canvas.width = w;
         canvas.height = h;
         offscreen.width = w;
         offscreen.height = h;
         scrollCarryRef.current = 0;
+        lastRafTimeRef.current = 0;
 
-        const octx = offscreen.getContext('2d');
-        if (octx) {
-          octx.fillStyle = getVisualPalette(displayMode.mode).backgroundFill;
-          octx.fillRect(0, 0, w, h);
-          if (snapshot) {
-            octx.drawImage(snapshot, w - prevW, Math.round((h - prevH) / 2));
-          }
+        if (audioEngine.duration > 0 && audioEngine.waveformPeaks) {
+          rebuildWaveformHistory(offscreen, displayMode.mode, audioEngine, scrollSpeed.value);
+        } else {
+          clearWaveformHistory(offscreen, displayMode.mode);
         }
       }
     });
     ro.observe(canvas);
+
+    if (audioEngine.duration > 0 && audioEngine.waveformPeaks) {
+      rebuildWaveformHistory(offscreen, displayMode.mode, audioEngine, scrollSpeed.value);
+    } else {
+      clearWaveformHistory(offscreen, displayMode.mode);
+    }
+
+    if (theaterMode) {
+      return () => {
+        ro.disconnect();
+        if (rafRef.current !== null) {
+          cancelAnimationFrame(rafRef.current);
+          rafRef.current = null;
+        }
+      };
+    }
 
     const draw = () => {
       rafRef.current = requestAnimationFrame(draw);
@@ -193,13 +255,9 @@ export function WaveformScrollPanel(): React.ReactElement {
         lastFileIdRef.current = frame.fileId;
         scrollCarryRef.current = 0;
         lastRafTimeRef.current = 0;
-        octx.fillStyle = backgroundFill;
-        octx.fillRect(0, 0, W, H);
+        clearWaveformHistory(offscreen, mode);
       }
 
-      // RAF-rate scroll: advance every frame based on real elapsed time rather than
-      // waiting for the 20fps frame bus. This eliminates the "jump then freeze" stutter
-      // visible at higher scroll speeds. dt is capped at 100ms to handle tab-unfocus.
       const now = performance.now();
       const dtSec = lastRafTimeRef.current > 0
         ? Math.min((now - lastRafTimeRef.current) / 1000, 0.1)
@@ -207,8 +265,6 @@ export function WaveformScrollPanel(): React.ReactElement {
       lastRafTimeRef.current = now;
 
       if (audioEngine.isPlaying && dtSec > 0) {
-        // px/sec = BASE_SCROLL_PX × ANALYSIS_FPS × multipliers
-        // (matches the old per-frame rate of BASE_SCROLL_PX × playbackRate × scrollSpeed)
         const pxPerSec = BASE_SCROLL_PX * 20 * scrollSpeed.value * audioEngine.playbackRate;
         scrollCarryRef.current += pxPerSec * dtSec;
         const scrollPx = Math.max(0, Math.floor(scrollCarryRef.current));
@@ -279,9 +335,12 @@ export function WaveformScrollPanel(): React.ReactElement {
     rafRef.current = requestAnimationFrame(draw);
     return () => {
       ro.disconnect();
-      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
+      if (rafRef.current !== null) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
     };
-  }, [audioEngine, displayMode, scrollSpeed]);
+  }, [audioEngine, displayMode, scrollSpeed, theaterMode]);
 
   return (
     <div style={panelStyle}>

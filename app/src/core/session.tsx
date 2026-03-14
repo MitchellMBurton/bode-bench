@@ -1,16 +1,20 @@
 /* eslint-disable react-refresh/only-export-components */
 
-import { createContext, useContext } from 'react';
+import { createContext, useContext, useSyncExternalStore } from 'react';
 import { AudioEngine } from '../audio/engine';
 import { DisplayModeStore } from '../audio/displayMode';
 import { FrameBus } from '../audio/frameBus';
 import { ScrollSpeedStore } from '../audio/scrollSpeed';
+import { DiagnosticsLogStore } from '../diagnostics/logStore';
+import { TheaterModeStore } from '../video/theaterMode';
 
 export interface AppSession {
   audioEngine: AudioEngine;
   frameBus: FrameBus;
   displayMode: DisplayModeStore;
   scrollSpeed: ScrollSpeedStore;
+  diagnosticsLog: DiagnosticsLogStore;
+  theaterMode: TheaterModeStore;
 }
 
 interface AppSessionProviderProps {
@@ -22,12 +26,17 @@ const AppSessionContext = createContext<AppSession | null>(null);
 
 export function createAppSession(): AppSession {
   const frameBus = new FrameBus();
+  const diagnosticsLog = new DiagnosticsLogStore();
+  const theaterMode = new TheaterModeStore();
+  diagnosticsLog.attachGlobalCapture();
 
   return {
     frameBus,
     audioEngine: new AudioEngine(frameBus),
     displayMode: new DisplayModeStore(),
     scrollSpeed: new ScrollSpeedStore(),
+    diagnosticsLog,
+    theaterMode,
   };
 }
 
@@ -64,4 +73,21 @@ export function useDisplayMode(): DisplayModeStore {
 
 export function useScrollSpeed(): ScrollSpeedStore {
   return useAppSession().scrollSpeed;
+}
+
+export function useDiagnosticsLog(): DiagnosticsLogStore {
+  return useAppSession().diagnosticsLog;
+}
+
+export function useTheaterModeStore(): TheaterModeStore {
+  return useAppSession().theaterMode;
+}
+
+export function useTheaterMode(): boolean {
+  const theaterMode = useTheaterModeStore();
+  return useSyncExternalStore(
+    theaterMode.subscribe,
+    theaterMode.getSnapshot,
+    theaterMode.getSnapshot,
+  );
 }

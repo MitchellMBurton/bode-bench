@@ -83,11 +83,16 @@ export interface FrequencyBand {
 }
 
 /** Transport / playback state. */
+export type ScrubStyle = 'step' | 'tape' | 'wheel';
+
+/** Transport / playback state. */
 export interface TransportState {
   readonly isPlaying: boolean;
   readonly currentTime: number; // seconds
   readonly duration: number;    // seconds
   readonly filename: string | null;
+  /** True while the user is actively scrubbing a seek surface. */
+  readonly scrubActive: boolean;
   /** Tempo/speed multiplier. Does not change pitch. */
   readonly playbackRate: number;
   /** Pitch transposition in semitones. Does not change duration. */
@@ -138,3 +143,4 @@ export interface ProcessedScore {
   readonly metadata: MovementMetadata;
   readonly events: NoteEvent[];
 }
+

@@ -39,8 +39,6 @@ interface Props {
   bottomRight: PanelDef;
   grayscale?: boolean;
   visualMode?: VisualMode;
-  /** Called when the toolbar "RESET ALL" button is pressed, after layout sizes are reset. */
-  onResetAll?: () => void;
 }
 
 // ── ChromePanel ───────────────────────────────────────────────────────────────
@@ -99,7 +97,6 @@ export function ConsoleLayout({
   bottomRight,
   grayscale,
   visualMode = 'default',
-  onResetAll,
 }: Props): React.ReactElement {
   // Incrementing layoutKey forces all SplitPanes to remount, resetting their
   // fracs to initialSizes. This is the reset-layout mechanism.
@@ -143,9 +140,8 @@ export function ConsoleLayout({
       ? 'rgba(8,14,32,0.92)'
       : COLORS.bg1;
 
-  function handleResetAll(): void {
+  function handleResetLayout(): void {
     setLayoutKey(k => k + 1);
-    onResetAll?.();
   }
 
   return (
@@ -175,10 +171,10 @@ export function ConsoleLayout({
             borderColor: toolbarButtonBorder,
             background: toolbarButtonBg,
           }}
-          onClick={handleResetAll}
-          title="Reset all panel sizes and session settings to defaults"
+          onClick={handleResetLayout}
+          title="Reset panel sizes to the default layout"
         >
-          RESET ALL
+          RESET LAYOUT
         </button>
         <div style={{ flex: 1 }} />
         <span style={{ ...toolbarLabelStyle, color: toolbarText }}>DRAG DIVIDERS TO RESIZE</span>
@@ -195,7 +191,7 @@ export function ConsoleLayout({
         <SplitPane
           key={layoutKey}
           direction="column"
-          initialSizes={[50, 50]}
+          initialSizes={[64, 36]}
           minSizePx={[200, 200]}
         >
           {[
@@ -333,7 +329,9 @@ const toolbarButtonStyle: React.CSSProperties = {
   fontSize: FONTS.sizeXs,
   letterSpacing: '0.12em',
   textTransform: 'uppercase',
-  border: '1px solid transparent',
+  borderWidth: 1,
+  borderStyle: 'solid',
+  borderColor: 'transparent',
   padding: `2px ${SPACING.sm}px`,
   cursor: 'pointer',
   outline: 'none',

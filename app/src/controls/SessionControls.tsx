@@ -363,7 +363,9 @@ const valueStyle: React.CSSProperties = {
 
 const toggleStyle: React.CSSProperties = {
   background: COLORS.bg3,
-  border: `1px solid ${COLORS.border}`,
+  borderWidth: 1,
+  borderStyle: 'solid',
+  borderColor: COLORS.border,
   color: COLORS.textSecondary,
   fontFamily: FONTS.mono,
   fontSize: FONTS.sizeXs,

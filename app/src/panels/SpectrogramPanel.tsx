@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { useAudioEngine, useDisplayMode, useFrameBus, useScrollSpeed } from '../core/session';
+import { useAudioEngine, useDisplayMode, useFrameBus, useScrollSpeed, useTheaterMode } from '../core/session';
 import type { VisualMode } from '../audio/displayMode';
 import { COLORS, FONTS, CANVAS, SPACING } from '../theme';
 import { spectroColor } from '../utils/canvas';
@@ -182,6 +182,7 @@ export function SpectrogramPanel(): React.ReactElement {
   const displayMode = useDisplayMode();
   const audioEngine = useAudioEngine();
   const scrollSpeed = useScrollSpeed();
+  const theaterMode = useTheaterMode();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const offscreenRef = useRef<HTMLCanvasElement | null>(null);
   const historyRef = useRef<Int16Array | null>(null);
@@ -265,6 +266,13 @@ export function SpectrogramPanel(): React.ReactElement {
       }
     });
     ro.observe(canvas);
+
+    if (theaterMode) {
+      return () => {
+        ro.disconnect();
+        if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
+      };
+    }
 
     const draw = () => {
       rafRef.current = requestAnimationFrame(draw);
@@ -396,7 +404,7 @@ export function SpectrogramPanel(): React.ReactElement {
       ro.disconnect();
       if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
     };
-  }, [audioEngine, displayMode, scrollSpeed]);
+  }, [audioEngine, displayMode, scrollSpeed, theaterMode]);
 
   return (
     <div style={panelStyle}>
@@ -417,3 +425,6 @@ const canvasStyle: React.CSSProperties = {
   width: '100%',
   height: '100%',
 };
+
+
+

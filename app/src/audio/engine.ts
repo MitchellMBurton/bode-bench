@@ -16,17 +16,57 @@
 import type { FrameBus } from './frameBus';
 import { createStretchNode, type StretchNode, type StretchSchedule } from './stretchNode';
 import { CANVAS } from '../theme';
-import type { AudioFrame, FileAnalysis, TransportState } from '../types';
+import type { AudioFrame, FileAnalysis, ScrubStyle, TransportState } from '../types';
 import { RATE_MIN, RATE_MAX, PITCH_MIN, PITCH_MAX } from '../constants';
 
 type TransportListener = (state: TransportState) => void;
+
+interface ScrubStyleConfig {
+  readonly delayMs: number;
+  readonly windowMs: number;
+  readonly continuityThresholdS: number;
+  readonly baseRate: number;
+  readonly velocityRateGain: number;
+  readonly maxPreviewRate: number;
+  readonly preferNative: boolean;
+}
 
 const ANALYSIS_FPS = 20;
 const ANALYSIS_FRAME_MS = 1000 / ANALYSIS_FPS;
 const DECLICK_FADE_S = 0.006;
 const DECLICK_IN_S = 0.008;
+const SEEK_RESUME_DELAY_MS = 140;
 const STRETCH_WATCHDOG_GRACE_S = 0.75;
 const STRETCH_WATCHDOG_TIMEOUT_S = 0.6;
+const SCRUB_STYLE_CONFIG: Record<ScrubStyle, ScrubStyleConfig> = {
+  step: {
+    delayMs: 28,
+    windowMs: 72,
+    continuityThresholdS: 0.02,
+    baseRate: 1,
+    velocityRateGain: 0,
+    maxPreviewRate: 1,
+    preferNative: false,
+  },
+  tape: {
+    delayMs: 12,
+    windowMs: 180,
+    continuityThresholdS: 0.18,
+    baseRate: 0.96,
+    velocityRateGain: 0.08,
+    maxPreviewRate: 1.45,
+    preferNative: true,
+  },
+  wheel: {
+    delayMs: 6,
+    windowMs: 260,
+    continuityThresholdS: 0.3,
+    baseRate: 1.02,
+    velocityRateGain: 0.22,
+    maxPreviewRate: 2.4,
+    preferNative: true,
+  },
+};
 
 export class AudioEngine {
   private readonly frameBus: FrameBus;
@@ -63,6 +103,16 @@ export class AudioEngine {
   private _displayGain = 1;
   private _loopStart: number | null = null;
   private _loopEnd: number | null = null;
+  private seekResumeTimer: number | null = null;
+  private seekResumePending = false;
+  private scrubActive = false;
+  private scrubResumeAfter = false;
+  private scrubPreviewTimer: number | null = null;
+  private scrubStopTimer: number | null = null;
+  private _scrubStyle: ScrubStyle = 'tape';
+  private scrubPreviewRate = 1;
+  private scrubLastTarget = 0;
+  private scrubLastMoveAt = 0;
 
   private static readonly WAVEFORM_BIN_SAMPLES = 800;
   private _waveformPeaks: Float32Array | null = null;
@@ -140,6 +190,10 @@ export class AudioEngine {
 
   private get traversalRate(): number {
     return this.stretchEnabledForBuffer ? this.transportRate : this.nativeFallbackRate;
+  }
+
+  private get scrubConfig(): ScrubStyleConfig {
+    return SCRUB_STYLE_CONFIG[this._scrubStyle];
   }
 
   private async disposeStretchNode(): Promise<void> {
@@ -265,6 +319,103 @@ export class AudioEngine {
     gain.linearRampToValueAtTime(target, beginAt + durationSeconds);
   }
 
+  private clearSeekResume(): void {
+    if (this.seekResumeTimer !== null) {
+      window.clearTimeout(this.seekResumeTimer);
+      this.seekResumeTimer = null;
+    }
+    this.seekResumePending = false;
+  }
+
+  private scheduleSeekResume(): void {
+    this.seekResumePending = true;
+    if (this.seekResumeTimer !== null) {
+      window.clearTimeout(this.seekResumeTimer);
+    }
+    this.seekResumeTimer = window.setTimeout(() => {
+      this.seekResumeTimer = null;
+      if (!this.seekResumePending) return;
+      this.seekResumePending = false;
+      this.play();
+    }, SEEK_RESUME_DELAY_MS);
+  }
+
+  private get playbackHeadTime(): number {
+    if (!this.ctx || !this._isPlaying) return this.offsetAt;
+    const elapsed = Math.max(0, this.ctx.currentTime - this.startedAt);
+    const activeRate = this.scrubActive ? this.scrubPreviewRate : this.traversalRate;
+    const rawTime = this.offsetAt + elapsed * activeRate;
+    return Math.max(0, Math.min(rawTime, this.duration));
+  }
+
+  private clearScrubTimers(): void {
+    if (this.scrubPreviewTimer !== null) {
+      window.clearTimeout(this.scrubPreviewTimer);
+      this.scrubPreviewTimer = null;
+    }
+    if (this.scrubStopTimer !== null) {
+      window.clearTimeout(this.scrubStopTimer);
+      this.scrubStopTimer = null;
+    }
+  }
+
+  private refreshScrubStopTimer(): void {
+    if (this.scrubStopTimer !== null) {
+      window.clearTimeout(this.scrubStopTimer);
+    }
+    if (!this.scrubActive) return;
+    this.scrubStopTimer = window.setTimeout(() => {
+      this.scrubStopTimer = null;
+      if (!this.scrubActive || !this._isPlaying) return;
+      this.stopPlayback(false, 'scrub-preview');
+      this.emitTransport();
+    }, this.scrubConfig.windowMs);
+  }
+
+  private scheduleScrubPreview(): void {
+    if (this.scrubPreviewTimer !== null) {
+      window.clearTimeout(this.scrubPreviewTimer);
+      this.scrubPreviewTimer = null;
+    }
+    if (!this.scrubActive || !this.buffer) return;
+    if (this._isPlaying) {
+      this.refreshScrubStopTimer();
+      return;
+    }
+
+    this.scrubPreviewTimer = window.setTimeout(() => {
+      this.scrubPreviewTimer = null;
+      if (!this.scrubActive || !this.buffer) return;
+
+      this.play();
+      this.refreshScrubStopTimer();
+    }, this.scrubConfig.delayMs);
+  }
+
+  private updateScrubPreviewRate(targetSeconds: number): void {
+    const now = performance.now();
+    const previousTarget = this.scrubLastTarget;
+    const previousAt = this.scrubLastMoveAt;
+    this.scrubLastTarget = targetSeconds;
+    this.scrubLastMoveAt = now;
+
+    if (this._scrubStyle === 'step' || previousAt === 0) {
+      this.scrubPreviewRate = 1;
+      return;
+    }
+
+    const dtSeconds = Math.max((now - previousAt) / 1000, 0.001);
+    const scrubSpeed = Math.abs(targetSeconds - previousTarget) / dtSeconds;
+    const nextRate = this.scrubConfig.baseRate + scrubSpeed * this.scrubConfig.velocityRateGain;
+    this.scrubPreviewRate = Math.max(0.85, Math.min(this.scrubConfig.maxPreviewRate, nextRate));
+  }
+
+  private shouldRestartScrubPreview(targetSeconds: number): boolean {
+    if (!this._isPlaying) return true;
+    if (!this.scrubConfig.preferNative) return true;
+    return Math.abs(targetSeconds - this.playbackHeadTime) > this.scrubConfig.continuityThresholdS;
+  }
+
   private fallbackToNativePlayback(reason: string): void {
     if (!this.stretchEnabledForBuffer) return;
 
@@ -285,7 +436,11 @@ export class AudioEngine {
   }
 
   private stopPlayback(resetToStart: boolean, label: string): void {
-    const nextOffset = resetToStart ? 0 : this.currentTime;
+    const nextOffset = resetToStart
+      ? 0
+      : this.scrubActive
+        ? this.scrubLastTarget
+        : this.currentTime;
 
     if (this._isPlaying && this.ctx) {
       this.rampPlayGain(0, DECLICK_FADE_S);
@@ -314,6 +469,7 @@ export class AudioEngine {
   }
 
   play(): void {
+    this.clearSeekResume();
     if (this._isPlaying || !this.buffer || !this.playGainNode) {
       return;
     }
@@ -323,7 +479,9 @@ export class AudioEngine {
       void ctx.resume();
     }
 
-    if (this.stretchEnabledForBuffer && this.stretchNode) {
+    const useNativeScrubPreview = this.scrubActive && this.scrubConfig.preferNative;
+
+    if (this.stretchEnabledForBuffer && this.stretchNode && !useNativeScrubPreview) {
       const outputTime = ctx.currentTime + this.stretchLatency;
       const scheduledOffset = this.offsetAt;
       this.rampPlayGain(1, DECLICK_IN_S, outputTime);
@@ -354,7 +512,7 @@ export class AudioEngine {
 
     this.sourceNode = ctx.createBufferSource();
     this.sourceNode.buffer = this.buffer;
-    this.sourceNode.playbackRate.value = this.nativeFallbackRate;
+    this.sourceNode.playbackRate.value = this.scrubActive ? this.scrubPreviewRate : this.nativeFallbackRate;
     this.sourceNode.connect(this.playGainNode);
 
     this.rampPlayGain(1, DECLICK_IN_S, ctx.currentTime);
@@ -370,13 +528,11 @@ export class AudioEngine {
       } catch {
         // Source may already be disconnected.
       }
-      if (this.sourceNode === nativeSource) {
-        this.sourceNode = null;
-      }
-      if (this._isPlaying && this.sourceNode === null) {
-        this.stopPlayback(true, 'ended');
-        this.emitTransport();
-      }
+      if (this.sourceNode !== nativeSource) return;
+      this.sourceNode = null;
+      if (!this._isPlaying) return;
+      this.stopPlayback(this.scrubActive ? false : true, this.scrubActive ? 'scrub-ended' : 'ended');
+      this.emitTransport();
     };
 
     this.startRaf();
@@ -384,17 +540,41 @@ export class AudioEngine {
   }
 
   pause(): void {
-    if (!this._isPlaying) return;
-    this.stopPlayback(false, 'pause');
+    this.clearSeekResume();
+    const wasScrubbing = this.scrubActive;
+    this.clearScrubTimers();
+    this.scrubActive = false;
+    this.scrubResumeAfter = false;
+    this.scrubPreviewRate = 1;
+    this.scrubLastTarget = this.offsetAt;
+    this.scrubLastMoveAt = 0;
+    if (!this._isPlaying && !wasScrubbing) return;
+    if (this._isPlaying) {
+      this.stopPlayback(false, 'pause');
+    }
     this.emitTransport();
   }
 
   stop(): void {
+    this.clearSeekResume();
+    this.clearScrubTimers();
+    this.scrubActive = false;
+    this.scrubResumeAfter = false;
+    this.scrubPreviewRate = 1;
+    this.scrubLastTarget = 0;
+    this.scrubLastMoveAt = 0;
     this.stopPlayback(true, 'stop');
     this.emitTransport();
   }
 
   reset(): void {
+    this.clearSeekResume();
+    this.clearScrubTimers();
+    this.scrubActive = false;
+    this.scrubResumeAfter = false;
+    this.scrubPreviewRate = 1;
+    this.scrubLastTarget = 0;
+    this.scrubLastMoveAt = 0;
     this.stopPlayback(true, 'reset');
     this.buffer = null;
     this._filename = null;
@@ -435,21 +615,111 @@ export class AudioEngine {
   get loopStart(): number | null { return this._loopStart; }
   get loopEnd(): number | null { return this._loopEnd; }
 
+  beginScrub(): void {
+    if (!this.buffer) return;
+
+    const pendingResume = this.seekResumePending;
+    this.clearSeekResume();
+    if (!this.scrubActive) {
+      this.scrubResumeAfter = this._isPlaying || pendingResume;
+    }
+
+    this.clearScrubTimers();
+    if (this._isPlaying) {
+      this.stopPlayback(false, 'scrub-begin');
+    }
+
+    this.scrubLastTarget = this.offsetAt;
+    this.scrubLastMoveAt = 0;
+    this.scrubPreviewRate = 1;
+    this.scrubActive = true;
+    this.emitTransport();
+  }
+
+  scrubTo(seconds: number): void {
+    if (!this.buffer) return;
+    if (!this.scrubActive) {
+      this.beginScrub();
+    }
+
+    const nextOffset = Math.max(0, Math.min(seconds, this.buffer.duration));
+    this.updateScrubPreviewRate(nextOffset);
+    const shouldRestart = this.shouldRestartScrubPreview(nextOffset);
+
+    this.clearScrubTimers();
+    if (this._isPlaying && shouldRestart) {
+      this.stopPlayback(false, 'scrub-shift');
+    }
+
+    this.offsetAt = nextOffset;
+    this.emitTransport();
+
+    if (this._isPlaying && !shouldRestart) {
+      if (this.sourceNode) {
+        this.sourceNode.playbackRate.value = this.scrubPreviewRate;
+      }
+      this.refreshScrubStopTimer();
+      return;
+    }
+
+    this.scheduleScrubPreview();
+  }
+
+  endScrub(): void {
+    if (!this.scrubActive) return;
+
+    const resumeAt = Math.max(0, Math.min(this.scrubLastTarget, this.duration));
+    const shouldResume = this.scrubResumeAfter && resumeAt < this.duration;
+    this.clearScrubTimers();
+    if (this._isPlaying) {
+      this.stopPlayback(false, 'scrub-end');
+    }
+
+    this.offsetAt = resumeAt;
+    this.scrubActive = false;
+    this.scrubResumeAfter = false;
+    this.scrubPreviewRate = 1;
+    this.scrubLastMoveAt = 0;
+    this.scrubLastTarget = resumeAt;
+
+    if (shouldResume) {
+      this.play();
+      return;
+    }
+
+    this.emitTransport();
+  }
+
   seek(seconds: number): void {
-    const wasPlaying = this._isPlaying;
-    if (wasPlaying) this.pause();
+    if (this.scrubActive) {
+      this.scrubTo(seconds);
+      return;
+    }
+
+    const resumeAfterSeek = this._isPlaying || this.seekResumePending;
+
+    if (this._isPlaying) {
+      this.stopPlayback(false, 'seek');
+      this.emitTransport();
+    }
+
+    if (this.seekResumePending) {
+      this.clearSeekResume();
+    }
+
     this.offsetAt = Math.max(0, Math.min(seconds, this.buffer?.duration ?? 0));
-    if (wasPlaying) this.play();
-    else this.emitTransport();
+    this.emitTransport();
+
+    if (resumeAfterSeek) {
+      this.scheduleSeekResume();
+    }
   }
 
   get currentTime(): number {
+    if (this.scrubActive) return this.scrubLastTarget;
     if (!this.ctx) return 0;
     if (!this._isPlaying) return this.offsetAt;
-
-    const elapsed = Math.max(0, this.ctx.currentTime - this.startedAt);
-    const rawTime = this.offsetAt + elapsed * this.traversalRate;
-    return Math.max(0, Math.min(rawTime, this.duration));
+    return this.playbackHeadTime;
   }
 
   get duration(): number {
@@ -496,6 +766,11 @@ export class AudioEngine {
       if (this.lastAnalysisAt === 0 || now - this.lastAnalysisAt >= ANALYSIS_FRAME_MS) {
         this.lastAnalysisAt = now;
         this.extractFrame();
+
+        if (this.scrubActive) {
+          this.rafId = requestAnimationFrame(loop);
+          return;
+        }
 
         if (this._isPlaying && this._loopStart !== null && this._loopEnd !== null && this.currentTime >= this._loopEnd) {
           this.seek(this._loopStart);
@@ -676,9 +951,14 @@ export class AudioEngine {
     this.emitTransport();
   }
 
+  setScrubStyle(style: ScrubStyle): void {
+    this._scrubStyle = style;
+  }
+
   get isPlaying(): boolean { return this._isPlaying; }
   get playbackRate(): number { return this._playbackRate; }
   get pitchSemitones(): number { return this._pitchSemitones; }
+  get scrubStyle(): ScrubStyle { return this._scrubStyle; }
   get analysisFps(): number { return ANALYSIS_FPS; }
   get audioBuffer(): AudioBuffer | null { return this.buffer; }
   get displayGain(): number { return this._displayGain; }
@@ -773,10 +1053,11 @@ export class AudioEngine {
 
   private createTransportState(): TransportState {
     return {
-      isPlaying: this._isPlaying,
+      isPlaying: this._isPlaying && !this.scrubActive,
       currentTime: this.currentTime,
       duration: this.duration,
       filename: this._filename,
+      scrubActive: this.scrubActive,
       playbackRate: this._playbackRate,
       pitchSemitones: this._pitchSemitones,
       pitchShiftAvailable: this.pitchShiftAvailable,
@@ -793,3 +1074,9 @@ export class AudioEngine {
     }
   }
 }
+
+
+
+
+
+

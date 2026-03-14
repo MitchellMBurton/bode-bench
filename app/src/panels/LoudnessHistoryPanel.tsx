@@ -6,7 +6,7 @@
 // ============================================================
 
 import { useEffect, useRef } from 'react';
-import { useAudioEngine, useDisplayMode, useFrameBus, useScrollSpeed } from '../core/session';
+import { useAudioEngine, useDisplayMode, useFrameBus, useScrollSpeed, useTheaterMode } from '../core/session';
 import { COLORS, FONTS, SPACING, CANVAS } from '../theme';
 import type { AudioFrame } from '../types';
 
@@ -40,6 +40,7 @@ export function LoudnessHistoryPanel(): React.ReactElement {
   const audioEngine = useAudioEngine();
   const displayMode = useDisplayMode();
   const scrollSpeed = useScrollSpeed();
+  const theaterMode = useTheaterMode();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const historyRef = useRef<number[]>([]);
   const currentRef = useRef<AudioFrame | null>(null);
@@ -82,7 +83,7 @@ export function LoudnessHistoryPanel(): React.ReactElement {
 
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas) return;
+    if (!canvas || theaterMode) return;
 
     const draw = () => {
       rafRef.current = requestAnimationFrame(draw);
@@ -203,7 +204,7 @@ export function LoudnessHistoryPanel(): React.ReactElement {
 
     rafRef.current = requestAnimationFrame(draw);
     return () => { if (rafRef.current !== null) cancelAnimationFrame(rafRef.current); };
-  }, [displayMode, scrollSpeed]);
+  }, [displayMode, scrollSpeed, theaterMode]);
 
   return (
     <div style={panelStyle}>
@@ -224,3 +225,8 @@ const canvasStyle: React.CSSProperties = {
   width: '100%',
   height: '100%',
 };
+
+
+
+
+
