@@ -17,7 +17,7 @@
 //     fracs state to a parent layout store and passing it back down.
 // ============================================================
 
-import { useCallback, useEffect, useId, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useReducer, useRef, useState } from 'react';
 import { useLayoutInteraction } from './LayoutInteraction';
 import { COLORS } from '../theme';
 
@@ -32,6 +32,25 @@ function normalize(sizes: number[]): number[] {
   const total = sizes.reduce((a, b) => a + b, 0);
   if (total === 0) return sizes.map(() => 1 / sizes.length);
   return sizes.map(s => s / total);
+}
+
+interface SplitPaneState {
+  readonly fracs: number[];
+}
+
+type SplitPaneAction =
+  | { readonly type: 'apply'; readonly fracs: number[] }
+  | { readonly type: 'reset'; readonly initialSizes: number[] };
+
+function splitPaneReducer(state: SplitPaneState, action: SplitPaneAction): SplitPaneState {
+  switch (action.type) {
+    case 'apply':
+      return { fracs: action.fracs };
+    case 'reset':
+      return { fracs: normalize(action.initialSizes) };
+    default:
+      return state;
+  }
 }
 
 // ── ResizeHandle ──────────────────────────────────────────────────────────────
@@ -96,6 +115,9 @@ export interface SplitPaneProps {
   /** Maximum pixel size per pane (optional). */
   maxSizePx?: number[];
 
+  /** Increment to reset pane fractions back to initialSizes without remounting children. */
+  resetToken?: number;
+
   children: React.ReactElement[];
 }
 
@@ -104,9 +126,10 @@ export function SplitPane({
   initialSizes,
   minSizePx = EMPTY_SIZES,
   maxSizePx = EMPTY_SIZES,
+  resetToken,
   children,
 }: SplitPaneProps): React.ReactElement {
-  const [fracs, setFracs] = useState(() => normalize(initialSizes));
+  const [{ fracs }, dispatch] = useReducer(splitPaneReducer, { fracs: normalize(initialSizes) });
   const containerRef = useRef<HTMLDivElement>(null);
   const previewGuideRef = useRef<HTMLDivElement>(null);
   const pendingFracsRef = useRef<number[] | null>(null);
@@ -115,6 +138,7 @@ export function SplitPane({
   const { beginResize, endInteraction } = useLayoutInteraction();
   const isColumn = direction === 'column';
   const n = children.length;
+  const initialSizesKey = initialSizes.join('|');
 
   // Stable ref for drag state — avoids stale closures in event listeners.
   const dragRef = useRef<{
@@ -228,7 +252,7 @@ export function SplitPane({
         dragFrameRef.current = null;
       }
       setPreviewVisible(false);
-      setFracs(finalFracs);
+      dispatch({ type: 'apply', fracs: finalFracs });
       dragRef.current = null;
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
@@ -252,6 +276,22 @@ export function SplitPane({
       window.removeEventListener('mouseup', onMouseUp);
     };
   }, [endInteraction, isColumn, maxSizePx, minSizePx, setPreviewPosition, setPreviewVisible]);
+
+  useEffect(() => {
+    if (resetToken === undefined) return;
+
+    if (dragFrameRef.current !== null) {
+      cancelAnimationFrame(dragFrameRef.current);
+      dragFrameRef.current = null;
+    }
+    dragRef.current = null;
+    pendingFracsRef.current = null;
+    setPreviewVisible(false);
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+    endInteraction();
+    dispatch({ type: 'reset', initialSizes });
+  }, [endInteraction, initialSizes, initialSizesKey, resetToken, setPreviewVisible]);
 
   // Build interleaved [pane, handle, pane, handle, pane, …] children.
   const items: React.ReactElement[] = [];

@@ -13,7 +13,6 @@
 //   - Each row's left/right boundary (inner row SplitPanes, independent)
 // ============================================================
 
-import { useState } from 'react';
 import type { VisualMode } from '../audio/displayMode';
 import { LayoutInteractionProvider } from './LayoutInteraction';
 import { SplitPane } from './SplitPane';
@@ -39,6 +38,8 @@ interface Props {
   bottomRight: PanelDef;
   grayscale?: boolean;
   visualMode?: VisualMode;
+  layoutResetToken: number;
+  onResetLayout: () => void;
 }
 
 // ── ChromePanel ───────────────────────────────────────────────────────────────
@@ -97,11 +98,9 @@ export function ConsoleLayout({
   bottomRight,
   grayscale,
   visualMode = 'default',
+  layoutResetToken,
+  onResetLayout,
 }: Props): React.ReactElement {
-  // Incrementing layoutKey forces all SplitPanes to remount, resetting their
-  // fracs to initialSizes. This is the reset-layout mechanism.
-  const [layoutKey, setLayoutKey] = useState(0);
-
   const nge = visualMode === 'nge';
   const hyper = visualMode === 'hyper';
   const headerBorder = nge
@@ -140,10 +139,6 @@ export function ConsoleLayout({
       ? 'rgba(8,14,32,0.92)'
       : COLORS.bg1;
 
-  function handleResetLayout(): void {
-    setLayoutKey(k => k + 1);
-  }
-
   return (
     <LayoutInteractionProvider>
       <div style={shellStyle}>
@@ -171,7 +166,7 @@ export function ConsoleLayout({
             borderColor: toolbarButtonBorder,
             background: toolbarButtonBg,
           }}
-          onClick={handleResetLayout}
+          onClick={onResetLayout}
           title="Reset panel sizes to the default layout"
         >
           RESET LAYOUT
@@ -189,10 +184,10 @@ export function ConsoleLayout({
         filter: grayscale ? 'grayscale(1) contrast(1.05)' : 'none',
       }}>
         <SplitPane
-          key={layoutKey}
           direction="column"
           initialSizes={[64, 36]}
           minSizePx={[200, 200]}
+          resetToken={layoutResetToken}
         >
           {[
             /* Top row */
@@ -201,6 +196,7 @@ export function ConsoleLayout({
               direction="row"
               initialSizes={[...LEFT_COLUMN_DEFAULT]}
               minSizePx={[240, 320]}
+              resetToken={layoutResetToken}
             >
               {[
                 <ChromePanel key="tl" {...topLeft} visualMode={visualMode} />,
@@ -214,6 +210,7 @@ export function ConsoleLayout({
               direction="row"
               initialSizes={[...LEFT_COLUMN_DEFAULT]}
               minSizePx={[240, 320]}
+              resetToken={layoutResetToken}
             >
               {[
                 <ChromePanel key="bl" {...bottomLeft} visualMode={visualMode} />,

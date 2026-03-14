@@ -33,6 +33,7 @@ export default function App(): React.ReactElement {
   const [filename, setFilename] = useState<string | null>(null);
   const [grayscale, setGrayscale] = useState(false);
   const [visualMode, setVisualMode] = useState<VisualMode>('default');
+  const [layoutResetToken, setLayoutResetToken] = useState(0);
 
   useEffect(() => {
     return audioEngine.onTransport((state) => {
@@ -83,6 +84,8 @@ export default function App(): React.ReactElement {
       <ConsoleLayout
         grayscale={grayscale}
         visualMode={visualMode}
+        layoutResetToken={layoutResetToken}
+        onResetLayout={() => setLayoutResetToken((token) => token + 1)}
         topLeft={{
           category: 'SUITE CONSOLE',
           title: panelTitle,
@@ -114,6 +117,7 @@ export default function App(): React.ReactElement {
                 direction="column"
                 initialSizes={[24, 18, 9, 9, 10, 30]}
                 minSizePx={[96, 72, 56, 56, 56, 80]}
+                resetToken={layoutResetToken}
               >
                 {[
                   <WaveformOverviewPanel key="overview" />,
@@ -140,6 +144,7 @@ export default function App(): React.ReactElement {
                 direction="column"
                 initialSizes={[30, 30, 40]}
                 minSizePx={[72, 72, 56]}
+                resetToken={layoutResetToken}
               >
                 {[
                   <LevelsPanel key="levels" />,
@@ -163,6 +168,7 @@ export default function App(): React.ReactElement {
                 direction="column"
                 initialSizes={[18, 82]}
                 minSizePx={[48, 96]}
+                resetToken={layoutResetToken}
               >
                 {[
                   <LoudnessHistoryPanel key="loudness" />,
