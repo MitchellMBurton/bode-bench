@@ -25,6 +25,7 @@ import type { VisualMode } from './audio/displayMode';
 import { COLORS, FONTS, SPACING } from './theme';
 
 const SEEK_STEP = 5;
+const SEEK_STEP_LARGE = 15;
 
 export default function App(): React.ReactElement {
   const audioEngine = useAudioEngine();
@@ -57,13 +58,17 @@ export default function App(): React.ReactElement {
             if (audioEngine.isPlaying) { audioEngine.pause(); } else { audioEngine.play(); }
           }
           break;
+        case 'KeyS':
+          e.preventDefault();
+          audioEngine.stop();
+          break;
         case 'ArrowLeft':
           e.preventDefault();
-          audioEngine.seek(Math.max(0, audioEngine.currentTime - SEEK_STEP));
+          audioEngine.seek(Math.max(0, audioEngine.currentTime - (e.shiftKey ? SEEK_STEP_LARGE : SEEK_STEP)));
           break;
         case 'ArrowRight':
           e.preventDefault();
-          audioEngine.seek(Math.min(audioEngine.duration, audioEngine.currentTime + SEEK_STEP));
+          audioEngine.seek(Math.min(audioEngine.duration, audioEngine.currentTime + (e.shiftKey ? SEEK_STEP_LARGE : SEEK_STEP)));
           break;
         case 'Escape':
           e.preventDefault();
@@ -86,8 +91,9 @@ export default function App(): React.ReactElement {
         visualMode={visualMode}
         layoutResetToken={layoutResetToken}
         onResetLayout={() => setLayoutResetToken((token) => token + 1)}
+        sessionLabel={fileTitle}
         topLeft={{
-          category: 'SUITE CONSOLE',
+          category: 'SESSION CONSOLE',
           title: panelTitle,
           content: (
             <div style={controlPanelStyle}>

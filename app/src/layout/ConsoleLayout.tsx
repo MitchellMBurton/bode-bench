@@ -40,6 +40,8 @@ interface Props {
   visualMode?: VisualMode;
   layoutResetToken: number;
   onResetLayout: () => void;
+  /** Active session label (filename without extension), or null when idle. */
+  sessionLabel?: string | null;
 }
 
 // ── ChromePanel ───────────────────────────────────────────────────────────────
@@ -100,6 +102,7 @@ export function ConsoleLayout({
   visualMode = 'default',
   layoutResetToken,
   onResetLayout,
+  sessionLabel,
 }: Props): React.ReactElement {
   const nge = visualMode === 'nge';
   const hyper = visualMode === 'hyper';
@@ -145,12 +148,17 @@ export function ConsoleLayout({
       {/* Global header */}
       <div style={{ ...globalHeaderStyle, borderBottom: `1px solid ${headerBorder}` }}>
         <div style={headerLeftStyle}>
-          <span style={{ ...headerSuperStyle, color: chromeCategory }}>BACH CELLO SUITES VISUAL CONSOLE</span>
+          <span style={{ ...headerSuperStyle, color: chromeCategory }}>MEDIA ANALYSIS CONSOLE</span>
           <span style={headerTitleStyle}>SCIENTIFIC LISTENING INSTRUMENT</span>
         </div>
         <div style={headerRightStyle}>
           <span style={{ ...headerTagStyle, color: chromeCategory }}>DESKTOP-FIRST / SESSION-BASED</span>
-          <span style={{ ...headerTagStyle, color: chromeCategory }}>SUITE NO. 1 PRELUDE MILESTONE</span>
+          <span
+            style={{ ...headerTagStyle, color: chromeCategory }}
+            title={sessionLabel ?? undefined}
+          >
+            {sessionLabel ?? 'NO SESSION'}
+          </span>
         </div>
       </div>
 

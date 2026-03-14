@@ -32,7 +32,7 @@ export function MetadataDisplay({ filename, metadata }: Props): React.ReactEleme
           </>
         ) : (
           <>
-            <div style={composerStyle}>BACH CELLO CONSOLE</div>
+            <div style={composerStyle}>ANALYSIS CONSOLE</div>
             <div style={{ ...titleStyle, color: COLORS.textDim, fontSize: FONTS.sizeMd }}>
               No file loaded
             </div>

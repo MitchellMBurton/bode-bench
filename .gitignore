@@ -12,12 +12,15 @@ desktop/cloudflared.log
 desktop/cloudflared.err
 desktop/share-server.log
 desktop/share-server.err
-desktop/share/BachCelloConsole-Setup.exe
-desktop/share/BachCelloConsole-Setup.exe.sha256.txt
+desktop/share/*.exe
+desktop/share/*.exe.sha256.txt
 desktop/share/latest.json
 desktop/share/assets/
 desktop/share/vite.svg
 desktop/share/webapp.html
+
+# Vite dev artifacts
+app/vite.err
 
 # Session audio (ephemeral)
 audio/sessions/
