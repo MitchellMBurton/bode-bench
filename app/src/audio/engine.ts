@@ -520,7 +520,8 @@ export class AudioEngine {
 
     const useNativeScrubPreview = this.scrubActive && this.scrubConfig.preferNative;
 
-    if (this.useStretchPath && !useNativeScrubPreview) {
+    const stretchNode = this.stretchNode;
+    if (this.useStretchPath && stretchNode && !useNativeScrubPreview) {
       const outputTime = ctx.currentTime + this.stretchLatency;
       const scheduledOffset = this.offsetAt;
       this.rampPlayGain(1, DECLICK_IN_S, outputTime);
@@ -541,7 +542,7 @@ export class AudioEngine {
       this.startRaf();
       this.emitTransport();
 
-      void this.stretchNode.start(schedule).catch((error) => {
+      void stretchNode.start(schedule).catch((error) => {
         console.error('stretch start failed, falling back to native playback', error);
         if (!this._isPlaying || !this.stretchEnabledForBuffer) return;
         this.offsetAt = scheduledOffset;
