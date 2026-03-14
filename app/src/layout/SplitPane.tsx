@@ -22,7 +22,7 @@ import { useLayoutInteraction } from './LayoutInteraction';
 import { COLORS } from '../theme';
 
 // Pixel height (column) or width (row) of the entire drag hit area.
-const HANDLE_HIT_PX = 8;
+const HANDLE_HIT_PX = 14;
 const PREVIEW_LINE_PX = 2;
 
 const DEFAULT_MIN_PX = 48;
@@ -78,12 +78,23 @@ interface HandleProps {
 
 function ResizeHandle({ isColumn, onPointerDown }: HandleProps): React.ReactElement {
   const [hovered, setHovered] = useState(false);
+  const [pressed, setPressed] = useState(false);
+  const active = hovered || pressed;
 
   return (
     <div
-      onPointerDown={onPointerDown}
+      onPointerDown={(event) => {
+        if (event.isPrimary && event.button === 0) {
+          setPressed(true);
+        }
+        onPointerDown(event);
+      }}
+      onPointerUp={() => setPressed(false)}
+      onPointerCancel={() => setPressed(false)}
+      onLostPointerCapture={() => setPressed(false)}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
+      title="Drag to resize panels"
       style={{
         flexShrink: 0,
         flexGrow: 0,
@@ -91,19 +102,59 @@ function ResizeHandle({ isColumn, onPointerDown }: HandleProps): React.ReactElem
         [isColumn ? 'width' : 'height']: '100%',
         cursor: isColumn ? 'row-resize' : 'col-resize',
         position: 'relative',
-        zIndex: 10,
+        zIndex: 12,
         touchAction: 'none',
+        background: active
+          ? isColumn
+            ? 'linear-gradient(180deg, rgba(124, 138, 210, 0), rgba(124, 138, 210, 0.16), rgba(124, 138, 210, 0))'
+            : 'linear-gradient(90deg, rgba(124, 138, 210, 0), rgba(124, 138, 210, 0.16), rgba(124, 138, 210, 0))'
+          : isColumn
+            ? 'linear-gradient(180deg, rgba(80, 92, 148, 0), rgba(80, 92, 148, 0.08), rgba(80, 92, 148, 0))'
+            : 'linear-gradient(90deg, rgba(80, 92, 148, 0), rgba(80, 92, 148, 0.08), rgba(80, 92, 148, 0))',
       }}
     >
-      {/* Visible 1px divider centred in the hit area */}
+      <div
+        style={{
+          position: 'absolute',
+          inset: 0,
+          pointerEvents: 'none',
+          boxShadow: active
+            ? `inset 0 0 0 1px ${COLORS.borderHighlight}`
+            : 'none',
+        }}
+      />
       <div
         style={{
           position: 'absolute',
           pointerEvents: 'none',
-          background: hovered ? COLORS.borderActive : COLORS.border,
+          background: active ? COLORS.borderActive : COLORS.border,
           ...(isColumn
             ? { top: '50%', left: 0, right: 0, height: 1, transform: 'translateY(-50%)' }
             : { left: '50%', top: 0, bottom: 0, width: 1, transform: 'translateX(-50%)' }),
+        }}
+      />
+      <div
+        style={{
+          position: 'absolute',
+          pointerEvents: 'none',
+          borderRadius: 999,
+          background: active ? COLORS.borderHighlight : COLORS.border,
+          boxShadow: active ? `0 0 10px ${COLORS.borderHighlight}` : 'none',
+          ...(isColumn
+            ? {
+                top: '50%',
+                left: '50%',
+                width: 44,
+                height: 4,
+                transform: 'translate(-50%, -50%)',
+              }
+            : {
+                top: '50%',
+                left: '50%',
+                width: 4,
+                height: 44,
+                transform: 'translate(-50%, -50%)',
+              }),
         }}
       />
     </div>
