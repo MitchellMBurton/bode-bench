@@ -103,6 +103,10 @@ export class AudioEngine {
   private _displayGain = 1;
   private _loopStart: number | null = null;
   private _loopEnd: number | null = null;
+  // True only when the current playback was actually started through the stretch
+  // worklet. Used to gate the stretch watchdog so it does not fire when we are
+  // running the native path with stretch buffers loaded but idle.
+  private _usingStretchForPlayback = false;
   private seekResumeTimer: number | null = null;
   private seekResumePending = false;
   private scrubActive = false;
@@ -121,6 +125,14 @@ export class AudioEngine {
   private timeDomainDataR!: Float32Array;
   private frequencyData!: Float32Array;
   private frequencyDataR!: Float32Array;
+
+  // Ping-pong output buffers — pre-allocated to avoid per-frame GC pressure.
+  // We alternate between slot 0 and 1 so panels can hold a stable reference
+  // to the previous frame while the engine writes the next one.
+  private frameSlot = 0;
+  private frameTD: [Float32Array, Float32Array] = [new Float32Array(0), new Float32Array(0)];
+  private frameFD: [Float32Array, Float32Array] = [new Float32Array(0), new Float32Array(0)];
+  private frameFDR: [Float32Array, Float32Array] = [new Float32Array(0), new Float32Array(0)];
 
   private transportListeners = new Set<TransportListener>();
   private resetListeners = new Set<() => void>();
@@ -158,6 +170,11 @@ export class AudioEngine {
     this.frequencyData = new Float32Array(new ArrayBuffer((fftSize / 2) * 4));
     this.frequencyDataR = new Float32Array(new ArrayBuffer((fftSize / 2) * 4));
 
+    this.frameSlot = 0;
+    this.frameTD = [new Float32Array(fftSize), new Float32Array(fftSize)];
+    this.frameFD = [new Float32Array(fftSize / 2), new Float32Array(fftSize / 2)];
+    this.frameFDR = [new Float32Array(fftSize / 2), new Float32Array(fftSize / 2)];
+
     this.masterGain = ctx.createGain();
     this.masterGain.gain.value = this._volume;
     this.masterGain.connect(ctx.destination);
@@ -190,6 +207,15 @@ export class AudioEngine {
 
   private get traversalRate(): number {
     return this.stretchEnabledForBuffer ? this.transportRate : this.nativeFallbackRate;
+  }
+
+  // Returns true only when the stretch worklet should actually drive playback.
+  // At identity parameters (rate=1.0, pitch=0) the worklet adds overhead with no
+  // benefit, so we bypass it and use AudioBufferSourceNode directly. This is the
+  // primary fix for crackling on long video files.
+  private get useStretchPath(): boolean {
+    if (!this.stretchEnabledForBuffer || !this.stretchNode) return false;
+    return Math.abs(this._playbackRate - 1.0) > 0.001 || Math.abs(this._pitchSemitones) > 0.001;
   }
 
   private get scrubConfig(): ScrubStyleConfig {
@@ -477,6 +503,7 @@ export class AudioEngine {
     this.offsetAt = nextOffset;
     this.startedAt = 0;
     this._isPlaying = false;
+    this._usingStretchForPlayback = false;
     this.stopRaf();
   }
 
@@ -493,7 +520,7 @@ export class AudioEngine {
 
     const useNativeScrubPreview = this.scrubActive && this.scrubConfig.preferNative;
 
-    if (this.stretchEnabledForBuffer && this.stretchNode && !useNativeScrubPreview) {
+    if (this.useStretchPath && !useNativeScrubPreview) {
       const outputTime = ctx.currentTime + this.stretchLatency;
       const scheduledOffset = this.offsetAt;
       this.rampPlayGain(1, DECLICK_IN_S, outputTime);
@@ -509,6 +536,7 @@ export class AudioEngine {
       this.startedAt = outputTime;
       this.stretchLastProgressAt = outputTime;
       this._isPlaying = true;
+      this._usingStretchForPlayback = true;
       this.playId++;
       this.startRaf();
       this.emitTransport();
@@ -791,7 +819,7 @@ export class AudioEngine {
 
         if (
           this._isPlaying &&
-          this.stretchEnabledForBuffer &&
+          this._usingStretchForPlayback &&
           this.ctx &&
           this.ctx.currentTime >= this.startedAt + STRETCH_WATCHDOG_GRACE_S &&
           this.ctx.currentTime - this.stretchLastProgressAt > STRETCH_WATCHDOG_TIMEOUT_S
@@ -903,11 +931,17 @@ export class AudioEngine {
 
     const { f0, confidence } = this.detectF0(tdL, this.ctx.sampleRate);
 
+    this.frameSlot = this.frameSlot === 0 ? 1 : 0;
+    const slot = this.frameSlot;
+    this.frameTD[slot].set(tdL);
+    this.frameFD[slot].set(this.frequencyData);
+    this.frameFDR[slot].set(this.frequencyDataR);
+
     const frame: AudioFrame = {
       currentTime: this.currentTime,
-      timeDomain: new Float32Array(tdL),
-      frequencyDb: new Float32Array(this.frequencyData),
-      frequencyDbRight: new Float32Array(this.frequencyDataR),
+      timeDomain: this.frameTD[slot],
+      frequencyDb: this.frameFD[slot],
+      frequencyDbRight: this.frameFDR[slot],
       peakLeft: Math.min(peakL, 1),
       peakRight: Math.min(peakR, 1),
       rmsLeft: Math.min(rmsL, 1),
@@ -936,9 +970,16 @@ export class AudioEngine {
     const nextRate = Math.max(RATE_MIN, Math.min(RATE_MAX, r));
     if (Math.abs(nextRate - this._playbackRate) < 0.0001) return;
 
+    const wasUsingStretch = this.useStretchPath;
     this.rebasePlaybackClock();
     this._playbackRate = nextRate;
-    if (this.stretchEnabledForBuffer) {
+    const nowUsingStretch = this.useStretchPath;
+
+    if (wasUsingStretch !== nowUsingStretch && this._isPlaying) {
+      // Crossing the identity threshold — restart with the appropriate path.
+      this.stopPlayback(false, 'stretch-mode-change');
+      this.play();
+    } else if (nowUsingStretch) {
       this.scheduleStretchUpdate();
     } else if (this.sourceNode) {
       this.sourceNode.playbackRate.value = this.nativeFallbackRate;
@@ -951,11 +992,16 @@ export class AudioEngine {
     const nextPitch = Math.max(PITCH_MIN, Math.min(PITCH_MAX, semitones));
     if (Math.abs(nextPitch - this._pitchSemitones) < 0.0001) return;
 
-    if (!this.stretchEnabledForBuffer) {
-      this.rebasePlaybackClock();
-    }
+    const wasUsingStretch = this.useStretchPath;
+    this.rebasePlaybackClock();
     this._pitchSemitones = nextPitch;
-    if (this.stretchEnabledForBuffer) {
+    const nowUsingStretch = this.useStretchPath;
+
+    if (wasUsingStretch !== nowUsingStretch && this._isPlaying) {
+      // Crossing the identity threshold — restart with the appropriate path.
+      this.stopPlayback(false, 'stretch-mode-change-pitch');
+      this.play();
+    } else if (nowUsingStretch) {
       this.scheduleStretchUpdate();
     } else if (this.sourceNode) {
       this.sourceNode.playbackRate.value = this.nativeFallbackRate;
