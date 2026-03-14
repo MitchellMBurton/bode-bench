@@ -1,6 +1,8 @@
 # Desktop Release
 
-The desktop application is packaged with Tauri and distributed as a Windows NSIS installer.
+The desktop application is packaged with Tauri and distributed locally as a Windows NSIS installer.
+
+The runtime is now general-purpose, but the installer and executable still use legacy `Bach Cello Console` naming for continuity.
 
 ## Requirements
 
@@ -17,9 +19,9 @@ npm install
 npm run dev
 ```
 
-That launches the desktop shell against the local frontend.
+That launches the desktop shell against the shared frontend.
 
-For a release build and shareable local download bundle:
+For a release build and refreshed local share bundle:
 
 ```bash
 cd desktop
@@ -28,12 +30,10 @@ npm run release:share
 
 ## What `release:share` Does
 
-The release pipeline:
-
-- builds the React frontend
+- builds the shared frontend
 - builds the Tauri desktop shell
 - copies the latest NSIS installer into `desktop/share/`
-- copies the built browser app into `desktop/share/webapp.html` plus its static assets
+- copies the static browser bundle into `desktop/share/webapp.html`
 - regenerates `desktop/share/latest.json`
 - regenerates the SHA256 sidecar file
 
@@ -47,30 +47,22 @@ Primary share artifacts:
 - `desktop/share/index.html`
 - `desktop/share/webapp.html`
 - `desktop/share/assets/*`
-- `desktop/share/vite.svg`
-
-The installer, checksum file, manifest, and browser-share bundle are generated locally and ignored by git.
 
 ## Local Preview
-
-To preview the download page locally:
 
 ```bash
 cd desktop
 npm run serve-share
 ```
 
-Default URL:
+Default URLs:
 
 - `http://127.0.0.1:8787/`
-
-Browser app URL after `release:share`:
-
 - `http://127.0.0.1:8787/webapp.html`
 
 ## Upgrade Notes
 
-The NSIS installer now force-closes `bach-cello-console.exe` before install and uninstall steps run. This improves in-place upgrades when an older copy of the app is still open.
+The NSIS installer force-closes `bach-cello-console.exe` before install and uninstall steps run. This improves in-place upgrades when an older copy of the app is still open.
 
 If a machine already has stale local builds from older installer behavior:
 

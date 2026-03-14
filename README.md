@@ -1,20 +1,28 @@
-# Bach Cello Suites — Analysis Console
+# Scientific Listening Instrument
 
-A local-first, desktop-grade scientific listening instrument for J.S. Bach's Six Cello Suites.
+Local-first, desktop-grade media analysis console for close listening, technical review, and presentation-safe diagnostics.
 
-Real-time audio diagnostics fused with symbolic musical structure in a four-quadrant analysis console.
-
----
+The product has evolved beyond its original Bach-specific framing. The repository, installer, and some bundled sample data still carry legacy `Bach Cello Console` naming, but the working direction is now general-purpose: arbitrary local audio and video, optional structural overlays, and a disciplined four-quadrant analysis workspace.
 
 ## What This Is
 
-This is not a music player. This is not a visualiser.
+This is not a consumer media player and not a decorative visualiser.
 
-It is a rigorous analysis console for listening to Bach's cello suites while observing waveform, spectrum, levels, frequency bands, and symbolic score structure in coherent real-time agreement.
+It is a serious local instrument for:
 
-Its authority comes from the harmony of interfaces. Its beauty comes from precision.
+- waveform, spectrum, loudness, pitch, and frequency-response inspection
+- transport-heavy review with seeking, looping, and scrubbing
+- video-assisted listening with docked, windowed, theater, and in-app full-screen preview modes
+- optional structural overlays and preprocessing pipelines when a project benefits from them
 
----
+## Current Product Shape
+
+- Desktop-first, session-based workflow
+- Local ingest for arbitrary audio or video files
+- Real-time diagnostic surfaces in a four-quadrant console
+- Shared browser and desktop frontend
+- Diagnostics log designed for review, export, and debugging
+- Optional annotation / score workflow retained as one supported use case, not the core identity
 
 ## Requirements
 
@@ -23,17 +31,15 @@ Its authority comes from the harmony of interfaces. Its beauty comes from precis
 | Node.js | 18+ | v22 confirmed working |
 | npm | 9+ | pnpm also works if installed |
 | Rust | stable | Only for the Tauri desktop wrapper |
-| Python | 3.9+ | Only for score preprocessing |
-| music21 | any | `pip install music21` — score parsing only |
-| FFmpeg | any | Optional — `probe_audio.py` only |
+| Python | 3.9+ | Optional preprocessing |
+| music21 | any | Optional, for MusicXML-driven overlays |
+| FFmpeg | any | Optional, for probing utilities |
 
-No Rust or Tauri required to run the browser frontend.
-
----
+No Rust or Tauri is required to run the browser frontend.
 
 ## Quick Start
 
-### 1. Install and launch the frontend
+### Frontend dev
 
 ```bash
 cd app
@@ -41,9 +47,11 @@ npm install
 npm run dev
 ```
 
-Open `http://localhost:5173` in any modern browser.
+Default dev URL:
 
-### 1b. Launch the desktop shell
+- `http://127.0.0.1:4173/`
+
+### Desktop dev
 
 ```bash
 cd desktop
@@ -51,224 +59,116 @@ npm install
 npm run dev
 ```
 
-This wraps the existing frontend in Tauri. It requires the Rust/Tauri desktop prerequisites on the host machine.
-
-### 1c. Build the desktop download
+### Shareable local builds
 
 ```bash
 cd desktop
 npm run release:share
 ```
 
-This builds the desktop shell and refreshes the local download bundle in `desktop/share/`.
-It also refreshes a static browser bundle at `desktop/share/webapp.html` for temporary public sharing.
+This refreshes:
 
-Release notes and desktop workflow details live in `desktop/README.md`.
+- `desktop/share/BachCelloConsole-Setup.exe`
+- `desktop/share/webapp.html`
 
-### 2. Load audio
+## Using the Console
 
-- **Drag and drop** any audio file onto the ingest zone (top-left panel).
-- Or **click** the ingest zone to open a file picker.
-- Supported formats: anything your browser decodes — MP3, FLAC, WAV, OGG, AAC, M4A.
-- The file is loaded into memory for the session. Nothing is written to disk.
+1. Load any local audio or video file with drag-drop or the file picker.
+2. Use transport controls to play, pause, stop, seek, loop, and scrub.
+3. Inspect the live panels:
+   - overview
+   - scrolling waveform
+   - pitch
+   - oscilloscope
+   - frequency response
+   - levels
+   - bands / partials
+   - loudness
+   - spectrogram
+4. Use the diagnostics log to review transport, decode, preview, and mode-transition events.
+5. For video sessions, use:
+   - `WND` for a draggable, resizable in-app video window
+   - `THR` for theater presentation
+   - `FULL` for in-app full-screen within the console window
 
-### 3. Play
+## Optional Annotation Workflow
 
-Press **▶** to start playback. The four panels activate immediately:
+The repo still includes a Bach / MusicXML pipeline as a worked example of structural overlays.
 
-| Panel | Location | What you see |
-|---|---|---|
-| **Oscilloscope** | Top right | Live time-domain waveform with zero-crossing trigger |
-| **Spectrogram** | Bottom right | Scrolling frequency-vs-time waterfall, log scale |
-| **Levels** | Bottom left (upper) | L/R peak and RMS bars with dB scale and peak hold |
-| **Freq Bands** | Bottom left (lower) | 10-band energy distribution with smoothing |
+Use it when you want aligned note or annotation data, but treat it as an optional domain-specific layer rather than the product definition.
 
-Use the **seek bar** to jump anywhere in the recording. **⏸** to pause, **■** to stop and return to the start.
-
----
-
-## Score Overlay
-
-The spectrogram panel can display note events from the preprocessed score JSON as amber horizontal markers, aligned to the playback timeline.
-
-### Using the stub data (default)
-
-A stub arpeggio pattern for the Suite No. 1 Prelude is already generated and served. It gives a rough visual reference but is not timing-accurate to any specific recording.
-
-### Using real score data
-
-1. Obtain a MusicXML file for the Suite No. 1 Prelude (public domain editions available from IMSLP and MuseScore).
-2. Place it at:
-   ```
-   data/raw/suite1_prelude.xml
-   ```
-3. Run the preprocessor:
-   ```bash
-   cd scripts
-   pip install music21          # first time only
-   python parse_scores.py
-   ```
-   This reads the MusicXML, extracts note events with timestamps, and writes:
-   - `data/processed/suite1_prelude.json` — the canonical output
-   - `app/public/data/processed/suite1_prelude.json` — served to the browser automatically
-
-4. Restart or reload the frontend. The overlay appears during playback.
-
-### Aligning the overlay to a recording
-
-Score-derived timestamps assume a fixed tempo. To shift all events by an offset (e.g. to account for recording start silence):
+Example scripts:
 
 ```bash
 cd scripts
-python export_events.py 2.5    # shifts all events forward by 2.5 seconds
-python export_events.py -1.0   # shifts back by 1 second
+python parse_scores.py
+python export_events.py <offset_seconds>
+python probe_audio.py path/to/file
 ```
 
----
+Bundled sample data remains in:
 
-## Score Data Format
-
-```jsonc
-{
-  "version": 1,
-  "metadata": {
-    "suite": 1,
-    "movement": "Prelude",
-    "key": "G major",
-    "tempoMarking": "Unmeasured",
-    "timeSignature": "4/4",
-    "estimatedDurationS": 156.0,
-    "composer": "J.S. Bach",
-    "instrument": "Cello solo"
-  },
-  "events": [
-    {
-      "pitch": 43,           // MIDI pitch number
-      "pitchName": "G2",     // human-readable
-      "onset_s": 0.0,        // seconds from start
-      "duration_s": 0.4167,  // seconds
-      "measure": 1,          // 1-indexed
-      "beat": 1.0            // beat within measure
-    }
-    // ...
-  ]
-}
-```
-
----
-
-## Audio Probing
-
-Before loading an unusual file, you can inspect it:
-
-```bash
-cd scripts
-python probe_audio.py path/to/recording.flac
-```
-
-Requires FFmpeg (`ffmpeg.org`). Reports codec, sample rate, channels, bit depth, and duration.
-
----
+- `data/processed/suite1_prelude.json`
+- `app/public/data/processed/suite1_prelude.json`
 
 ## Project Layout
 
-```
-bach-cello-console/
+```text
+av_project_claude_2/
   app/                        # React + Vite frontend
-    src/
-      types/index.ts          # Shared TypeScript interfaces
-      theme/index.ts          # Colours, fonts, spacing, canvas constants
-      audio/
-        engine.ts             # Web Audio graph, transport, frame extraction
-        frameBus.ts           # Pub/sub — frames to panels without React re-renders
-      score/
-        loader.ts             # Fetch + validate processed JSON
-      panels/
-        OscilloscopePanel.tsx
-        SpectrogramPanel.tsx
-        LevelsPanel.tsx
-        FrequencyBandsPanel.tsx
-      layout/
-        ConsoleLayout.tsx     # Four-quadrant shell
-      controls/
-        TransportControls.tsx # Ingest, play/pause/stop, seek, time
-        MetadataDisplay.tsx   # Movement identity
-  scripts/
-    parse_scores.py           # MusicXML → JSON (music21)
-    export_events.py          # Timing offset tool
-    probe_audio.py            # FFprobe wrapper
-  data/
-    raw/                      # Place MusicXML source files here
-    processed/                # Preprocessor output JSON
-  audio/
-    sessions/                 # Ephemeral session files (gitignored)
+  desktop/                    # Tauri desktop wrapper and share scripts
+  scripts/                    # Optional preprocessing and probing tools
+  data/processed/             # Example processed overlay data
+  README.md
+  PROJECT.md
+  ARCHITECTURE.md
+  TASKS.md
+  MEMORY.md
+  UX_PRINCIPLES.md
+  POWER_USER_UX.md
+  DECISION_RULES.md
+  CLAUDE.md
 ```
-
----
 
 ## Development Commands
 
 ```bash
-# Start dev server
+# Frontend dev
 cd app && npm run dev
 
-# Start desktop shell
-cd desktop && npm run dev
-
-# Build desktop shell
-cd desktop && npm run build
-
-# Build desktop shell and refresh the download bundle
-cd desktop && npm run release:share
-
-# Type check (no emit)
-cd app && npx tsc --noEmit
-
-# Lint
+# Frontend lint
 cd app && npm run lint
 
-# Regenerate score data
-cd scripts && python parse_scores.py
+# Frontend build
+cd app && npm run build
 
-# Shift overlay timing
-cd scripts && python export_events.py <offset_seconds>
+# Desktop dev
+cd desktop && npm run dev
+
+# Desktop build
+cd desktop && npm run build
+
+# Desktop + browser share bundle
+cd desktop && npm run release:share
 ```
-
----
 
 ## Project Documents
 
 | Document | Purpose |
 |---|---|
 | `PROJECT.md` | Product definition and invariants |
-| `UX_PRINCIPLES.md` | Interface doctrine |
-| `POWER_USER_UX.md` | Workspace bar, overlays, and interpretation-system direction |
 | `ARCHITECTURE.md` | Technical structure and domain boundaries |
+| `TASKS.md` | Current milestone and work ordering |
+| `MEMORY.md` | Durable project context and recent accepted shifts |
+| `UX_PRINCIPLES.md` | Interface doctrine |
+| `POWER_USER_UX.md` | Workspace and expert-UX direction |
 | `DECISION_RULES.md` | How to choose between alternatives |
-| `TASKS.md` | Current build sequence and status |
-| `CLAUDE.md` | Agent instructions and repo conventions |
+| `CLAUDE.md` | Contributor / agent repo guidance |
 
----
+## Current Reality
 
-## What Is Built (v1 Milestone)
+- The runtime is general-purpose.
+- The branding is still partially legacy.
+- The annotation pipeline is still Bach-flavored by default.
 
-- [x] Vite + React + TypeScript scaffold, strict mode, no `any` at domain boundaries
-- [x] Theme constants — dark instrument palette, typography, spacing, canvas config
-- [x] Four-quadrant fixed layout
-- [x] Audio ingest (drag-drop or file picker, session-scoped)
-- [x] Transport — play, pause, stop, seek, time readout
-- [x] Frame bus — typed `AudioFrame` per animation frame, no React re-renders in panels
-- [x] Levels panel — peak + RMS bars, dB scale, peak hold
-- [x] Frequency bands panel — 10-band FFT aggregation with smoothing
-- [x] Oscilloscope panel — zero-crossing triggered waveform, amplitude grid
-- [x] Spectrogram panel — scrolling FFT waterfall, log frequency axis
-- [x] Metadata display — Suite No. 1 Prelude identity
-- [x] Score preprocessing script — MusicXML → JSON, stub data for development
-- [x] Symbolic overlay — note events on spectrogram, timeline-aligned
-
-## What Remains
-
-- [x] T02 — Tauri desktop wrapper
-- [ ] T15 — Screenshot audit
-- [ ] T16 — Presentation test with full Prelude playback
-- Future: remaining five suites, phrase overlays, performer comparison, helix rendering
+That is intentional for now: broaden the instrument first, then rename and generalize every artifact once the product direction is fully settled.

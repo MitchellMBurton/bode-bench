@@ -1,63 +1,66 @@
 # Global Memory
 
+## 2026-03-14
+
+### Accepted Direction
+
+- The project is no longer defined primarily as a Bach-specific suite console.
+- The accepted direction is a general-purpose local media analysis instrument with optional structural overlays.
+- Legacy branding remains in package names, installer names, and sample data, but that is now considered transitional.
+
+### Implemented Recently
+
+- Added and stabilized desktop/browser parity through the shared frontend and Tauri wrapper.
+- Added diagnostics logging suitable for review, copy, and saved support traces.
+- Added video preview modes:
+  - docked
+  - windowed
+  - theater
+  - in-app full screen
+- Added scrub mode variants and substantially improved transport stability around:
+  - seek bursts
+  - loop wrap
+  - rate and pitch changes
+  - file switching
+  - long windowed-video interaction
+- Preserved panel layout across style switches and made `RESET LAYOUT` reset geometry without wiping session state.
+
+### Current Product Reality
+
+- The runtime handles arbitrary local audio and video usefully even without annotation data.
+- The Bach / MusicXML pipeline remains valuable as an example annotation workflow, not the product definition.
+- The diagnostics system is now part of the intended UX, not just temporary debugging scaffolding.
+
+### Known Transitional State
+
+- Repo and installer naming still say `Bach Cello Console`.
+- Bundled overlay data is still Suite No. 1 Prelude sample data.
+- Some docs had to be updated to match the broader product direction.
+
+### Recommended Next Direction
+
+- Keep improving runtime credibility and expert workflow quality.
+- Treat further generalization as a product-definition task, not just a rename pass.
+- Defer full branding cleanup until the broader workflow shape is fully settled.
+
 ## 2026-03-11
 
 ### Accepted Baseline
 
 - Current accepted baseline is commit `b8443c3` on `master`.
-- The app is stable again after reverting the experimental native-video-audio fallback.
-- Build and lint were both passing at the accepted stop point.
+- The app was stable again after reverting the experimental native-video-audio fallback.
+- Build and lint were both passing at that stop point.
 
-### Implemented Today
+### Historical Notes
 
-- Added a new `FrequencyResponsePanel` beneath the oscilloscope and sized it at roughly 2x the oscilloscope height.
+- Added a new `FrequencyResponsePanel` beneath the oscilloscope.
 - Fixed mono analysis routing so mono files no longer show a dead right channel.
-- Reworked waveform overview logic:
-  - true clip detection instead of near-peak false positives
-  - stereo-aware RMS envelope
-  - cleaned panel copy and rendering behavior
-- Fixed reset behavior for video preview and file reloading:
-  - reset now clears preview state correctly
-  - hidden file input is cleared so a new file can be loaded without page refresh
-- Fixed the lint failure by separating metadata export concerns.
-- Added a diagnostics log panel under the left-side controls.
-- Added transport logging for:
-  - file loads
-  - play / pause / seek / rate changes
-  - decode sample rate vs context sample rate
-  - file crest / peak / RMS
-  - multichannel warning state
-- Added playback-rate propagation into transport state.
-- Adjusted scrolling waveform / spectrogram timing to behave better with time dilation, then backed away from the broken refactor and kept the stable version.
-- Reduced some live rendering cost:
-  - lower analysis cadence to `20 fps`
-  - `fftSize` reduced to `2048`
-  - capped panel DPR on always-running canvases
-  - improved spectrogram row sampling by averaging log-frequency bands instead of using a single FFT bin per row
-- Added explicit multichannel stereo fold-down in the audio engine so analysis and playback do not rely entirely on implicit browser routing.
+- Reworked waveform overview logic.
+- Fixed reset behavior for video preview and file reloading.
+- Added the diagnostics log panel and early transport logging.
+- Reduced live rendering cost and improved explicit multichannel stereo fold-down.
 
-### Important Investigation Results
+### Historical Open Issue
 
-- The Evangelion MKV crackle is not explained by sample-rate mismatch.
-- Diagnostics showed:
-  - context sample rate: `48.0 kHz`
-  - decoded buffer sample rate: `48.0 kHz`
-  - channel count: `6`
-- The file is multichannel, and Web Audio playback through the current buffer-source path is still the most likely place where the remaining audible roughness is introduced.
-
-### Rolled Back Today
-
-- A larger audio-time rewrite for scrolling-history panels was rolled back after it broke waveform/spectrogram rendering.
-- An experimental native-video-audio monitoring fallback was rolled back after it made playback worse.
-- The accepted baseline keeps the diagnostics improvements and engine/panel fixes, but not those failed playback-path experiments.
-
-### Known Open Issue
-
-- Some longer / higher-quality video files, especially `6ch` MKVs, still produce audible crackling in this player even though the same files sound correct in VLC.
-- The crackle is still unresolved in the accepted baseline.
-- Current best hypothesis: browser/Web Audio playback backend behavior on these multichannel video decodes, not score logic, not overview logic, and not sample-rate mismatch.
-
-### Recommended Next Step
-
-- Investigate a dedicated heavy-video playback path from first principles instead of layering more patches onto the current `decodeAudioData -> AudioBufferSourceNode` flow.
-- Keep any future playback-backend experiment isolated and easy to revert.
+- Some longer or higher-quality video files, especially `6ch` MKVs, still produced audible crackling in the older baseline.
+- That issue drove the later playback-hardening work summarized above.

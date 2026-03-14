@@ -1,21 +1,26 @@
 # CLAUDE.md
 
 ## What This Is
-A local-first, desktop-grade scientific listening instrument for J.S. Bach's Six Cello Suites. Real-time audio diagnostics fused with symbolic musical structure in a disciplined four-quadrant console.
+
+A local-first, desktop-grade scientific listening instrument and media analysis console. Real-time diagnostics, disciplined transport control, and optional structural overlays live together in a four-quadrant workspace.
+
+The repo still contains legacy `Bach Cello Console` naming and Bach-derived sample data, but contributors should treat those as transitional artifacts rather than the product definition.
 
 Read the full project definition in `PROJECT.md`. Read UX doctrine in `UX_PRINCIPLES.md`. Read technical structure in `ARCHITECTURE.md`. Read decision logic in `DECISION_RULES.md`. Read current work in `TASKS.md`.
 
 ## Stack
+
 - **Frontend:** React + TypeScript + Vite
 - **Desktop wrapper:** Tauri
-- **Live analysis:** Web Audio API, AnalyserNode, Canvas 2D
+- **Live analysis:** Web Audio API, HTML media elements, Canvas 2D
 - **Preprocessing:** Python, music21, FFmpeg
-- **Package manager:** pnpm (preferred) or npm
-- **Linting:** ESLint + Prettier (configure on scaffold)
+- **Package manager:** npm or pnpm
+- **Linting:** ESLint
 
 ## Repo Structure
-```
-bach-cello-console/
+
+```text
+av_project_claude_2/
   CLAUDE.md
   README.md
   PROJECT.md
@@ -23,106 +28,78 @@ bach-cello-console/
   ARCHITECTURE.md
   DECISION_RULES.md
   TASKS.md
+  MEMORY.md
   app/
     src/
-      audio/          # Web Audio transport, analyser nodes, frame extraction
-      score/          # Symbolic score types, loaders, overlay logic
-      panels/         # Oscilloscope, Spectrogram, Levels, FrequencyBands
-      layout/         # Four-quadrant shell, panel slots, resize logic
-      controls/       # Transport, ingest surface, metadata display
-      theme/          # Colours, typography, spacing constants
-      types/          # Shared TypeScript interfaces and data contracts
-      utils/          # General helpers
-      App.tsx
-      main.tsx
-    public/
-    index.html
-    package.json
-    tsconfig.json
-    vite.config.ts
+      audio/          # Transport and signal-analysis runtime
+      score/          # Structural annotation loaders and overlay support
+      panels/         # Analysis surfaces
+      layout/         # Shell and resizable pane logic
+      controls/       # Transport, metadata, diagnostics, session controls
+      diagnostics/    # Log storage and review helpers
+      video/          # Video presentation state helpers
+      theme/          # Colours, typography, spacing
+      types/          # Shared TypeScript contracts
   desktop/
     src-tauri/        # Tauri config and Rust glue
-  scripts/
-    parse_scores.py
-    export_events.py
-    probe_audio.py
+  scripts/            # Optional preprocessing and probing
   data/
-    raw/              # MusicXML / other source scores
-    processed/        # JSON event exports, metadata
-  audio/
-    sessions/         # Temporary session audio (gitignored)
+    processed/        # Sample or generated overlay outputs
 ```
 
 ## Commands
+
 ```bash
 # Frontend dev
-cd app && pnpm install && pnpm dev
+cd app && npm install && npm run dev
 
-# Desktop dev (Tauri)
+# Frontend lint
+cd app && npm run lint
+
+# Frontend build
+cd app && npm run build
+
+# Desktop dev
 cd desktop && npm install && npm run dev
 
-# Preprocessing
-cd scripts && python parse_scores.py
-
-# Lint
-cd app && pnpm lint
-
-# Type check
-cd app && pnpm tsc --noEmit
+# Desktop release bundle
+cd desktop && npm run release:share
 ```
 
 ## How to Work in This Repo
 
-### One subsystem at a time
-Each task targets a single domain (audio, score, panel, layout, controls). Do not mix concerns across domains in a single change.
+### Respect domain boundaries
 
-### Domain boundaries are hard
-- `audio/` owns playback, transport state, and all real-time analysis frame data.
-- `score/` owns parsed musical structure, metadata, and overlay data.
-- `panels/` owns rendering. Panels receive typed frame data as props or via a shared frame bus. Panels never call Web Audio directly.
-- `controls/` owns user input surfaces (transport, ingest, filters).
-- `layout/` owns the four-quadrant shell. It composes panels and controls but contains no analysis logic.
+- `audio/` owns playback, transport, and live analysis runtime
+- `score/` owns optional structural annotation / overlay data
+- `panels/` owns rendering
+- `controls/` owns user input surfaces
+- `layout/` owns workspace geometry and shell behavior
 
-### Data flows one way
-Audio domain → frame data → panels (render).
-Score domain → structured events → overlay layer → panels (enrich).
-Panels do not write back to audio or score domains.
+### Keep the runtime general-purpose
 
-### Type everything at boundaries
-All data crossing a domain boundary must have an explicit TypeScript interface in `types/`. No `any`. No shape guessing. Required vs optional fields must be explicit. Units must be declared (seconds, Hz, dB, normalised 0–1).
+Do not bake repertoire-specific assumptions into transport, panels, or shell behavior. Domain-specific overlays are allowed, but they must remain optional.
 
-### Canvas panels follow a common pattern
-Each panel (Oscilloscope, Spectrogram, Levels, FrequencyBands) should:
-1. Accept a typed frame object.
-2. Own a `<canvas>` ref.
-3. Run a `requestAnimationFrame` render loop.
-4. Draw using Canvas 2D (no DOM-based animation in the hot path).
-5. Handle its own resize via `ResizeObserver`.
+### Type boundaries explicitly
 
-### Preprocessing stays outside the UI runtime
-Python scripts in `scripts/` produce JSON files in `data/processed/`. The frontend reads these as static imports or fetches. No Python runs at UI time.
+All data crossing a subsystem boundary should have explicit TypeScript contracts. No `any`, no shape guessing, no ambiguous units.
 
-### Session audio is ephemeral
-Files in `audio/sessions/` are gitignored. Ingest loads audio into a Web Audio buffer for the session. No persistent library management in v1.
+### Preprocessing stays outside runtime
 
-## Decision Rules (Summary)
-When choosing between alternatives:
-1. Measurement credibility over visual drama.
-2. Interface harmony over isolated panel optimisation.
-3. Explicit typed contracts over implicit behaviour.
-4. Local power now, web portability later.
-5. Replaceable implementations over rigid lock-in.
+Scripts in `scripts/` generate optional artifacts. They do not belong in the live UI path.
 
-If a change increases flash but decreases trust, reject it.
-Full rules in `DECISION_RULES.md`.
+### Preserve browser / desktop parity
+
+Prefer fixes in the shared frontend. Keep the Tauri wrapper thin unless there is a clear desktop-only need.
 
 ## Current Milestone
-Deep single-movement console for **Suite No. 1 Prelude**. See `TASKS.md` for the ordered build sequence.
+
+Stabilize and generalize the single-session console for arbitrary local audio/video analysis.
 
 ## Style Notes
-- No generic media-player styling.
-- No nightclub visualiser aesthetics.
-- No decorative features without measurement purpose.
-- Evangelion-adjacent severity is an acceptable influence. Imitation is not.
-- Every default state must be screenshot-worthy and presentation-safe.
-- Beauty emerges from precision, not ornament.
+
+- No generic consumer media-player styling
+- No nightclub visualizer aesthetics
+- No decorative features without measurement purpose
+- Severe, technical, presentation-safe defaults are good
+- Beauty emerges from precision, not ornament

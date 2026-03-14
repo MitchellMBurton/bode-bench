@@ -2,65 +2,65 @@
 
 ## Goal
 
-Local-first desktop instrument that remains web-portable. Maximise local power and fast iteration now. Preserve a clean migration path to browser-only deployment later.
+Local-first desktop instrument that remains web-portable. Maximize local power and fast iteration now while preserving a clean migration path to browser-first deployment later.
 
 ## Three Domains
 
-### 1. Audio Analysis Domain
+### 1. Signal Analysis Domain
 
-Runtime: browser (Web Audio API inside Tauri webview).
-
-Owns:
-- Source decode and playback.
-- Transport state (play, pause, seek, current time).
-- AnalyserNode configuration and frame extraction.
-- Levels (peak, RMS).
-- Waveform time-domain data (oscilloscope).
-- FFT frequency-domain data.
-- Spectrogram history buffer.
-- Frequency-band aggregation.
-
-All analysis data is extracted per-frame and pushed to panels as typed frame objects.
-
-### 2. Symbolic Score Domain
-
-Runtime: static JSON loaded at session start.
+Runtime: browser environment inside the shared frontend, whether opened directly or inside the Tauri webview.
 
 Owns:
-- Suite and movement metadata.
-- Note events (pitch, onset, duration, measure, beat).
-- Phrase and section segmentation.
-- Overlay data aligned to time axis.
-- Future helix / DNA structural views.
 
-Score data is produced offline by preprocessing scripts and consumed read-only by the frontend.
+- source decode and playback
+- transport state
+- seek, scrub, loop, rate, and pitch behavior
+- analyzer configuration and frame extraction
+- waveform, spectrum, pitch, loudness, and response data
+- video preview sync policy and presentation modes
+- diagnostics emitted from live runtime behavior
+
+All analysis data is extracted from runtime state and pushed into render surfaces through typed state and lightweight stores.
+
+### 2. Structural Annotation Domain
+
+Runtime: static data loaded for a session when available.
+
+Owns:
+
+- session metadata
+- note events, regions, markers, or other aligned annotations
+- optional score-derived overlays
+- domain-specific structural interpretations
+
+This repo still uses `score/` and Bach-derived sample data for one annotation workflow, but the domain itself is broader than score.
 
 ### 3. Preprocessing Domain
 
-Runtime: Python scripts run manually or via CLI.
+Runtime: scripts run manually or via CLI.
 
 Owns:
-- MusicXML parsing (music21).
-- JSON event export.
-- Metadata generation.
-- Audio probing and format conversion (FFmpeg).
-- Cache generation when useful.
 
-Preprocessing never runs at UI time. Its outputs are committed or gitignored depending on reproducibility needs.
+- MusicXML parsing and event export
+- metadata generation
+- audio probing and format inspection
+- future artifact generation for offline analysis
+
+Preprocessing never runs in the live UI path.
 
 ## Architectural Rule
 
-Audio tells us what is happening. Score tells us what it means. Do not collapse them into one vague subsystem.
+Signal runtime tells us what is happening. Structural annotation tells us what it might mean. Do not collapse them into one vague subsystem.
 
 ## Data Flow
 
-```
-[Audio File] → Web Audio API → AnalyserNode → Frame Data → Panels
-[Score JSON] → Score Loader → Overlay Data → Panels (enrich)
-[MusicXML]   → Python Scripts → JSON → data/processed/
+```text
+[Audio/Video File] -> Runtime transport + analysis -> Typed state -> Panels
+[Annotation Data]  -> Loader / validation       -> Overlay state -> Panels
+[Source Files]     -> Scripts / preprocess      -> JSON/artifacts
 ```
 
-Panels are pure renderers. They receive typed data and draw. They do not own audio nodes or parse scores.
+Panels are renderers. They receive typed state and draw. They do not own core transport logic.
 
 ## Recommended Baseline
 
@@ -69,39 +69,42 @@ Panels are pure renderers. They receive typed data and draw. They do not own aud
 | Frontend framework | React + TypeScript | Yes |
 | Build tool | Vite | Yes |
 | Desktop wrapper | Tauri | Yes |
-| Audio analysis | Web Audio API, AnalyserNode | Partially |
-| Rendering | Canvas 2D | Yes |
-| Score parsing | Python + music21 | Yes |
+| Analysis runtime | Web Audio API + HTML media elements | Partially |
+| Rendering | Canvas 2D + disciplined DOM chrome | Yes |
+| Annotation preprocessing | Python + music21 | Yes |
 | Audio probing | FFmpeg | Yes |
-| State management | React context or zustand | Yes |
-
-All tools are recommended defaults, not permanent law. Replace any if the replacement preserves invariants and improves real outcomes.
+| State wiring | React context + focused stores | Yes |
 
 ## Key Technical Decisions
 
-### Canvas 2D for panels
-Panels render via Canvas 2D on `requestAnimationFrame`. No DOM-based animation in the hot path. Each panel owns its canvas ref and handles resize via `ResizeObserver`.
+### Canvas-first analysis panels
 
-### Frame bus pattern
-Audio domain produces a typed frame object each animation frame. Panels subscribe to this frame. Options: React context with ref-based updates, a lightweight event emitter, or zustand with transient updates. Choose the simplest that avoids unnecessary React re-renders.
+Hot-path panels render through Canvas 2D and controlled animation loops, not DOM-heavy animation.
 
-### Tauri integration is thin
-Tauri provides the desktop window, file-open dialog, and menu bar. No Rust-side audio processing in v1. All analysis runs in the webview. This keeps the web-portable path clean.
+### Thin desktop integration
 
-### Ingest is session-scoped
-Audio files are loaded into an `AudioBuffer` for the session. No persistent indexing, no database. The original file is never modified.
+Tauri provides the host window and packaging. Core analysis behavior stays in the shared frontend.
+
+### Session-scoped ingest
+
+Loaded files belong to the active session. No persistent indexing or library model in v1.
+
+### Optional annotation pipeline
+
+Annotation support is first-class, but not required for a valid session. The runtime must remain useful on arbitrary media without any structural companion data.
 
 ## File Ownership
 
-```
-audio/          → Audio Analysis Domain
-score/          → Symbolic Score Domain
-panels/         → Rendering (consumes both domains)
-controls/       → User input (transport, ingest, filters)
-layout/         → Four-quadrant shell (composes panels + controls)
-theme/          → Visual constants (colours, fonts, spacing)
-types/          → Shared interfaces and data contracts
-scripts/        → Preprocessing Domain
-data/processed/ → Preprocessing outputs
-audio/sessions/ → Ephemeral session audio (gitignored)
+```text
+audio/          -> runtime transport and signal analysis
+score/          -> structural annotation loaders and related types
+panels/         -> rendering surfaces
+controls/       -> user interaction surfaces
+layout/         -> workspace shell and pane behavior
+theme/          -> visual constants
+types/          -> shared contracts
+diagnostics/    -> log and review infrastructure
+video/          -> video presentation state helpers
+scripts/        -> preprocessing tools
+data/processed/ -> sample or generated annotation outputs
 ```
