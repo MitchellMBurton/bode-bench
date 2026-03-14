@@ -73,15 +73,15 @@ function readInitialFracs(initialSizes: number[], persistKey?: string): number[]
 
 interface HandleProps {
   isColumn: boolean;
-  onMouseDown: (e: React.MouseEvent) => void;
+  onPointerDown: (e: React.PointerEvent<HTMLDivElement>) => void;
 }
 
-function ResizeHandle({ isColumn, onMouseDown }: HandleProps): React.ReactElement {
+function ResizeHandle({ isColumn, onPointerDown }: HandleProps): React.ReactElement {
   const [hovered, setHovered] = useState(false);
 
   return (
     <div
-      onMouseDown={onMouseDown}
+      onPointerDown={onPointerDown}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
@@ -92,6 +92,7 @@ function ResizeHandle({ isColumn, onMouseDown }: HandleProps): React.ReactElemen
         cursor: isColumn ? 'row-resize' : 'col-resize',
         position: 'relative',
         zIndex: 10,
+        touchAction: 'none',
       }}
     >
       {/* Visible 1px divider centred in the hit area */}
@@ -178,6 +179,7 @@ export function SplitPane({
     startFracs: number[];
     availPx: number;
     previewFracs: number[];
+    pointerId: number;
   } | null>(null);
 
   // Compute pixel space available for panes (container minus all handle slices).
@@ -209,9 +211,11 @@ export function SplitPane({
       : `translate3d(${guidePx}px, 0, 0)`;
   }, [isColumn, n]);
 
-  const onHandleMouseDown = useCallback(
-    (e: React.MouseEvent, handleIdx: number) => {
+  const onHandlePointerDown = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>, handleIdx: number) => {
+      if (!e.isPrimary || e.button !== 0) return;
       e.preventDefault();
+      e.stopPropagation();
       const availPx = computeAvailPx();
       const startFracs = [...fracs];
       dragRef.current = {
@@ -220,6 +224,7 @@ export function SplitPane({
         startFracs,
         availPx,
         previewFracs: startFracs,
+        pointerId: e.pointerId,
       };
       pendingFracsRef.current = null;
       setPreviewPosition(handleIdx, startFracs);
@@ -232,9 +237,9 @@ export function SplitPane({
   );
 
   useEffect(() => {
-    const onMouseMove = (e: MouseEvent) => {
+    const onPointerMove = (e: PointerEvent) => {
       const drag = dragRef.current;
-      if (!drag || drag.availPx <= 0) return;
+      if (!drag || drag.availPx <= 0 || drag.pointerId !== e.pointerId) return;
 
       const coord = isColumn ? e.clientY : e.clientX;
       const deltaPx = coord - drag.startCoord;
@@ -272,9 +277,9 @@ export function SplitPane({
       });
     };
 
-    const onMouseUp = () => {
+    const endPointerDrag = (pointerId: number) => {
       const drag = dragRef.current;
-      if (!drag) return;
+      if (!drag || drag.pointerId !== pointerId) return;
 
       const finalFracs = pendingFracsRef.current ?? drag.previewFracs;
       pendingFracsRef.current = null;
@@ -290,8 +295,17 @@ export function SplitPane({
       endInteraction();
     };
 
-    window.addEventListener('mousemove', onMouseMove);
-    window.addEventListener('mouseup', onMouseUp);
+    const onPointerUp = (e: PointerEvent) => {
+      endPointerDrag(e.pointerId);
+    };
+
+    const onPointerCancel = (e: PointerEvent) => {
+      endPointerDrag(e.pointerId);
+    };
+
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', onPointerUp);
+    window.addEventListener('pointercancel', onPointerCancel);
     return () => {
       if (dragFrameRef.current !== null) {
         cancelAnimationFrame(dragFrameRef.current);
@@ -303,8 +317,9 @@ export function SplitPane({
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
       endInteraction();
-      window.removeEventListener('mousemove', onMouseMove);
-      window.removeEventListener('mouseup', onMouseUp);
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', onPointerUp);
+      window.removeEventListener('pointercancel', onPointerCancel);
     };
   }, [endInteraction, isColumn, maxSizePx, minSizePx, setPreviewPosition, setPreviewVisible]);
 
@@ -354,7 +369,7 @@ export function SplitPane({
         <ResizeHandle
           key={`handle-${i}`}
           isColumn={isColumn}
-          onMouseDown={(e) => onHandleMouseDown(e, i)}
+          onPointerDown={(e) => onHandlePointerDown(e, i)}
         />,
       );
     }
