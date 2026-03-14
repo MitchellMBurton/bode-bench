@@ -29,6 +29,7 @@ function buildExportName(): string {
 const SCRUB_SETTLE_MS = 500;
 const SCROLL_BOTTOM_SLOP_PX = 12;
 const TRANSPORT_END_TAIL_S = 0.35;
+const TRANSPORT_LOOP_HEAD_S = 0.2;
 
 export function DiagnosticsLog(): React.ReactElement {
   const audioEngine = useAudioEngine();
@@ -47,6 +48,7 @@ export function DiagnosticsLog(): React.ReactElement {
   const prevTransportRef = useRef<TransportState | null>(null);
   const scrubTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scrubEndStateRef = useRef<TransportState | null>(null);
+  const jumpOriginStateRef = useRef<TransportState | null>(null);
   const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const visibleEntries = useMemo(() => {
@@ -111,6 +113,7 @@ export function DiagnosticsLog(): React.ReactElement {
           scrubTimerRef.current = null;
         }
         scrubEndStateRef.current = null;
+        jumpOriginStateRef.current = null;
         diagnosticsLog.push(`ended -> ${formatPlaybackTime(state.currentTime)}`, 'dim', 'transport');
         prevTransportRef.current = state;
         return;
@@ -123,11 +126,32 @@ export function DiagnosticsLog(): React.ReactElement {
 
       if (jumped) {
         if (scrubTimerRef.current) clearTimeout(scrubTimerRef.current);
+        jumpOriginStateRef.current = prev;
         scrubEndStateRef.current = state;
         scrubTimerRef.current = setTimeout(() => {
           scrubTimerRef.current = null;
+          const jumpOrigin = jumpOriginStateRef.current;
           const settledState = scrubEndStateRef.current;
+          jumpOriginStateRef.current = null;
           if (!settledState) return;
+          const loopWrapped =
+            !!jumpOrigin &&
+            jumpOrigin.filename === settledState.filename &&
+            jumpOrigin.loopStart !== null &&
+            jumpOrigin.loopEnd !== null &&
+            settledState.loopStart !== null &&
+            settledState.loopEnd !== null &&
+            Math.abs(jumpOrigin.loopStart - settledState.loopStart) <= 0.05 &&
+            Math.abs(jumpOrigin.loopEnd - settledState.loopEnd) <= 0.05 &&
+            jumpOrigin.currentTime >= Math.max(jumpOrigin.loopStart, jumpOrigin.loopEnd - TRANSPORT_END_TAIL_S) &&
+            Math.abs(settledState.currentTime - settledState.loopStart) <= TRANSPORT_LOOP_HEAD_S;
+
+          if (loopWrapped) {
+            diagnosticsLog.push(`loop wrap -> ${formatPlaybackTime(settledState.currentTime)}`, 'dim', 'transport');
+            prevTransportRef.current = settledState;
+            return;
+          }
+
           diagnosticsLog.push(`seek -> ${formatPlaybackTime(settledState.currentTime)}`, 'dim', 'transport');
           if (settledState.isPlaying && !settledState.scrubActive) {
             diagnosticsLog.push(`play @ ${formatPlaybackTime(settledState.currentTime)}`, 'info', 'transport');
@@ -202,6 +226,7 @@ export function DiagnosticsLog(): React.ReactElement {
       unsubFile();
       unsubReset();
       if (scrubTimerRef.current) clearTimeout(scrubTimerRef.current);
+      jumpOriginStateRef.current = null;
     };
   }, [audioEngine, diagnosticsLog]);
 

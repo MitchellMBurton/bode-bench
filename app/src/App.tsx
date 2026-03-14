@@ -261,7 +261,7 @@ const theaterStandbyDetailStyle: React.CSSProperties = {
 const scanLineStyle: React.CSSProperties = {
   position: 'fixed',
   inset: 0,
-  pointerEvents: 'auto',
+  pointerEvents: 'none',
   zIndex: 9999,
   backgroundImage:
     'repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.10) 2px, rgba(0,0,0,0.10) 3px)',
