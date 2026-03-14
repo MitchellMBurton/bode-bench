@@ -4,6 +4,8 @@ The desktop application is packaged with Tauri and distributed locally as a Wind
 
 The runtime is now general-purpose, but the installer and executable still use legacy `Bach Cello Console` naming for continuity.
 
+Release builds now write rotating runtime logs for desktop support and regression triage.
+
 ## Requirements
 
 - Node.js 18+
@@ -36,6 +38,7 @@ npm run release:share
 - copies the static browser bundle into `desktop/share/webapp.html`
 - regenerates `desktop/share/latest.json`
 - regenerates the SHA256 sidecar file
+- removes stale installer names so the share folder reflects one authoritative desktop build
 
 ## Output
 
@@ -69,3 +72,11 @@ If a machine already has stale local builds from older installer behavior:
 - close all Bach Cello Console windows
 - run `%LOCALAPPDATA%\Bach Cello Console\uninstall.exe` manually if needed
 - rerun the latest installer
+
+## Runtime Logs
+
+Installed desktop builds write rotating logs to:
+
+- `%LOCALAPPDATA%\com.mitchellmburton.bachcelloconsole\logs\runtime.log`
+
+These logs are intended for desktop troubleshooting and release validation.
