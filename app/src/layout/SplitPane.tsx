@@ -104,25 +104,17 @@ function fitMinSizesToAvailable(requestedMinSizes: number[], availPx: number): n
 
 interface HandleProps {
   isColumn: boolean;
+  isActive: boolean;
   onPointerDown: (e: React.PointerEvent<HTMLDivElement>) => void;
 }
 
-function ResizeHandle({ isColumn, onPointerDown }: HandleProps): React.ReactElement {
+function ResizeHandle({ isColumn, isActive, onPointerDown }: HandleProps): React.ReactElement {
   const [hovered, setHovered] = useState(false);
-  const [pressed, setPressed] = useState(false);
-  const active = hovered || pressed;
+  const active = hovered || isActive;
 
   return (
     <div
-      onPointerDown={(event) => {
-        if (event.isPrimary && event.button === 0) {
-          setPressed(true);
-        }
-        onPointerDown(event);
-      }}
-      onPointerUp={() => setPressed(false)}
-      onPointerCancel={() => setPressed(false)}
-      onLostPointerCapture={() => setPressed(false)}
+      onPointerDown={onPointerDown}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       title="Drag to resize panels"
@@ -140,8 +132,8 @@ function ResizeHandle({ isColumn, onPointerDown }: HandleProps): React.ReactElem
             ? 'linear-gradient(180deg, rgba(124, 138, 210, 0), rgba(124, 138, 210, 0.16), rgba(124, 138, 210, 0))'
             : 'linear-gradient(90deg, rgba(124, 138, 210, 0), rgba(124, 138, 210, 0.16), rgba(124, 138, 210, 0))'
           : isColumn
-            ? 'linear-gradient(180deg, rgba(80, 92, 148, 0), rgba(80, 92, 148, 0.08), rgba(80, 92, 148, 0))'
-            : 'linear-gradient(90deg, rgba(80, 92, 148, 0), rgba(80, 92, 148, 0.08), rgba(80, 92, 148, 0))',
+            ? 'linear-gradient(180deg, rgba(80, 92, 148, 0), rgba(80, 92, 148, 0.04), rgba(80, 92, 148, 0))'
+            : 'linear-gradient(90deg, rgba(80, 92, 148, 0), rgba(80, 92, 148, 0.04), rgba(80, 92, 148, 0))',
       }}
     >
       <div
@@ -158,7 +150,7 @@ function ResizeHandle({ isColumn, onPointerDown }: HandleProps): React.ReactElem
         style={{
           position: 'absolute',
           pointerEvents: 'none',
-          background: active ? COLORS.borderActive : COLORS.border,
+          background: active ? COLORS.borderActive : 'rgba(98, 108, 156, 0.26)',
           ...(isColumn
             ? { top: '50%', left: 0, right: 0, height: 1, transform: 'translateY(-50%)' }
             : { left: '50%', top: 0, bottom: 0, width: 1, transform: 'translateX(-50%)' }),
@@ -169,8 +161,10 @@ function ResizeHandle({ isColumn, onPointerDown }: HandleProps): React.ReactElem
           position: 'absolute',
           pointerEvents: 'none',
           borderRadius: 999,
-          background: active ? COLORS.borderHighlight : COLORS.border,
+          background: active ? COLORS.borderHighlight : 'rgba(128, 134, 172, 0.28)',
           boxShadow: active ? `0 0 10px ${COLORS.borderHighlight}` : 'none',
+          opacity: active ? 1 : 0.28,
+          transition: 'opacity 120ms ease, background 120ms ease, box-shadow 120ms ease',
           ...(isColumn
             ? {
                 top: '50%',
@@ -238,6 +232,7 @@ export function SplitPane({
   const pendingFracsRef = useRef<number[] | null>(null);
   const dragFrameRef = useRef<number | null>(null);
   const [containerMainPx, setContainerMainPx] = useState<number>(0);
+  const [activeHandleIdx, setActiveHandleIdx] = useState<number | null>(null);
   const interactionId = useId();
   const { beginResize, endInteraction } = useLayoutInteraction();
   const isColumn = direction === 'column';
@@ -334,6 +329,7 @@ export function SplitPane({
         pointerId: e.pointerId,
         effectiveMinSizePx,
       };
+      setActiveHandleIdx(handleIdx);
       pendingFracsRef.current = null;
       setPreviewPosition(handleIdx, startFracs);
       setPreviewVisible(true);
@@ -395,6 +391,7 @@ export function SplitPane({
         cancelAnimationFrame(dragFrameRef.current);
         dragFrameRef.current = null;
       }
+      setActiveHandleIdx(null);
       setPreviewVisible(false);
       dispatch({ type: 'apply', fracs: finalFracs });
       dragRef.current = null;
@@ -477,6 +474,7 @@ export function SplitPane({
         <ResizeHandle
           key={`handle-${i}`}
           isColumn={isColumn}
+          isActive={activeHandleIdx === i}
           onPointerDown={(e) => onHandlePointerDown(e, i)}
         />,
       );
