@@ -1,5 +1,33 @@
 # Global Memory
 
+## 2026-03-15
+
+### Working Branch Model
+
+- `main` is the known-good, share-safe baseline.
+- `dev` is the active integration branch for transport, video, diagnostics, and UX refinement.
+- A backup rollback branch and targeted feature branches were used repeatedly during stabilization work.
+
+### Accepted Dev Baseline
+
+- Current accepted daily-development baseline is commit `84c4824` on `dev`.
+- Large media now uses a streamed fallback path instead of forcing full in-memory decode.
+- Streamed large-media overview now fills in live during playback rather than remaining blank.
+- Streamed high-quality video pitch was restored through live stretch processing.
+- Streamed scrubbing now stays continuous instead of pausing on each movement.
+
+### Product Reality Tonight
+
+- The desktop app can now handle very large or film-length media more credibly than earlier baselines.
+- Video playback quality is currently stronger than overview completeness for extreme files, which is acceptable for the current architecture direction.
+- Perf Lab is part of the intended operating experience and should remain available as an expert-facing telemetry surface.
+
+### Known Watch Points
+
+- Streamed live pitch should keep being judged by ear on difficult material; artifact quality matters as much as feature presence.
+- Heavy ingest and deferred analysis still deserve longer-term worker/off-main-thread treatment.
+- The next reliability step is a small regression suite around transport, large-media fallback, and layout behavior.
+
 ## 2026-03-14
 
 ### Accepted Direction
