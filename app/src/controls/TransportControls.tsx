@@ -18,10 +18,12 @@ const VIDEO_RATE_TRIM_MAX = 0.05;
 const VIDEO_RATE_RAMP_STEP = 0.02;
 const VIDEO_RATE_UPDATE_MIN_MS = 70;
 const VIDEO_HARD_SYNC_COOLDOWN_MS = 900;
+const VIDEO_HARD_SYNC_MIN_STEP_S = 0.04;
 const HIGH_RES_SOFT_SYNC_DRIFT_S = 0.09;
 const HIGH_RES_HARD_SYNC_DRIFT_S = 0.5;
 const HIGH_RES_RATE_TRIM_GAIN = 0.12;
 const HIGH_RES_RATE_TRIM_MAX = 0.025;
+const HIGH_RES_HARD_SYNC_MIN_STEP_S = 0.065;
 const VIDEO_SYNC_GRACE_MS = 550;
 const VIDEO_TRANSPORT_CATCHUP_MS = 1600;
 const VIDEO_TRANSPORT_FORCE_HARD_SYNC_S = 0.9;
@@ -492,13 +494,18 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
     if (!video || !Number.isFinite(targetTime)) return;
 
     const nextTime = Math.max(0, targetTime);
-    if (Math.abs(video.currentTime - nextTime) <= 0.01) return;
+    const highLoadVideoMode = videoBaseModeRef.current === 'window' || videoOverlayModeRef.current !== null;
+    const syncProfile = getCurrentVideoSyncProfile(highLoadVideoMode);
+    const minHardSyncStep = Math.max(
+      highLoadVideoMode ? HIGH_RES_HARD_SYNC_MIN_STEP_S : VIDEO_HARD_SYNC_MIN_STEP_S,
+      syncProfile.softSyncDrift * 0.55,
+    );
+    if (Math.abs(video.currentTime - nextTime) <= minHardSyncStep) return;
 
     videoSeekPendingRef.current = true;
     videoPendingPlayRef.current = transportRef.current.isPlaying;
     setVideoSyncIndicator('sync');
     performanceDiagnostics.setVideoState('sync');
-    const syncProfile = getCurrentVideoSyncProfile(videoBaseModeRef.current === 'window' || videoOverlayModeRef.current !== null);
     markVideoSyncGrace(syncProfile.settleMs);
     video.currentTime = nextTime;
     lastVideoHardSyncAtRef.current = performance.now();
@@ -802,14 +809,24 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
   const onVideoCanPlay = useCallback(() => {
     const video = videoRef.current;
     if (!video) return;
+    const now = performance.now();
+    const highLoadVideoMode = videoBaseModeRef.current === 'window' || videoOverlayModeRef.current !== null;
     videoSeekPendingRef.current = false;
     if (videoTransportRecoveryTimerRef.current !== null) {
       window.clearTimeout(videoTransportRecoveryTimerRef.current);
       videoTransportRecoveryTimerRef.current = null;
     }
-    const syncProfile = getCurrentVideoSyncProfile(videoBaseModeRef.current === 'window' || videoOverlayModeRef.current !== null);
+    const syncProfile = getCurrentVideoSyncProfile(highLoadVideoMode);
     markVideoSyncGrace(Math.max(250, Math.round(syncProfile.settleMs * 0.5)));
-    hardSyncVideo(audioEngine.currentTime);
+    const drift = audioEngine.currentTime - video.currentTime;
+    const minCanPlayResyncDrift = Math.max(
+      highLoadVideoMode ? HIGH_RES_HARD_SYNC_MIN_STEP_S : VIDEO_HARD_SYNC_MIN_STEP_S,
+      syncProfile.softSyncDrift * 0.9,
+    );
+    const recentlyHardSynced = now - lastVideoHardSyncAtRef.current < 180;
+    if (!recentlyHardSynced && Math.abs(drift) >= minCanPlayResyncDrift) {
+      hardSyncVideo(audioEngine.currentTime);
+    }
     setVideoPlaybackRate(transportRef.current.playbackRate, true);
     if (transportRef.current.isPlaying || videoPendingPlayRef.current) {
       playVideo();
