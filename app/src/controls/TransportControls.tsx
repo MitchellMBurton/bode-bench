@@ -25,10 +25,23 @@ const VIDEO_END_TAIL_S = 0.25;
 const VIDEO_LARGE_DRIFT_LOG_MS = 10000;
 const APP_FULLSCREEN_MARGIN_PX = 14;
 const APP_FULLSCREEN_TOP_PX = 38;
+const WINDOWED_MARGIN_PX = 12;
+const WINDOWED_TOP_PX = 72;
+const WINDOWED_MIN_WIDTH_PX = 320;
+const WINDOWED_MIN_HEIGHT_PX = 180;
 
 let _sessionVideoUrl: string | null = null;
 
-type VideoViewMode = 'inline' | 'theater' | 'full';
+type VideoBaseMode = 'inline' | 'window';
+type VideoOverlayMode = 'theater' | 'full' | null;
+type VideoViewMode = VideoBaseMode | Exclude<VideoOverlayMode, null>;
+
+interface VideoWindowRect {
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+}
 
 function formatTime(s: number): string {
   const m = Math.floor(s / 60);
@@ -79,6 +92,49 @@ function isHighResVideo(size: VideoSourceSize | null): boolean {
   return size.width >= 1600 || size.height >= 900;
 }
 
+function getViewportBounds(): { width: number; height: number } {
+  if (typeof window === 'undefined') {
+    return { width: 1280, height: 720 };
+  }
+  return { width: window.innerWidth, height: window.innerHeight };
+}
+
+function getVideoAspect(size: VideoSourceSize | null): number {
+  if (!size || size.width <= 0 || size.height <= 0) return 16 / 9;
+  return size.width / size.height;
+}
+
+function clampWindowRect(rect: VideoWindowRect): VideoWindowRect {
+  const viewport = getViewportBounds();
+  const maxWidth = Math.max(WINDOWED_MIN_WIDTH_PX, viewport.width - WINDOWED_MARGIN_PX * 2);
+  const maxHeight = Math.max(WINDOWED_MIN_HEIGHT_PX, viewport.height - WINDOWED_TOP_PX - WINDOWED_MARGIN_PX);
+  const width = clamp(rect.width, WINDOWED_MIN_WIDTH_PX, maxWidth);
+  const height = clamp(rect.height, WINDOWED_MIN_HEIGHT_PX, maxHeight);
+  const x = clamp(rect.x, WINDOWED_MARGIN_PX, viewport.width - width - WINDOWED_MARGIN_PX);
+  const y = clamp(rect.y, WINDOWED_TOP_PX, viewport.height - height - WINDOWED_MARGIN_PX);
+  return { x, y, width, height };
+}
+
+function createDefaultWindowRect(size: VideoSourceSize | null): VideoWindowRect {
+  const viewport = getViewportBounds();
+  const aspect = getVideoAspect(size);
+  let width = Math.min(720, Math.round(viewport.width * 0.42));
+  width = clamp(width, WINDOWED_MIN_WIDTH_PX, Math.max(WINDOWED_MIN_WIDTH_PX, viewport.width - WINDOWED_MARGIN_PX * 2));
+  let height = Math.round(width / aspect);
+  const maxHeight = Math.max(WINDOWED_MIN_HEIGHT_PX, viewport.height - WINDOWED_TOP_PX - WINDOWED_MARGIN_PX * 2);
+  if (height > maxHeight) {
+    height = maxHeight;
+    width = Math.max(WINDOWED_MIN_WIDTH_PX, Math.round(height * aspect));
+  }
+
+  return clampWindowRect({
+    x: Math.max(WINDOWED_MARGIN_PX, viewport.width - width - 20),
+    y: WINDOWED_TOP_PX,
+    width,
+    height,
+  });
+}
+
 function getTheaterVideoWrapStyle(size: VideoSourceSize | null): React.CSSProperties {
   const highRes = isHighResVideo(size);
   const widthCap = highRes ? 'min(76vw, 960px)' : 'min(84vw, 1180px)';
@@ -114,6 +170,20 @@ function getAppFullscreenVideoWrapStyle(): React.CSSProperties {
   };
 }
 
+function getWindowedVideoWrapStyle(rect: VideoWindowRect): React.CSSProperties {
+  return {
+    ...videoWrapStyle,
+    position: 'fixed',
+    top: rect.y,
+    left: rect.x,
+    width: rect.width,
+    height: rect.height,
+    zIndex: 9000,
+    border: `1px solid ${COLORS.borderActive}`,
+    boxShadow: '0 18px 56px rgba(0, 0, 0, 0.48)',
+  };
+}
+
 export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
   const audioEngine = useAudioEngine();
   const diagnosticsLog = useDiagnosticsLog();
@@ -137,7 +207,9 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
   const [videoHeight, setVideoHeight] = useState(VIDEO_HEIGHT_DEFAULT);
   const [videoResolution, setVideoResolution] = useState<string | null>(null);
   const [videoSourceSize, setVideoSourceSize] = useState<VideoSourceSize | null>(null);
-  const [videoViewMode, setVideoViewMode] = useState<VideoViewMode>('inline');
+  const [videoBaseMode, setVideoBaseMode] = useState<VideoBaseMode>('inline');
+  const [videoOverlayMode, setVideoOverlayMode] = useState<VideoOverlayMode>(null);
+  const [videoWindowRect, setVideoWindowRect] = useState<VideoWindowRect>(() => createDefaultWindowRect(null));
 
   const seekInputRef = useRef<HTMLInputElement>(null);
   const seekFillRef = useRef<HTMLDivElement>(null);
@@ -155,8 +227,15 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
   const videoSyncGraceUntilRef = useRef(0);
   const videoSeekPendingRef = useRef(false);
   const videoPendingPlayRef = useRef(false);
-  const videoViewModeRef = useRef<VideoViewMode>('inline');
-  videoViewModeRef.current = videoViewMode;
+  const videoBaseModeRef = useRef<VideoBaseMode>('inline');
+  videoBaseModeRef.current = videoBaseMode;
+  const videoOverlayModeRef = useRef<VideoOverlayMode>(null);
+  videoOverlayModeRef.current = videoOverlayMode;
+  const videoWindowRectRef = useRef<VideoWindowRect>(videoWindowRect);
+  videoWindowRectRef.current = videoWindowRect;
+  const videoWindowDragRef = useRef<{ startX: number; startY: number; startRect: VideoWindowRect } | null>(null);
+
+  const videoViewMode: VideoViewMode = videoOverlayMode ?? videoBaseMode;
 
   useEffect(() => {
     if (_sessionVideoUrl && !videoUrlRef.current) {
@@ -164,44 +243,78 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
     }
   }, []);
 
-  const setVideoPresentationMode = useCallback((nextMode: VideoViewMode, shouldLog = true) => {
-    const prevMode = videoViewModeRef.current;
-    if (prevMode === nextMode) return;
+  const setVideoOverlayPresentation = useCallback((nextOverlay: VideoOverlayMode, shouldLog = true) => {
+    const prevOverlay = videoOverlayModeRef.current;
+    if (prevOverlay === nextOverlay) return;
 
-    videoViewModeRef.current = nextMode;
-    setVideoViewMode(nextMode);
-
-    const wasOverlay = prevMode !== 'inline';
-    const isOverlay = nextMode !== 'inline';
+    const wasOverlay = prevOverlay !== null;
+    const isOverlay = nextOverlay !== null;
+    if (isOverlay && !wasOverlay && videoBaseModeRef.current === 'inline') {
+      videoBaseModeRef.current = 'window';
+      setVideoBaseMode('window');
+      setVideoWindowRect((prevRect) => clampWindowRect(prevRect));
+    }
+    videoOverlayModeRef.current = nextOverlay;
+    setVideoOverlayMode(nextOverlay);
     theaterModeStore.setActive(isOverlay);
 
     if (!shouldLog) return;
 
-    if (prevMode === 'theater') diagnosticsLog.push('theater mode off', 'info', 'video');
-    if (prevMode === 'full') diagnosticsLog.push('in-app full screen off', 'info', 'video');
+    if (prevOverlay === 'theater') diagnosticsLog.push('theater mode off', 'info', 'video');
+    if (prevOverlay === 'full') diagnosticsLog.push('in-app full screen off', 'info', 'video');
     if (!wasOverlay && isOverlay) diagnosticsLog.push('analysis surfaces suspended for video priority', 'info', 'video');
     if (wasOverlay && !isOverlay) diagnosticsLog.push('analysis surfaces restored', 'info', 'video');
-    if (nextMode === 'theater') diagnosticsLog.push('theater mode on', 'info', 'video');
-    if (nextMode === 'full') diagnosticsLog.push('in-app full screen on', 'info', 'video');
-    if (nextMode === 'theater' && isHighResVideo(videoSourceSize)) {
+    if (nextOverlay === 'theater') diagnosticsLog.push('theater mode on', 'info', 'video');
+    if (nextOverlay === 'full') diagnosticsLog.push('in-app full screen on', 'info', 'video');
+    if (nextOverlay === 'theater' && isHighResVideo(videoSourceSize)) {
       diagnosticsLog.push('high-res theater playback active - preview render capped for smoother decode', 'warn', 'video');
     }
-    if (nextMode === 'full' && isHighResVideo(videoSourceSize)) {
+    if (nextOverlay === 'full' && isHighResVideo(videoSourceSize)) {
       diagnosticsLog.push('high-res in-app full screen active - video priority mode engaged', 'warn', 'video');
     }
   }, [diagnosticsLog, theaterModeStore, videoSourceSize]);
 
+  const setVideoBasePresentation = useCallback((nextBaseMode: VideoBaseMode, shouldLog = true) => {
+    const prevBaseMode = videoBaseModeRef.current;
+    const prevOverlayMode = videoOverlayModeRef.current;
+
+    if (prevOverlayMode !== null) {
+      setVideoOverlayPresentation(null, shouldLog);
+    }
+
+    if (prevBaseMode === nextBaseMode) return;
+
+    videoBaseModeRef.current = nextBaseMode;
+    setVideoBaseMode(nextBaseMode);
+
+    if (nextBaseMode === 'window') {
+      setVideoWindowRect((prevRect) => clampWindowRect(prevRect));
+    }
+
+    if (!shouldLog) return;
+    if (prevBaseMode === 'window') diagnosticsLog.push('windowed mode off', 'info', 'video');
+    if (nextBaseMode === 'window') diagnosticsLog.push('windowed mode on', 'info', 'video');
+  }, [diagnosticsLog, setVideoOverlayPresentation]);
+
+  const resetVideoPresentationState = useCallback(() => {
+    videoOverlayModeRef.current = null;
+    videoBaseModeRef.current = 'inline';
+    theaterModeStore.setActive(false);
+    setVideoOverlayMode(null);
+    setVideoBaseMode('inline');
+  }, [theaterModeStore]);
+
   useEffect(() => {
-    if (videoViewMode === 'inline') return;
+    if (videoOverlayMode === null) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.code !== 'Escape') return;
       event.preventDefault();
       event.stopPropagation();
-      setVideoPresentationMode('inline');
+      setVideoOverlayPresentation(null);
     };
     window.addEventListener('keydown', onKeyDown, true);
     return () => window.removeEventListener('keydown', onKeyDown, true);
-  }, [setVideoPresentationMode, videoViewMode]);
+  }, [setVideoOverlayPresentation, videoOverlayMode]);
 
   const setVideoUrlSession = useCallback((url: string | null) => {
     _sessionVideoUrl = url;
@@ -278,15 +391,19 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
   }, [logVideoEvent, markVideoSyncGrace]);
 
   const onToggleTheater = useCallback(() => {
-    setVideoPresentationMode(videoViewModeRef.current === 'theater' ? 'inline' : 'theater');
-  }, [setVideoPresentationMode]);
+    setVideoOverlayPresentation(videoOverlayModeRef.current === 'theater' ? null : 'theater');
+  }, [setVideoOverlayPresentation]);
 
   const onToggleFullscreen = useCallback(() => {
-    setVideoPresentationMode(videoViewModeRef.current === 'full' ? 'inline' : 'full');
-  }, [setVideoPresentationMode]);
+    setVideoOverlayPresentation(videoOverlayModeRef.current === 'full' ? null : 'full');
+  }, [setVideoOverlayPresentation]);
+
+  const onToggleWindowed = useCallback(() => {
+    setVideoBasePresentation(videoBaseModeRef.current === 'window' ? 'inline' : 'window');
+  }, [setVideoBasePresentation]);
 
   const clearVideoPreview = useCallback(() => {
-    setVideoPresentationMode('inline', false);
+    resetVideoPresentationState();
     if (videoRef.current) {
       videoRef.current.pause();
       videoRef.current.currentTime = 0;
@@ -296,7 +413,7 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
       videoUrlRef.current = null;
     }
     setVideoUrlSession(null);
-  }, [setVideoPresentationMode, setVideoUrlSession]);
+  }, [resetVideoPresentationState, setVideoUrlSession]);
 
   const clearFileInput = useCallback(() => {
     if (fileInputRef.current) fileInputRef.current.value = '';
@@ -312,6 +429,14 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
       return;
     }
     setVideoSourceSize({ width, height });
+    setVideoWindowRect((prevRect) => {
+      const prevAspect = prevRect.width / Math.max(prevRect.height, 1);
+      const nextAspect = getVideoAspect({ width, height });
+      if (Math.abs(prevAspect - nextAspect) < 0.02) {
+        return clampWindowRect(prevRect);
+      }
+      return createDefaultWindowRect({ width, height });
+    });
     const label = width >= 7680 ? '8K' : width >= 3840 ? '4K' : width >= 2560 ? '2.5K' : width >= 1920 ? '1080p' : width >= 1280 ? '720p' : `${height}p`;
     setVideoResolution(label);
     diagnosticsLog.push(`preview ${width}x${height} / ${label}`, 'info', 'video');
@@ -347,6 +472,59 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
   }, [setVideoHeightSession, videoHeight]);
+
+  const onWindowDragMouseDown = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    const startRect = videoWindowRectRef.current;
+    videoWindowDragRef.current = {
+      startX: event.clientX,
+      startY: event.clientY,
+      startRect,
+    };
+    document.body.style.cursor = 'move';
+    document.body.style.userSelect = 'none';
+
+    const onMove = (ev: MouseEvent) => {
+      const drag = videoWindowDragRef.current;
+      const wrap = videoWrapRef.current;
+      if (!drag || !wrap) return;
+      const nextRect = clampWindowRect({
+        ...drag.startRect,
+        x: drag.startRect.x + (ev.clientX - drag.startX),
+        y: drag.startRect.y + (ev.clientY - drag.startY),
+      });
+      wrap.style.left = `${nextRect.x}px`;
+      wrap.style.top = `${nextRect.y}px`;
+    };
+
+    const onUp = (ev: MouseEvent) => {
+      const drag = videoWindowDragRef.current;
+      videoWindowDragRef.current = null;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      if (!drag) return;
+      const nextRect = clampWindowRect({
+        ...drag.startRect,
+        x: drag.startRect.x + (ev.clientX - drag.startX),
+        y: drag.startRect.y + (ev.clientY - drag.startY),
+      });
+      setVideoWindowRect(nextRect);
+    };
+
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      videoWindowDragRef.current = null;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+  }, []);
 
   const onVideoCanPlay = useCallback(() => {
     const video = videoRef.current;
@@ -494,7 +672,7 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
       const drift = currentTime - video.currentTime;
       const absDrift = Math.abs(drift);
       const now = performance.now();
-      const highResExpanded = videoViewModeRef.current !== 'inline' && isHighResVideo(videoSourceSize);
+      const highResExpanded = videoOverlayModeRef.current !== null && isHighResVideo(videoSourceSize);
       const softSyncDrift = highResExpanded ? HIGH_RES_SOFT_SYNC_DRIFT_S : VIDEO_SOFT_SYNC_DRIFT_S;
       const hardSyncDrift = highResExpanded ? HIGH_RES_HARD_SYNC_DRIFT_S : VIDEO_HARD_SYNC_DRIFT_S;
       const rateTrimGain = highResExpanded ? HIGH_RES_RATE_TRIM_GAIN : VIDEO_RATE_TRIM_GAIN;
@@ -674,9 +852,10 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
 
   const seekFraction = transport.duration > 0 ? displayCurrentTime / transport.duration : 0;
   const hasLoop = transport.loopStart !== null && transport.loopEnd !== null;
-  const videoOverlayActive = videoViewMode !== 'inline';
-  const showTheaterHint = videoViewMode === 'theater';
-  const showFullscreenHint = videoViewMode === 'full';
+  const videoOverlayActive = videoOverlayMode !== null;
+  const showTheaterHint = videoOverlayMode === 'theater';
+  const showFullscreenHint = videoOverlayMode === 'full';
+  const showWindowHint = videoViewMode === 'window';
 
   return (
     <div style={wrapStyle}>
@@ -715,7 +894,7 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
       {videoUrl && (
         <div
           style={videoOverlayActive ? theaterBackdropStyle : hiddenTheaterBackdropStyle}
-          onClick={videoOverlayActive ? () => setVideoPresentationMode('inline') : undefined}
+          onClick={videoOverlayActive ? () => setVideoOverlayPresentation(null) : undefined}
         />
       )}
 
@@ -727,7 +906,9 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
               ? getTheaterVideoWrapStyle(videoSourceSize)
               : videoViewMode === 'full'
                 ? getAppFullscreenVideoWrapStyle()
-                : { ...videoWrapStyle, height: videoHeight }
+                : videoViewMode === 'window'
+                  ? getWindowedVideoWrapStyle(videoWindowRect)
+                  : { ...videoWrapStyle, height: videoHeight }
           }
         >
           <video
@@ -753,20 +934,32 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
               <span style={videoBadgeStyle}>{videoResolution}</span>
             )}
             <button
-              style={{ ...videoFsButtonStyle, ...(videoViewMode === 'theater' ? videoFsButtonActiveStyle : {}) }}
+              style={{ ...videoFsButtonStyle, ...(videoViewMode === 'window' ? videoFsButtonActiveStyle : {}) }}
+              onClick={onToggleWindowed}
+              title={videoViewMode === 'window' ? 'Dock video back into the session controls' : 'Open a movable window inside the app'}
+            >
+              WND
+            </button>
+            <button
+              style={{ ...videoFsButtonStyle, ...(videoOverlayMode === 'theater' ? videoFsButtonActiveStyle : {}) }}
               onClick={onToggleTheater}
-              title={videoViewMode === 'theater' ? 'Return to inline preview' : 'Open theater mode'}
+              title={videoOverlayMode === 'theater' ? 'Return to the previous video layout' : 'Open theater mode'}
             >
               THR
             </button>
             <button
-              style={{ ...videoFsButtonStyle, ...(videoViewMode === 'full' ? videoFsButtonActiveStyle : {}) }}
+              style={{ ...videoFsButtonStyle, ...(videoOverlayMode === 'full' ? videoFsButtonActiveStyle : {}) }}
               onClick={onToggleFullscreen}
-              title={videoViewMode === 'full' ? 'Return to inline preview' : 'Open full screen within the app window'}
+              title={videoOverlayMode === 'full' ? 'Return to the previous video layout' : 'Open full screen within the app window'}
             >
               FULL
             </button>
           </div>
+          {showWindowHint && (
+            <div style={videoWindowDragHandleStyle} onMouseDown={onWindowDragMouseDown}>
+              <span style={videoWindowDragLabelStyle}>WINDOWED VIDEO</span>
+            </div>
+          )}
           {showTheaterHint && (
             <div style={theaterHintStyle}>
               ESC OR CLICK OUTSIDE TO CLOSE
@@ -779,7 +972,12 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
               {isHighResVideo(videoSourceSize) ? '  /  VIDEO PRIORITY MODE ACTIVE' : ''}
             </div>
           )}
-          {!videoOverlayActive && (
+          {showWindowHint && (
+            <div style={windowHintStyle}>
+              DRAG TOP EDGE TO MOVE  /  CLICK WND TO DOCK BACK
+            </div>
+          )}
+          {videoViewMode === 'inline' && (
             <div
               style={videoResizeHandleStyle}
               onMouseDown={onVideoResizeMouseDown}
@@ -944,6 +1142,7 @@ const videoOverlayStyle: React.CSSProperties = {
   alignItems: 'center',
   gap: 4,
   pointerEvents: 'none',
+  zIndex: 3,
 };
 
 const videoBadgeStyle: React.CSSProperties = {
@@ -980,6 +1179,29 @@ const videoFsButtonActiveStyle: React.CSSProperties = {
   background: 'rgba(18, 24, 44, 0.88)',
 };
 
+const videoWindowDragHandleStyle: React.CSSProperties = {
+  position: 'absolute',
+  top: 0,
+  left: 0,
+  right: 96,
+  height: 22,
+  display: 'flex',
+  alignItems: 'center',
+  paddingLeft: 8,
+  background: 'linear-gradient(180deg, rgba(0,0,0,0.38), rgba(0,0,0,0.06))',
+  cursor: 'move',
+  pointerEvents: 'auto',
+  zIndex: 2,
+};
+
+const videoWindowDragLabelStyle: React.CSSProperties = {
+  fontFamily: FONTS.mono,
+  fontSize: FONTS.sizeXs,
+  color: COLORS.textDim,
+  letterSpacing: '0.08em',
+  lineHeight: 1,
+};
+
 const theaterHintStyle: React.CSSProperties = {
   position: 'absolute',
   left: 10,
@@ -993,6 +1215,12 @@ const theaterHintStyle: React.CSSProperties = {
   borderRadius: 2,
   padding: '4px 6px',
   pointerEvents: 'none',
+};
+
+const windowHintStyle: React.CSSProperties = {
+  ...theaterHintStyle,
+  bottom: 10,
+  left: 10,
 };
 
 const videoResizeHandleStyle: React.CSSProperties = {
