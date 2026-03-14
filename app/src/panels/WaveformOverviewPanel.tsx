@@ -11,6 +11,9 @@ interface EnvelopeData {
 
 const CLIP_THRESHOLD = 0.9999;
 const PANEL_DPR_MAX = 1.25;
+const DEFAULT_ENVELOPE_COLS = 1024;
+const ENVELOPE_COL_BUCKET = 64;
+const ENVELOPE_SLICE_BUDGET_MS = 5;
 const SCRUB_STYLE_OPTIONS: ReadonlyArray<{
   readonly value: ScrubStyle;
   readonly label: string;
@@ -21,7 +24,16 @@ const SCRUB_STYLE_OPTIONS: ReadonlyArray<{
   { value: 'wheel', label: 'WHEEL', detail: 'jog emphasis' },
 ];
 
-function computeEnvelopeAndClipMap(buffer: AudioBuffer, cols: number): EnvelopeData {
+function bucketEnvelopeCols(cols: number): number {
+  const rounded = Math.max(DEFAULT_ENVELOPE_COLS, Math.round(cols / ENVELOPE_COL_BUCKET) * ENVELOPE_COL_BUCKET);
+  return Math.max(64, rounded);
+}
+
+function computeEnvelopeAndClipMapAsync(
+  buffer: AudioBuffer,
+  cols: number,
+  onComplete: (data: EnvelopeData) => void,
+): () => void {
   const left = buffer.getChannelData(0);
   const right = buffer.numberOfChannels > 1 ? buffer.getChannelData(1) : null;
   const samplesPerCol = left.length / cols;
@@ -29,45 +41,74 @@ function computeEnvelopeAndClipMap(buffer: AudioBuffer, cols: number): EnvelopeD
   const rmsEnv = new Float32Array(cols);
   const clipMap = new Uint8Array(cols);
   let envPeak = 0;
+  let col = 0;
+  let cancelled = false;
+  let timer: ReturnType<typeof setTimeout> | null = null;
 
-  for (let c = 0; c < cols; c++) {
-    const start = Math.floor(c * samplesPerCol);
-    const end = Math.min(Math.floor((c + 1) * samplesPerCol), left.length);
-    let colPeak = 0;
-    let rmsSum = 0;
-    let sampleCount = 0;
+  const finish = (): void => {
+    if (cancelled) return;
+    if (envPeak > 0) {
+      for (let index = 0; index < cols; index++) {
+        peakEnv[index] /= envPeak;
+        rmsEnv[index] /= envPeak;
+      }
+    }
+    onComplete({ peakEnv, rmsEnv, clipMap });
+  };
 
-    for (let i = start; i < end; i++) {
-      const leftValue = left[i];
-      const leftAbs = Math.abs(leftValue);
-      if (leftAbs > colPeak) colPeak = leftAbs;
-      rmsSum += leftValue * leftValue;
-      sampleCount++;
-      if (leftAbs >= CLIP_THRESHOLD) clipMap[c] = 1;
+  const step = (): void => {
+    timer = null;
+    if (cancelled) return;
 
-      if (right) {
-        const rightValue = right[i];
-        const rightAbs = Math.abs(rightValue);
-        if (rightAbs > colPeak) colPeak = rightAbs;
-        rmsSum += rightValue * rightValue;
+    const sliceStartedAt = performance.now();
+    while (col < cols) {
+      const start = Math.floor(col * samplesPerCol);
+      const end = Math.min(Math.floor((col + 1) * samplesPerCol), left.length);
+      let colPeak = 0;
+      let rmsSum = 0;
+      let sampleCount = 0;
+
+      for (let sample = start; sample < end; sample++) {
+        const leftValue = left[sample];
+        const leftAbs = Math.abs(leftValue);
+        if (leftAbs > colPeak) colPeak = leftAbs;
+        rmsSum += leftValue * leftValue;
         sampleCount++;
-        if (rightAbs >= CLIP_THRESHOLD) clipMap[c] = 1;
+        if (leftAbs >= CLIP_THRESHOLD) clipMap[col] = 1;
+
+        if (right) {
+          const rightValue = right[sample];
+          const rightAbs = Math.abs(rightValue);
+          if (rightAbs > colPeak) colPeak = rightAbs;
+          rmsSum += rightValue * rightValue;
+          sampleCount++;
+          if (rightAbs >= CLIP_THRESHOLD) clipMap[col] = 1;
+        }
+      }
+
+      peakEnv[col] = colPeak;
+      rmsEnv[col] = sampleCount > 0 ? Math.sqrt(rmsSum / sampleCount) : 0;
+      if (colPeak > envPeak) envPeak = colPeak;
+      col++;
+
+      if (performance.now() - sliceStartedAt >= ENVELOPE_SLICE_BUDGET_MS) {
+        timer = window.setTimeout(step, 0);
+        return;
       }
     }
 
-    peakEnv[c] = colPeak;
-    rmsEnv[c] = sampleCount > 0 ? Math.sqrt(rmsSum / sampleCount) : 0;
-    if (colPeak > envPeak) envPeak = colPeak;
-  }
+    finish();
+  };
 
-  if (envPeak > 0) {
-    for (let c = 0; c < cols; c++) {
-      peakEnv[c] /= envPeak;
-      rmsEnv[c] /= envPeak;
+  step();
+
+  return () => {
+    cancelled = true;
+    if (timer !== null) {
+      window.clearTimeout(timer);
+      timer = null;
     }
-  }
-
-  return { peakEnv, rmsEnv, clipMap };
+  };
 }
 
 function pickGridInterval(duration: number): number {
@@ -118,9 +159,55 @@ export function WaveformOverviewPanel(): React.ReactElement {
   const analysisRef = useRef<FileAnalysis | null>(null);
   const centroidRef = useRef(0);
   const rafRef = useRef<number | null>(null);
+  const envelopeCancelRef = useRef<(() => void) | null>(null);
+  const envelopeRequestIdRef = useRef(0);
+  const envelopeColsRef = useRef(0);
+  const envelopeFileIdRef = useRef(-1);
   const isDraggingRef = useRef(false);
   const isShiftDragRef = useRef(false);
   const loopDragStartRef = useRef<number | null>(null);
+
+  const cancelEnvelopeCompute = useCallback(() => {
+    if (envelopeCancelRef.current) {
+      envelopeCancelRef.current();
+      envelopeCancelRef.current = null;
+    }
+  }, []);
+
+  const scheduleEnvelopeCompute = useCallback((requestedCols: number, force = false) => {
+    const buffer = audioEngine.audioBuffer;
+    const analysis = analysisRef.current;
+    if (!buffer || !analysis || requestedCols <= 0) return;
+
+    const targetCols = bucketEnvelopeCols(requestedCols);
+    if (
+      !force
+      && envelopeFileIdRef.current === analysis.fileId
+      && envelopeColsRef.current === targetCols
+      && peakEnvRef.current
+      && rmsEnvRef.current
+      && clipMapRef.current
+    ) {
+      return;
+    }
+
+    cancelEnvelopeCompute();
+
+    const requestId = envelopeRequestIdRef.current + 1;
+    envelopeRequestIdRef.current = requestId;
+    const fileId = analysis.fileId;
+
+    envelopeCancelRef.current = computeEnvelopeAndClipMapAsync(buffer, targetCols, (data) => {
+      if (envelopeRequestIdRef.current !== requestId) return;
+      if (analysisRef.current?.fileId !== fileId) return;
+      peakEnvRef.current = data.peakEnv;
+      rmsEnvRef.current = data.rmsEnv;
+      clipMapRef.current = data.clipMap;
+      envelopeColsRef.current = targetCols;
+      envelopeFileIdRef.current = fileId;
+      envelopeCancelRef.current = null;
+    });
+  }, [audioEngine, cancelEnvelopeCompute]);
 
   useEffect(() => frameBus.subscribe((frame) => {
     centroidRef.current = frame.spectralCentroid;
@@ -128,23 +215,21 @@ export function WaveformOverviewPanel(): React.ReactElement {
 
   useEffect(() => audioEngine.onFileReady((analysis) => {
     analysisRef.current = analysis;
-    const buffer = audioEngine.audioBuffer;
     const canvas = canvasRef.current;
-    if (!buffer || !canvas) return;
-    const cols = canvas.width > 0 ? canvas.width : 1024;
-    const data = computeEnvelopeAndClipMap(buffer, cols);
-    peakEnvRef.current = data.peakEnv;
-    rmsEnvRef.current = data.rmsEnv;
-    clipMapRef.current = data.clipMap;
-  }), [audioEngine]);
+    const cols = canvas && canvas.width > 0 ? canvas.width : DEFAULT_ENVELOPE_COLS;
+    scheduleEnvelopeCompute(cols, true);
+  }), [audioEngine, scheduleEnvelopeCompute]);
 
   useEffect(() => audioEngine.onReset(() => {
+    cancelEnvelopeCompute();
     peakEnvRef.current = null;
     rmsEnvRef.current = null;
     clipMapRef.current = null;
     analysisRef.current = null;
     centroidRef.current = 0;
-  }), [audioEngine]);
+    envelopeColsRef.current = 0;
+    envelopeFileIdRef.current = -1;
+  }), [audioEngine, cancelEnvelopeCompute]);
 
   const fractionFromPointer = useCallback((event: React.PointerEvent<HTMLCanvasElement>): number => {
     const canvas = canvasRef.current;
@@ -181,22 +266,24 @@ export function WaveformOverviewPanel(): React.ReactElement {
       for (const entry of entries) {
         const { width, height } = entry.contentRect;
         const dpr = Math.min(devicePixelRatio, PANEL_DPR_MAX);
-        canvas.width = Math.round(width * dpr);
-        canvas.height = Math.round(height * dpr);
+        const nextWidth = Math.round(width * dpr);
+        const nextHeight = Math.round(height * dpr);
+        const prevWidth = canvas.width;
+        canvas.width = nextWidth;
+        canvas.height = nextHeight;
 
-        const buffer = audioEngine.audioBuffer;
-        if (buffer && canvas.width > 0) {
-          const data = computeEnvelopeAndClipMap(buffer, canvas.width);
-          peakEnvRef.current = data.peakEnv;
-          rmsEnvRef.current = data.rmsEnv;
-          clipMapRef.current = data.clipMap;
+        if (nextWidth > 0 && (nextWidth !== prevWidth || !peakEnvRef.current)) {
+          scheduleEnvelopeCompute(nextWidth);
         }
       }
     });
 
     ro.observe(canvas);
-    return () => ro.disconnect();
-  }, [audioEngine]);
+    return () => {
+      ro.disconnect();
+      cancelEnvelopeCompute();
+    };
+  }, [cancelEnvelopeCompute, scheduleEnvelopeCompute]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -536,8 +623,6 @@ const canvasStyle: React.CSSProperties = {
   flex: 1,
   cursor: 'crosshair',
 };
-
-
 
 
 
