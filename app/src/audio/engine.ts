@@ -49,21 +49,21 @@ const SCRUB_STYLE_CONFIG: Record<ScrubStyle, ScrubStyleConfig> = {
     preferNative: false,
   },
   tape: {
-    delayMs: 12,
-    windowMs: 180,
-    continuityThresholdS: 0.18,
-    baseRate: 0.96,
-    velocityRateGain: 0.08,
-    maxPreviewRate: 1.45,
+    delayMs: 0,
+    windowMs: 240,
+    continuityThresholdS: 0.28,
+    baseRate: 0.98,
+    velocityRateGain: 0.1,
+    maxPreviewRate: 1.6,
     preferNative: true,
   },
   wheel: {
-    delayMs: 6,
-    windowMs: 260,
-    continuityThresholdS: 0.3,
-    baseRate: 1.02,
-    velocityRateGain: 0.22,
-    maxPreviewRate: 2.4,
+    delayMs: 0,
+    windowMs: 320,
+    continuityThresholdS: 0.42,
+    baseRate: 1.06,
+    velocityRateGain: 0.26,
+    maxPreviewRate: 2.8,
     preferNative: true,
   },
 };
@@ -269,6 +269,17 @@ export class AudioEngine {
     }
 
     this.stop();
+    this.clearSeekResume();
+    this.clearScrubTimers();
+    this.scrubActive = false;
+    this.scrubResumeAfter = false;
+    this.scrubPreviewRate = 1;
+    this.scrubLastTarget = 0;
+    this.scrubLastMoveAt = 0;
+    this._loopStart = null;
+    this._loopEnd = null;
+    this._playbackRate = 1;
+    this._pitchSemitones = 0;
 
     const arrayBuffer = await file.arrayBuffer();
     const decodedBuffer = await ctx.decodeAudioData(arrayBuffer);
@@ -407,7 +418,8 @@ export class AudioEngine {
     const dtSeconds = Math.max((now - previousAt) / 1000, 0.001);
     const scrubSpeed = Math.abs(targetSeconds - previousTarget) / dtSeconds;
     const nextRate = this.scrubConfig.baseRate + scrubSpeed * this.scrubConfig.velocityRateGain;
-    this.scrubPreviewRate = Math.max(0.85, Math.min(this.scrubConfig.maxPreviewRate, nextRate));
+    const clampedRate = Math.max(0.85, Math.min(this.scrubConfig.maxPreviewRate, nextRate));
+    this.scrubPreviewRate = this.scrubPreviewRate * 0.55 + clampedRate * 0.45;
   }
 
   private shouldRestartScrubPreview(targetSeconds: number): boolean {

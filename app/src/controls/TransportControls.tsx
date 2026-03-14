@@ -21,6 +21,12 @@ const HIGH_RES_HARD_SYNC_DRIFT_S = 0.5;
 const HIGH_RES_RATE_TRIM_GAIN = 0.18;
 const HIGH_RES_RATE_TRIM_MAX = 0.04;
 const VIDEO_SYNC_GRACE_MS = 550;
+const WINDOWED_VIDEO_SETTLE_MS = 900;
+const WINDOWED_TRANSPORT_SETTLE_MS = 420;
+const VIDEO_PLAYING_LOG_INTERVAL_MS = 6000;
+const VIDEO_SETTLE_LOG_INTERVAL_MS = 7000;
+const VIDEO_SCRUB_PREVIEW_INTERVAL_MS = 90;
+const VIDEO_SCRUB_PREVIEW_STEP_S = 0.14;
 const VIDEO_END_TAIL_S = 0.25;
 const VIDEO_LARGE_DRIFT_LOG_MS = 10000;
 const APP_FULLSCREEN_MARGIN_PX = 14;
@@ -41,6 +47,14 @@ interface VideoWindowRect {
   readonly y: number;
   readonly width: number;
   readonly height: number;
+}
+
+interface VideoSyncProfile {
+  readonly settleMs: number;
+  readonly softSyncDrift: number;
+  readonly hardSyncDrift: number;
+  readonly rateTrimGain: number;
+  readonly rateTrimMax: number;
 }
 
 function formatTime(s: number): string {
@@ -90,6 +104,37 @@ interface VideoSourceSize {
 function isHighResVideo(size: VideoSourceSize | null): boolean {
   if (!size) return false;
   return size.width >= 1600 || size.height >= 900;
+}
+
+function getTransportStressFactor(playbackRate: number, pitchSemitones: number): number {
+  let factor = 1;
+  if (playbackRate < 1) {
+    factor += (1 - playbackRate) * 1.4;
+  } else if (playbackRate > 1.2) {
+    factor += Math.min(0.45, (playbackRate - 1.2) * 0.35);
+  }
+  factor += Math.min(0.55, (Math.abs(pitchSemitones) / 12) * 0.45);
+  return clamp(factor, 1, 2.35);
+}
+
+function getAdaptiveVideoSyncProfile(
+  playbackRate: number,
+  pitchSemitones: number,
+  highLoadVideoMode: boolean,
+): VideoSyncProfile {
+  const stressFactor = getTransportStressFactor(playbackRate, pitchSemitones);
+  const baseSoftSyncDrift = highLoadVideoMode ? HIGH_RES_SOFT_SYNC_DRIFT_S : VIDEO_SOFT_SYNC_DRIFT_S;
+  const baseHardSyncDrift = highLoadVideoMode ? HIGH_RES_HARD_SYNC_DRIFT_S : VIDEO_HARD_SYNC_DRIFT_S;
+  const baseRateTrimGain = highLoadVideoMode ? HIGH_RES_RATE_TRIM_GAIN : VIDEO_RATE_TRIM_GAIN;
+  const baseRateTrimMax = highLoadVideoMode ? HIGH_RES_RATE_TRIM_MAX : VIDEO_RATE_TRIM_MAX;
+
+  return {
+    settleMs: Math.round(VIDEO_SYNC_GRACE_MS * stressFactor),
+    softSyncDrift: baseSoftSyncDrift * stressFactor,
+    hardSyncDrift: baseHardSyncDrift * stressFactor,
+    rateTrimGain: baseRateTrimGain / stressFactor,
+    rateTrimMax: baseRateTrimMax / Math.sqrt(stressFactor),
+  };
 }
 
 function getViewportBounds(): { width: number; height: number } {
@@ -184,6 +229,49 @@ function getWindowedVideoWrapStyle(rect: VideoWindowRect): React.CSSProperties {
   };
 }
 
+function resizeWindowRectFromDrag(
+  startRect: VideoWindowRect,
+  pointerDeltaX: number,
+  pointerDeltaY: number,
+  size: VideoSourceSize | null,
+): VideoWindowRect {
+  const viewport = getViewportBounds();
+  const aspect = getVideoAspect(size);
+  const maxWidth = Math.max(
+    WINDOWED_MIN_WIDTH_PX,
+    viewport.width - startRect.x - WINDOWED_MARGIN_PX,
+  );
+  const maxHeight = Math.max(
+    WINDOWED_MIN_HEIGHT_PX,
+    viewport.height - startRect.y - WINDOWED_MARGIN_PX,
+  );
+  const minWidth = Math.max(WINDOWED_MIN_WIDTH_PX, Math.ceil(WINDOWED_MIN_HEIGHT_PX * aspect));
+  const maxWidthByHeight = Math.max(WINDOWED_MIN_WIDTH_PX, Math.floor(maxHeight * aspect));
+  const widthCap = Math.max(minWidth, Math.min(maxWidth, maxWidthByHeight));
+
+  const widthFromX = startRect.width + pointerDeltaX;
+  const widthFromY = startRect.width + pointerDeltaY * aspect;
+  let width = Math.abs(pointerDeltaX) >= Math.abs(pointerDeltaY * aspect) ? widthFromX : widthFromY;
+  width = clamp(width, minWidth, widthCap);
+
+  let height = Math.round(width / aspect);
+  if (height > maxHeight) {
+    height = maxHeight;
+    width = Math.round(height * aspect);
+  }
+  if (height < WINDOWED_MIN_HEIGHT_PX) {
+    height = WINDOWED_MIN_HEIGHT_PX;
+    width = Math.round(height * aspect);
+  }
+
+  return clampWindowRect({
+    x: startRect.x,
+    y: startRect.y,
+    width,
+    height,
+  });
+}
+
 export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
   const audioEngine = useAudioEngine();
   const diagnosticsLog = useDiagnosticsLog();
@@ -234,6 +322,18 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
   const videoWindowRectRef = useRef<VideoWindowRect>(videoWindowRect);
   videoWindowRectRef.current = videoWindowRect;
   const videoWindowDragRef = useRef<{ startX: number; startY: number; startRect: VideoWindowRect } | null>(null);
+  const videoWindowResizeRef = useRef<{
+    startX: number;
+    startY: number;
+    startRect: VideoWindowRect;
+  } | null>(null);
+  const videoWindowInteractionActiveRef = useRef(false);
+  const videoWindowInteractionGraceUntilRef = useRef(0);
+  const lastTransportRateRef = useRef(1);
+  const lastTransportPitchRef = useRef(0);
+  const videoTransportRetuneTimerRef = useRef<number | null>(null);
+  const videoScrubPreviewAtRef = useRef(0);
+  const lastVideoTransportStateRef = useRef<TransportState | null>(null);
 
   const videoViewMode: VideoViewMode = videoOverlayMode ?? videoBaseMode;
 
@@ -333,12 +433,28 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
     diagnosticsLog.push(text, tone, 'video');
   }, [diagnosticsLog]);
 
+  const getCurrentVideoSyncProfile = useCallback((highLoadVideoMode = false): VideoSyncProfile => {
+    return getAdaptiveVideoSyncProfile(
+      transportRef.current.playbackRate,
+      transportRef.current.pitchSemitones,
+      highLoadVideoMode,
+    );
+  }, []);
+
   const markVideoSyncGrace = useCallback((durationMs = VIDEO_SYNC_GRACE_MS) => {
     videoSyncGraceUntilRef.current = Math.max(
       videoSyncGraceUntilRef.current,
       performance.now() + durationMs,
     );
   }, []);
+
+  const markWindowedVideoSettle = useCallback((durationMs = WINDOWED_VIDEO_SETTLE_MS) => {
+    videoWindowInteractionGraceUntilRef.current = Math.max(
+      videoWindowInteractionGraceUntilRef.current,
+      performance.now() + durationMs,
+    );
+    markVideoSyncGrace(durationMs);
+  }, [markVideoSyncGrace]);
 
   const setVideoPlaybackRate = useCallback((rate: number) => {
     const video = videoRef.current;
@@ -358,18 +474,20 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
 
     videoSeekPendingRef.current = true;
     videoPendingPlayRef.current = transportRef.current.isPlaying;
-    markVideoSyncGrace();
+    const syncProfile = getCurrentVideoSyncProfile(videoBaseModeRef.current === 'window' || videoOverlayModeRef.current !== null);
+    markVideoSyncGrace(syncProfile.settleMs);
     video.currentTime = nextTime;
     lastVideoHardSyncAtRef.current = performance.now();
-  }, [markVideoSyncGrace]);
+  }, [getCurrentVideoSyncProfile, markVideoSyncGrace]);
 
   const playVideo = useCallback(() => {
     const video = videoRef.current;
     if (!video) return;
+    const syncProfile = getCurrentVideoSyncProfile(videoBaseModeRef.current === 'window' || videoOverlayModeRef.current !== null);
 
     if (video.seeking || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
       videoPendingPlayRef.current = true;
-      markVideoSyncGrace();
+      markVideoSyncGrace(syncProfile.settleMs);
       return;
     }
 
@@ -382,13 +500,13 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
         performance.now() < videoSyncGraceUntilRef.current
       ) {
         videoPendingPlayRef.current = transportRef.current.isPlaying;
-        markVideoSyncGrace(250);
+        markVideoSyncGrace(Math.max(250, Math.round(syncProfile.settleMs * 0.5)));
         logVideoEvent('play-interrupted', 'video play deferred while seek settles', 'dim', 2500);
         return;
       }
       logVideoEvent('play-reject', 'video play request was blocked by the runtime', 'warn', 4000);
     });
-  }, [logVideoEvent, markVideoSyncGrace]);
+  }, [getCurrentVideoSyncProfile, logVideoEvent, markVideoSyncGrace]);
 
   const onToggleTheater = useCallback(() => {
     setVideoOverlayPresentation(videoOverlayModeRef.current === 'theater' ? null : 'theater');
@@ -477,6 +595,8 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
     if (event.button !== 0) return;
     event.preventDefault();
     const startRect = videoWindowRectRef.current;
+    videoWindowInteractionActiveRef.current = true;
+    markWindowedVideoSettle();
     videoWindowDragRef.current = {
       startX: event.clientX,
       startY: event.clientY,
@@ -494,6 +614,7 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
         x: drag.startRect.x + (ev.clientX - drag.startX),
         y: drag.startRect.y + (ev.clientY - drag.startY),
       });
+      videoWindowInteractionGraceUntilRef.current = performance.now() + WINDOWED_VIDEO_SETTLE_MS;
       wrap.style.left = `${nextRect.x}px`;
       wrap.style.top = `${nextRect.y}px`;
     };
@@ -501,6 +622,7 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
     const onUp = (ev: MouseEvent) => {
       const drag = videoWindowDragRef.current;
       videoWindowDragRef.current = null;
+      videoWindowInteractionActiveRef.current = false;
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
       window.removeEventListener('mousemove', onMove);
@@ -512,57 +634,160 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
         y: drag.startRect.y + (ev.clientY - drag.startY),
       });
       setVideoWindowRect(nextRect);
+      markWindowedVideoSettle();
     };
 
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
-  }, []);
+  }, [markWindowedVideoSettle]);
+
+  const onWindowResizeMouseDown = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const startRect = videoWindowRectRef.current;
+    videoWindowInteractionActiveRef.current = true;
+    markWindowedVideoSettle();
+    videoWindowResizeRef.current = {
+      startX: event.clientX,
+      startY: event.clientY,
+      startRect,
+    };
+    document.body.style.cursor = 'nwse-resize';
+    document.body.style.userSelect = 'none';
+
+    const onMove = (ev: MouseEvent) => {
+      const resize = videoWindowResizeRef.current;
+      const wrap = videoWrapRef.current;
+      if (!resize || !wrap) return;
+      const nextRect = resizeWindowRectFromDrag(
+        resize.startRect,
+        ev.clientX - resize.startX,
+        ev.clientY - resize.startY,
+        videoSourceSize,
+      );
+      videoWindowInteractionGraceUntilRef.current = performance.now() + WINDOWED_VIDEO_SETTLE_MS;
+      wrap.style.width = `${nextRect.width}px`;
+      wrap.style.height = `${nextRect.height}px`;
+    };
+
+    const onUp = (ev: MouseEvent) => {
+      const resize = videoWindowResizeRef.current;
+      videoWindowResizeRef.current = null;
+      videoWindowInteractionActiveRef.current = false;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      if (!resize) return;
+      const nextRect = resizeWindowRectFromDrag(
+        resize.startRect,
+        ev.clientX - resize.startX,
+        ev.clientY - resize.startY,
+        videoSourceSize,
+      );
+      setVideoWindowRect(nextRect);
+      markWindowedVideoSettle();
+    };
+
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }, [markWindowedVideoSettle, videoSourceSize]);
 
   useEffect(() => {
     return () => {
       videoWindowDragRef.current = null;
+      videoWindowResizeRef.current = null;
+      videoWindowInteractionActiveRef.current = false;
+      if (videoTransportRetuneTimerRef.current !== null) {
+        window.clearTimeout(videoTransportRetuneTimerRef.current);
+        videoTransportRetuneTimerRef.current = null;
+      }
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
     };
   }, []);
 
+  useEffect(() => {
+    if (videoBaseMode !== 'window') return;
+    const onResize = () => {
+      setVideoWindowRect((prevRect) => clampWindowRect(prevRect));
+      markWindowedVideoSettle(600);
+    };
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, [markWindowedVideoSettle, videoBaseMode]);
+
+  useEffect(() => {
+    const rateChanged = Math.abs(lastTransportRateRef.current - transport.playbackRate) > 0.0001;
+    const pitchChanged = Math.abs(lastTransportPitchRef.current - transport.pitchSemitones) > 0.0001;
+    lastTransportRateRef.current = transport.playbackRate;
+    lastTransportPitchRef.current = transport.pitchSemitones;
+    if (!rateChanged && !pitchChanged) return;
+
+    const stressFactor = getTransportStressFactor(transport.playbackRate, transport.pitchSemitones);
+    if (videoBaseModeRef.current === 'window') {
+      markWindowedVideoSettle(Math.round(WINDOWED_TRANSPORT_SETTLE_MS * stressFactor));
+    }
+    if (videoTransportRetuneTimerRef.current !== null) {
+      window.clearTimeout(videoTransportRetuneTimerRef.current);
+    }
+    videoTransportRetuneTimerRef.current = window.setTimeout(() => {
+      videoTransportRetuneTimerRef.current = null;
+      const video = videoRef.current;
+      if (
+        !video ||
+        !transportRef.current.isPlaying ||
+        video.seeking ||
+        videoSeekPendingRef.current ||
+        videoWindowInteractionActiveRef.current
+      ) {
+        return;
+      }
+      hardSyncVideo(audioEngine.currentTime);
+    }, Math.round(VIDEO_SYNC_GRACE_MS * stressFactor));
+  }, [audioEngine, hardSyncVideo, markWindowedVideoSettle, transport.pitchSemitones, transport.playbackRate]);
+
   const onVideoCanPlay = useCallback(() => {
     const video = videoRef.current;
     if (!video) return;
     videoSeekPendingRef.current = false;
-    markVideoSyncGrace(250);
+    const syncProfile = getCurrentVideoSyncProfile(videoBaseModeRef.current === 'window' || videoOverlayModeRef.current !== null);
+    markVideoSyncGrace(Math.max(250, Math.round(syncProfile.settleMs * 0.5)));
     hardSyncVideo(audioEngine.currentTime);
     setVideoPlaybackRate(transportRef.current.playbackRate);
     if (transportRef.current.isPlaying || videoPendingPlayRef.current) {
       playVideo();
     }
-  }, [audioEngine, hardSyncVideo, markVideoSyncGrace, playVideo, setVideoPlaybackRate]);
+  }, [audioEngine, getCurrentVideoSyncProfile, hardSyncVideo, markVideoSyncGrace, playVideo, setVideoPlaybackRate]);
 
   const onVideoSeeking = useCallback(() => {
     videoSeekPendingRef.current = true;
-    markVideoSyncGrace();
-  }, [markVideoSyncGrace]);
+    const syncProfile = getCurrentVideoSyncProfile(videoBaseModeRef.current === 'window' || videoOverlayModeRef.current !== null);
+    markVideoSyncGrace(syncProfile.settleMs);
+  }, [getCurrentVideoSyncProfile, markVideoSyncGrace]);
 
   const onVideoSeeked = useCallback(() => {
     videoSeekPendingRef.current = false;
-    markVideoSyncGrace(250);
+    const syncProfile = getCurrentVideoSyncProfile(videoBaseModeRef.current === 'window' || videoOverlayModeRef.current !== null);
+    markVideoSyncGrace(Math.max(250, Math.round(syncProfile.settleMs * 0.5)));
     setVideoPlaybackRate(transportRef.current.playbackRate);
     if (transportRef.current.isPlaying || videoPendingPlayRef.current) {
       playVideo();
     } else {
       videoPendingPlayRef.current = false;
     }
-  }, [markVideoSyncGrace, playVideo, setVideoPlaybackRate]);
+  }, [getCurrentVideoSyncProfile, markVideoSyncGrace, playVideo, setVideoPlaybackRate]);
 
   const onVideoPlaying = useCallback(() => {
-    logVideoEvent('playing', 'video preview playing', 'info', 2000);
+    logVideoEvent('playing', 'video preview playing', 'info', VIDEO_PLAYING_LOG_INTERVAL_MS);
   }, [logVideoEvent]);
 
   const onVideoWaiting = useCallback(() => {
     const video = videoRef.current;
     const now = performance.now();
     if (videoSeekPendingRef.current || now < videoSyncGraceUntilRef.current) {
-      logVideoEvent('waiting-settle', 'video seek settling', 'dim', 2500);
+      logVideoEvent('waiting-settle', 'video seek settling', 'dim', VIDEO_SETTLE_LOG_INTERVAL_MS);
       return;
     }
     if (isNearVideoEnd(video, transportRef.current) || video?.ended) {
@@ -580,7 +805,7 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
     const video = videoRef.current;
     const now = performance.now();
     if (videoSeekPendingRef.current || now < videoSyncGraceUntilRef.current) {
-      logVideoEvent('stalled-settle', 'video still settling after seek', 'dim', 2500);
+      logVideoEvent('stalled-settle', 'video still settling after seek', 'dim', VIDEO_SETTLE_LOG_INTERVAL_MS);
       return;
     }
     if (isNearVideoEnd(video, transportRef.current) || video?.ended) {
@@ -628,18 +853,41 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
   useEffect(() => {
     const video = videoRef.current;
     if (!video || !videoUrl) return;
+    const prevTransportState = lastVideoTransportStateRef.current;
+    const overlayOrWindowMode = videoBaseModeRef.current === 'window' || videoOverlayModeRef.current !== null;
+    const syncProfile = getCurrentVideoSyncProfile(overlayOrWindowMode);
 
     setVideoPlaybackRate(transport.playbackRate);
 
     if (transport.scrubActive) {
       videoPendingPlayRef.current = false;
       video.pause();
-      hardSyncVideo(transport.currentTime);
+      const now = performance.now();
+      const shouldSyncScrubPreview =
+        now - videoScrubPreviewAtRef.current >= VIDEO_SCRUB_PREVIEW_INTERVAL_MS ||
+        Math.abs(video.currentTime - transport.currentTime) >= VIDEO_SCRUB_PREVIEW_STEP_S;
+      if (shouldSyncScrubPreview) {
+        videoScrubPreviewAtRef.current = now;
+        hardSyncVideo(transport.currentTime);
+      }
+      lastVideoTransportStateRef.current = transport;
       return;
     }
 
+    videoScrubPreviewAtRef.current = 0;
+
     if (transport.isPlaying) {
-      hardSyncVideo(audioEngine.currentTime);
+      const playStateChanged = prevTransportState?.isPlaying !== transport.isPlaying;
+      const scrubStateChanged = prevTransportState?.scrubActive !== transport.scrubActive;
+      const jumped = !prevTransportState || Math.abs(transport.currentTime - prevTransportState.currentTime) > 0.35;
+      const rateChanged = !prevTransportState || Math.abs(transport.playbackRate - prevTransportState.playbackRate) > 0.001;
+      const pitchChanged = !prevTransportState || Math.abs(transport.pitchSemitones - prevTransportState.pitchSemitones) > 0.001;
+
+      if (playStateChanged || scrubStateChanged || jumped) {
+        hardSyncVideo(audioEngine.currentTime);
+      } else if (rateChanged || pitchChanged) {
+        markVideoSyncGrace(Math.max(220, Math.round(syncProfile.settleMs * 0.35)));
+      }
       playVideo();
     } else {
       videoPendingPlayRef.current = false;
@@ -648,7 +896,8 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
         hardSyncVideo(0);
       }
     }
-  }, [audioEngine, hardSyncVideo, playVideo, setVideoPlaybackRate, transport.currentTime, transport.isPlaying, transport.playbackRate, transport.scrubActive, videoUrl]);
+    lastVideoTransportStateRef.current = transport;
+  }, [audioEngine, getCurrentVideoSyncProfile, hardSyncVideo, markVideoSyncGrace, playVideo, setVideoPlaybackRate, transport, videoUrl]);
 
   useEffect(() => {
     let rafId: number;
@@ -672,15 +921,27 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
       const drift = currentTime - video.currentTime;
       const absDrift = Math.abs(drift);
       const now = performance.now();
-      const highResExpanded = videoOverlayModeRef.current !== null && isHighResVideo(videoSourceSize);
-      const softSyncDrift = highResExpanded ? HIGH_RES_SOFT_SYNC_DRIFT_S : VIDEO_SOFT_SYNC_DRIFT_S;
-      const hardSyncDrift = highResExpanded ? HIGH_RES_HARD_SYNC_DRIFT_S : VIDEO_HARD_SYNC_DRIFT_S;
-      const rateTrimGain = highResExpanded ? HIGH_RES_RATE_TRIM_GAIN : VIDEO_RATE_TRIM_GAIN;
-      const rateTrimMax = highResExpanded ? HIGH_RES_RATE_TRIM_MAX : VIDEO_RATE_TRIM_MAX;
+      const windowedVideoMode =
+        videoOverlayModeRef.current === null &&
+        videoBaseModeRef.current === 'window';
+      const highLoadVideoMode =
+        (videoOverlayModeRef.current !== null && isHighResVideo(videoSourceSize)) ||
+        windowedVideoMode;
+      const syncProfile = getAdaptiveVideoSyncProfile(
+        transportRef.current.playbackRate,
+        transportRef.current.pitchSemitones,
+        highLoadVideoMode,
+      );
+      const softSyncDrift = syncProfile.softSyncDrift;
+      const hardSyncDrift = syncProfile.hardSyncDrift;
+      const rateTrimGain = syncProfile.rateTrimGain;
+      const rateTrimMax = syncProfile.rateTrimMax;
 
       if (
         video.seeking ||
         videoSeekPendingRef.current ||
+        videoWindowInteractionActiveRef.current ||
+        now < videoWindowInteractionGraceUntilRef.current ||
         now < videoSyncGraceUntilRef.current ||
         video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA
       ) {
@@ -759,6 +1020,10 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
       videoSyncGraceUntilRef.current = 0;
       videoSeekPendingRef.current = false;
       videoPendingPlayRef.current = false;
+      if (videoTransportRetuneTimerRef.current !== null) {
+        window.clearTimeout(videoTransportRetuneTimerRef.current);
+        videoTransportRetuneTimerRef.current = null;
+      }
     });
   }, [audioEngine, clearFileInput, clearVideoPreview]);
 
@@ -834,8 +1099,8 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
       audioEngine.scrubTo(seekTo);
     } else {
       audioEngine.seek(seekTo);
+      hardSyncVideo(seekTo);
     }
-    hardSyncVideo(seekTo);
   }, [audioEngine, hardSyncVideo]);
 
   const onToggleLoop = useCallback(() => {
@@ -974,8 +1239,15 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
           )}
           {showWindowHint && (
             <div style={windowHintStyle}>
-              DRAG TOP EDGE TO MOVE  /  CLICK WND TO DOCK BACK
+              DRAG TOP EDGE TO MOVE  /  DRAG CORNER TO RESIZE  /  CLICK WND TO DOCK BACK
             </div>
+          )}
+          {showWindowHint && (
+            <div
+              style={videoWindowResizeHandleStyle}
+              onMouseDown={onWindowResizeMouseDown}
+              title="Drag to resize"
+            />
           )}
           {videoViewMode === 'inline' && (
             <div
@@ -1232,6 +1504,18 @@ const videoResizeHandleStyle: React.CSSProperties = {
   cursor: 'row-resize',
   background: 'transparent',
   zIndex: 10,
+};
+
+const videoWindowResizeHandleStyle: React.CSSProperties = {
+  position: 'absolute',
+  right: 0,
+  bottom: 0,
+  width: 18,
+  height: 18,
+  cursor: 'nwse-resize',
+  pointerEvents: 'auto',
+  zIndex: 3,
+  background: 'linear-gradient(135deg, transparent 38%, rgba(110, 180, 255, 0.45) 38%, rgba(110, 180, 255, 0.45) 48%, transparent 48%, transparent 56%, rgba(110, 180, 255, 0.65) 56%, rgba(110, 180, 255, 0.65) 66%, transparent 66%)',
 };
 
 const timeRowStyle: React.CSSProperties = {

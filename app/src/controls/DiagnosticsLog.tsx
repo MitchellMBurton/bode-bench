@@ -30,6 +30,7 @@ const SCRUB_SETTLE_MS = 500;
 const SCROLL_BOTTOM_SLOP_PX = 12;
 const TRANSPORT_END_TAIL_S = 0.35;
 const TRANSPORT_LOOP_HEAD_S = 0.2;
+const TRANSPORT_SLIDER_SETTLE_MS = 180;
 
 export function DiagnosticsLog(): React.ReactElement {
   const audioEngine = useAudioEngine();
@@ -50,6 +51,10 @@ export function DiagnosticsLog(): React.ReactElement {
   const scrubEndStateRef = useRef<TransportState | null>(null);
   const jumpOriginStateRef = useRef<TransportState | null>(null);
   const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const rateLogTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pitchLogTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingRateRef = useRef<number | null>(null);
+  const pendingPitchRef = useRef<number | null>(null);
 
   const visibleEntries = useMemo(() => {
     return warnOnly ? entries.filter((entry) => entry.tone === 'warn') : entries;
@@ -82,6 +87,39 @@ export function DiagnosticsLog(): React.ReactElement {
       diagnosticsLog.push(analysisBanner, 'dim', 'system');
     }
 
+    const flushPendingRate = () => {
+      if (pendingRateRef.current === null) return;
+      diagnosticsLog.push(`rate ${pendingRateRef.current.toFixed(2)}x`, 'dim', 'transport');
+      pendingRateRef.current = null;
+    };
+
+    const flushPendingPitch = () => {
+      if (pendingPitchRef.current === null) return;
+      const pitchLabel = pendingPitchRef.current > 0
+        ? `+${pendingPitchRef.current.toFixed(0)}`
+        : pendingPitchRef.current.toFixed(0);
+      diagnosticsLog.push(`pitch ${pitchLabel} st`, 'dim', 'transport');
+      pendingPitchRef.current = null;
+    };
+
+    const scheduleRateLog = (value: number) => {
+      pendingRateRef.current = value;
+      if (rateLogTimerRef.current) clearTimeout(rateLogTimerRef.current);
+      rateLogTimerRef.current = setTimeout(() => {
+        rateLogTimerRef.current = null;
+        flushPendingRate();
+      }, TRANSPORT_SLIDER_SETTLE_MS);
+    };
+
+    const schedulePitchLog = (value: number) => {
+      pendingPitchRef.current = value;
+      if (pitchLogTimerRef.current) clearTimeout(pitchLogTimerRef.current);
+      pitchLogTimerRef.current = setTimeout(() => {
+        pitchLogTimerRef.current = null;
+        flushPendingPitch();
+      }, TRANSPORT_SLIDER_SETTLE_MS);
+    };
+
     const unsubTransport = audioEngine.onTransport((state) => {
       const prev = prevTransportRef.current;
 
@@ -94,6 +132,22 @@ export function DiagnosticsLog(): React.ReactElement {
       }
 
       if (state.filename !== prev.filename) {
+        if (scrubTimerRef.current) {
+          clearTimeout(scrubTimerRef.current);
+          scrubTimerRef.current = null;
+        }
+        scrubEndStateRef.current = null;
+        jumpOriginStateRef.current = null;
+        if (rateLogTimerRef.current) {
+          clearTimeout(rateLogTimerRef.current);
+          rateLogTimerRef.current = null;
+        }
+        if (pitchLogTimerRef.current) {
+          clearTimeout(pitchLogTimerRef.current);
+          pitchLogTimerRef.current = null;
+        }
+        flushPendingRate();
+        flushPendingPitch();
         if (state.filename) diagnosticsLog.push(`loaded ${state.filename}`, 'info', 'transport');
         else if (prev.filename) diagnosticsLog.push('reset / cleared session', 'warn', 'transport');
       }
@@ -173,17 +227,24 @@ export function DiagnosticsLog(): React.ReactElement {
       }
 
       if (Math.abs(state.playbackRate - prev.playbackRate) > 0.001) {
-        diagnosticsLog.push(`rate ${state.playbackRate.toFixed(2)}x`, 'dim', 'transport');
+        scheduleRateLog(state.playbackRate);
       }
 
       if (Math.abs(state.pitchSemitones - prev.pitchSemitones) > 0.001) {
-        const pitchLabel = state.pitchSemitones > 0
-          ? `+${state.pitchSemitones.toFixed(0)}`
-          : state.pitchSemitones.toFixed(0);
-        diagnosticsLog.push(`pitch ${pitchLabel} st`, 'dim', 'transport');
+        schedulePitchLog(state.pitchSemitones);
       }
 
       if (state.pitchShiftAvailable !== prev.pitchShiftAvailable) {
+        if (rateLogTimerRef.current) {
+          clearTimeout(rateLogTimerRef.current);
+          rateLogTimerRef.current = null;
+        }
+        if (pitchLogTimerRef.current) {
+          clearTimeout(pitchLogTimerRef.current);
+          pitchLogTimerRef.current = null;
+        }
+        flushPendingRate();
+        flushPendingPitch();
         diagnosticsLog.push(
           state.pitchShiftAvailable
             ? 'studio pitch shift online'
@@ -218,6 +279,22 @@ export function DiagnosticsLog(): React.ReactElement {
 
     const unsubReset = audioEngine.onReset(() => {
       prevTransportRef.current = null;
+      if (scrubTimerRef.current) {
+        clearTimeout(scrubTimerRef.current);
+        scrubTimerRef.current = null;
+      }
+      scrubEndStateRef.current = null;
+      jumpOriginStateRef.current = null;
+      if (rateLogTimerRef.current) {
+        clearTimeout(rateLogTimerRef.current);
+        rateLogTimerRef.current = null;
+      }
+      if (pitchLogTimerRef.current) {
+        clearTimeout(pitchLogTimerRef.current);
+        pitchLogTimerRef.current = null;
+      }
+      pendingRateRef.current = null;
+      pendingPitchRef.current = null;
       diagnosticsLog.push('visuals reset', 'warn', 'system');
     });
 
@@ -226,6 +303,8 @@ export function DiagnosticsLog(): React.ReactElement {
       unsubFile();
       unsubReset();
       if (scrubTimerRef.current) clearTimeout(scrubTimerRef.current);
+      if (rateLogTimerRef.current) clearTimeout(rateLogTimerRef.current);
+      if (pitchLogTimerRef.current) clearTimeout(pitchLogTimerRef.current);
       jumpOriginStateRef.current = null;
     };
   }, [audioEngine, diagnosticsLog]);
@@ -237,6 +316,8 @@ export function DiagnosticsLog(): React.ReactElement {
   useEffect(() => {
     return () => {
       if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+      if (rateLogTimerRef.current) clearTimeout(rateLogTimerRef.current);
+      if (pitchLogTimerRef.current) clearTimeout(pitchLogTimerRef.current);
     };
   }, []);
 
