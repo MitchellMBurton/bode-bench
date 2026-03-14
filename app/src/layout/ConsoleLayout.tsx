@@ -145,7 +145,7 @@ export function ConsoleLayout({
   onResetLayout,
 }: Props): React.ReactElement {
   const [runtimeTrayHeight, setRuntimeTrayHeight] = useState(() => readRuntimeTrayHeight());
-  const runtimeTrayResizeRef = useRef<{ startY: number; startHeight: number } | null>(null);
+  const runtimeTrayResizeRef = useRef<{ startY: number; startHeight: number; pointerId: number } | null>(null);
   const nge = visualMode === 'nge';
   const hyper = visualMode === 'hyper';
   const headerBorder = nge
@@ -212,42 +212,59 @@ export function ConsoleLayout({
     };
   }, []);
 
+  const finishRuntimeTrayResize = useCallback(() => {
+    runtimeTrayResizeRef.current = null;
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+  }, []);
+
   const resetRuntimeTrayHeight = useCallback(() => {
     setRuntimeTrayHeight(getDefaultRuntimeTrayHeight());
   }, []);
 
-  const onRuntimeTrayResizeMouseDown = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
-    if (event.button !== 0) return;
+  const onRuntimeTrayResizePointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (!event.isPrimary || event.button !== 0) return;
     event.preventDefault();
+    event.stopPropagation();
     runtimeTrayResizeRef.current = {
       startY: event.clientY,
       startHeight: runtimeTrayHeight,
+      pointerId: event.pointerId,
     };
+    event.currentTarget.setPointerCapture(event.pointerId);
     document.body.style.cursor = 'row-resize';
     document.body.style.userSelect = 'none';
-
-    const onMove = (ev: MouseEvent) => {
-      const resize = runtimeTrayResizeRef.current;
-      if (!resize) return;
-      const nextHeight = clampValue(
-        resize.startHeight + (ev.clientY - resize.startY),
-        RUNTIME_TRAY_MIN_H,
-        getRuntimeTrayMaxHeight(),
-      );
-      setRuntimeTrayHeight(nextHeight);
-    };
-
-    const onUp = () => {
-      runtimeTrayResizeRef.current = null;
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
-    };
-
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
   }, [runtimeTrayHeight]);
+
+  const onRuntimeTrayResizePointerMove = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    const resize = runtimeTrayResizeRef.current;
+    if (!resize || resize.pointerId !== event.pointerId) return;
+    event.preventDefault();
+    const nextHeight = clampValue(
+      resize.startHeight + (event.clientY - resize.startY),
+      RUNTIME_TRAY_MIN_H,
+      getRuntimeTrayMaxHeight(),
+    );
+    setRuntimeTrayHeight(nextHeight);
+  }, []);
+
+  const onRuntimeTrayResizePointerUp = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    const resize = runtimeTrayResizeRef.current;
+    if (!resize || resize.pointerId !== event.pointerId) return;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    finishRuntimeTrayResize();
+  }, [finishRuntimeTrayResize]);
+
+  const onRuntimeTrayResizePointerCancel = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    const resize = runtimeTrayResizeRef.current;
+    if (!resize || resize.pointerId !== event.pointerId) return;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    finishRuntimeTrayResize();
+  }, [finishRuntimeTrayResize]);
 
   return (
     <LayoutInteractionProvider>
@@ -305,7 +322,11 @@ export function ConsoleLayout({
               </div>
               <div
                 style={runtimeResizeHandleStyle}
-                onMouseDown={onRuntimeTrayResizeMouseDown}
+                onPointerDown={onRuntimeTrayResizePointerDown}
+                onPointerMove={onRuntimeTrayResizePointerMove}
+                onPointerUp={onRuntimeTrayResizePointerUp}
+                onPointerCancel={onRuntimeTrayResizePointerCancel}
+                onLostPointerCapture={onRuntimeTrayResizePointerCancel}
                 onDoubleClick={resetRuntimeTrayHeight}
                 title="Drag to resize the Perf Lab tray. Double click to reset the default height."
               >
@@ -570,6 +591,7 @@ const runtimeResizeHandleStyle: React.CSSProperties = {
   background: 'linear-gradient(180deg, rgba(12, 14, 20, 0.98), rgba(9, 10, 16, 1))',
   cursor: 'row-resize',
   userSelect: 'none',
+  touchAction: 'none',
 };
 
 const runtimeResizeGripStyle: React.CSSProperties = {
