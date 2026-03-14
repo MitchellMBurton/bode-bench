@@ -27,6 +27,7 @@ const PREVIEW_LINE_PX = 2;
 
 const DEFAULT_MIN_PX = 48;
 const EMPTY_SIZES: number[] = [];
+const persistedPaneFractions = new Map<string, number[]>();
 
 function normalize(sizes: number[]): number[] {
   const total = sizes.reduce((a, b) => a + b, 0);
@@ -51,6 +52,21 @@ function splitPaneReducer(state: SplitPaneState, action: SplitPaneAction): Split
     default:
       return state;
   }
+}
+
+function readInitialFracs(initialSizes: number[], persistKey?: string): number[] {
+  if (!persistKey) return normalize(initialSizes);
+
+  const stored = persistedPaneFractions.get(persistKey);
+  if (!stored || stored.length !== initialSizes.length) {
+    return normalize(initialSizes);
+  }
+
+  if (stored.some((value) => !Number.isFinite(value) || value <= 0)) {
+    return normalize(initialSizes);
+  }
+
+  return normalize(stored);
 }
 
 // ── ResizeHandle ──────────────────────────────────────────────────────────────
@@ -118,6 +134,9 @@ export interface SplitPaneProps {
   /** Increment to reset pane fractions back to initialSizes without remounting children. */
   resetToken?: number;
 
+  /** Stable ID used to preserve pane fractions across harmless remounts, like style switches. */
+  persistKey?: string;
+
   children: React.ReactElement[];
 }
 
@@ -127,9 +146,10 @@ export function SplitPane({
   minSizePx = EMPTY_SIZES,
   maxSizePx = EMPTY_SIZES,
   resetToken,
+  persistKey,
   children,
 }: SplitPaneProps): React.ReactElement {
-  const [{ fracs }, dispatch] = useReducer(splitPaneReducer, { fracs: normalize(initialSizes) });
+  const [{ fracs }, dispatch] = useReducer(splitPaneReducer, { fracs: readInitialFracs(initialSizes, persistKey) });
   const containerRef = useRef<HTMLDivElement>(null);
   const previewGuideRef = useRef<HTMLDivElement>(null);
   const pendingFracsRef = useRef<number[] | null>(null);
@@ -139,6 +159,17 @@ export function SplitPane({
   const isColumn = direction === 'column';
   const n = children.length;
   const initialSizesKey = initialSizes.join('|');
+  const lastResetTokenRef = useRef(resetToken);
+  const latestInitialSizesRef = useRef(initialSizes);
+
+  useEffect(() => {
+    latestInitialSizesRef.current = initialSizes;
+  }, [initialSizes]);
+
+  useEffect(() => {
+    if (!persistKey) return;
+    persistedPaneFractions.set(persistKey, fracs);
+  }, [fracs, persistKey]);
 
   // Stable ref for drag state — avoids stale closures in event listeners.
   const dragRef = useRef<{
@@ -279,6 +310,8 @@ export function SplitPane({
 
   useEffect(() => {
     if (resetToken === undefined) return;
+    if (lastResetTokenRef.current === resetToken) return;
+    lastResetTokenRef.current = resetToken;
 
     if (dragFrameRef.current !== null) {
       cancelAnimationFrame(dragFrameRef.current);
@@ -290,8 +323,11 @@ export function SplitPane({
     document.body.style.cursor = '';
     document.body.style.userSelect = '';
     endInteraction();
-    dispatch({ type: 'reset', initialSizes });
-  }, [endInteraction, initialSizes, initialSizesKey, resetToken, setPreviewVisible]);
+    if (persistKey) {
+      persistedPaneFractions.set(persistKey, normalize(latestInitialSizesRef.current));
+    }
+    dispatch({ type: 'reset', initialSizes: latestInitialSizesRef.current });
+  }, [endInteraction, initialSizesKey, persistKey, resetToken, setPreviewVisible]);
 
   // Build interleaved [pane, handle, pane, handle, pane, …] children.
   const items: React.ReactElement[] = [];

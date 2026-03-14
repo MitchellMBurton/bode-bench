@@ -188,6 +188,7 @@ export function ConsoleLayout({
           initialSizes={[64, 36]}
           minSizePx={[200, 200]}
           resetToken={layoutResetToken}
+          persistKey="console:root"
         >
           {[
             /* Top row */
@@ -197,6 +198,7 @@ export function ConsoleLayout({
               initialSizes={[...LEFT_COLUMN_DEFAULT]}
               minSizePx={[240, 320]}
               resetToken={layoutResetToken}
+              persistKey="console:top-row"
             >
               {[
                 <ChromePanel key="tl" {...topLeft} visualMode={visualMode} />,
@@ -211,6 +213,7 @@ export function ConsoleLayout({
               initialSizes={[...LEFT_COLUMN_DEFAULT]}
               minSizePx={[240, 320]}
               resetToken={layoutResetToken}
+              persistKey="console:bottom-row"
             >
               {[
                 <ChromePanel key="bl" {...bottomLeft} visualMode={visualMode} />,

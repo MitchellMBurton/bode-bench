@@ -118,6 +118,7 @@ export default function App(): React.ReactElement {
                 initialSizes={[24, 18, 9, 9, 10, 30]}
                 minSizePx={[96, 72, 56, 56, 56, 80]}
                 resetToken={layoutResetToken}
+                persistKey="console:top-right-stack"
               >
                 {[
                   <WaveformOverviewPanel key="overview" />,
@@ -145,6 +146,7 @@ export default function App(): React.ReactElement {
                 initialSizes={[30, 30, 40]}
                 minSizePx={[72, 72, 56]}
                 resetToken={layoutResetToken}
+                persistKey="console:bottom-left-stack"
               >
                 {[
                   <LevelsPanel key="levels" />,
@@ -169,6 +171,7 @@ export default function App(): React.ReactElement {
                 initialSizes={[18, 82]}
                 minSizePx={[48, 96]}
                 resetToken={layoutResetToken}
+                persistKey="console:bottom-right-stack"
               >
                 {[
                   <LoudnessHistoryPanel key="loudness" />,
