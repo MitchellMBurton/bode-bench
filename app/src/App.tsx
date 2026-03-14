@@ -20,14 +20,23 @@ import { FrequencyBandsPanel } from './panels/FrequencyBandsPanel';
 import { PitchTrackerPanel } from './panels/PitchTrackerPanel';
 import { HarmonicLadderPanel } from './panels/HarmonicLadderPanel';
 import { LoudnessHistoryPanel } from './panels/LoudnessHistoryPanel';
-import { useAudioEngine, useDisplayMode, useTheaterMode } from './core/session';
+import { useAudioEngine, useDiagnosticsLog, useDisplayMode, useTheaterMode } from './core/session';
 import type { VisualMode } from './audio/displayMode';
 import { COLORS, FONTS, SPACING } from './theme';
 
 const SEEK_STEP = 5;
+const SEEK_STEP_LARGE = 15;
+
+function formatTransportTime(seconds: number): string {
+  const minutes = Math.floor(seconds / 60);
+  const secs = Math.floor(seconds % 60);
+  const tenths = Math.floor((seconds % 1) * 10);
+  return `${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}.${tenths}`;
+}
 
 export default function App(): React.ReactElement {
   const audioEngine = useAudioEngine();
+  const diagnosticsLog = useDiagnosticsLog();
   const displayMode = useDisplayMode();
   const theaterMode = useTheaterMode();
   const [filename, setFilename] = useState<string | null>(null);
@@ -59,11 +68,26 @@ export default function App(): React.ReactElement {
           break;
         case 'ArrowLeft':
           e.preventDefault();
-          audioEngine.seek(Math.max(0, audioEngine.currentTime - SEEK_STEP));
+          audioEngine.seek(Math.max(0, audioEngine.currentTime - (e.shiftKey ? SEEK_STEP_LARGE : SEEK_STEP)));
           break;
         case 'ArrowRight':
           e.preventDefault();
-          audioEngine.seek(Math.min(audioEngine.duration, audioEngine.currentTime + SEEK_STEP));
+          audioEngine.seek(Math.min(audioEngine.duration, audioEngine.currentTime + (e.shiftKey ? SEEK_STEP_LARGE : SEEK_STEP)));
+          break;
+        case 'KeyS':
+          e.preventDefault();
+          audioEngine.stop();
+          break;
+        case 'KeyL':
+          e.preventDefault();
+          if (audioEngine.duration <= 0) break;
+          if (audioEngine.loopStart !== null && audioEngine.loopEnd !== null) {
+            audioEngine.clearLoop();
+            diagnosticsLog.push('loop cleared', 'info', 'transport');
+          } else {
+            audioEngine.setLoop(0, audioEngine.duration);
+            diagnosticsLog.push(`loop file 00:00.0 -> ${formatTransportTime(audioEngine.duration)}`, 'info', 'transport');
+          }
           break;
         case 'Escape':
           e.preventDefault();
@@ -73,7 +97,7 @@ export default function App(): React.ReactElement {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [audioEngine]);
+  }, [audioEngine, diagnosticsLog]);
 
   const fileTitle = filename ? filename.replace(/\.[^/.]+$/, '') : null;
   const panelTitle = fileTitle ?? 'NO SESSION';
@@ -278,4 +302,3 @@ const scanLineStyle: React.CSSProperties = {
   mixBlendMode: 'overlay',
   willChange: 'background-position',
 };
-
