@@ -39,6 +39,7 @@ const DECLICK_IN_S = 0.008;
 const SEEK_RESUME_DELAY_MS = 140;
 const STRETCH_WATCHDOG_GRACE_S = 0.75;
 const STRETCH_WATCHDOG_TIMEOUT_S = 0.6;
+const MAX_STRETCH_PREP_BYTES = 512 * 1024 * 1024;
 const SCRUB_STYLE_CONFIG: Record<ScrubStyle, ScrubStyleConfig> = {
   step: {
     delayMs: 28,
@@ -276,6 +277,10 @@ export class AudioEngine {
     });
   }
 
+  private estimateStretchPrepBytes(buffer: AudioBuffer): number {
+    return buffer.length * buffer.numberOfChannels * Float32Array.BYTES_PER_ELEMENT;
+  }
+
   async load(file: File): Promise<void> {
     const ctx = this.ensureContext();
     const loadVersion = ++this.loadVersion;
@@ -322,28 +327,38 @@ export class AudioEngine {
 
     const stretchStartedAt = performance.now();
     let stretchEnabledForBuffer = false;
-    await this.runSerializedStretchMutation(async () => {
-      if (loadVersion !== this.loadVersion) return;
-      try {
-        const stretchNode = await this.ensureStretchNode(decodedBuffer.numberOfChannels);
+    const stretchPrepBytes = this.estimateStretchPrepBytes(decodedBuffer);
+    if (stretchPrepBytes > MAX_STRETCH_PREP_BYTES) {
+      await this.runSerializedStretchMutation(async () => {
         if (loadVersion !== this.loadVersion) return;
-        await stretchNode.dropBuffers();
-        if (loadVersion !== this.loadVersion) return;
-        await stretchNode.addBuffers(this.prepareStretchBuffers(decodedBuffer));
-        if (loadVersion !== this.loadVersion) return;
-        stretchEnabledForBuffer = true;
-      } catch (error) {
-        console.error('stretch load failed, falling back to native playback', error);
-        if (loadVersion === this.loadVersion) {
+        if (this.stretchNode || this.stretchNodeReady) {
           await this.disposeStretchNode();
         }
-      }
-    });
+      });
+    } else {
+      await this.runSerializedStretchMutation(async () => {
+        if (loadVersion !== this.loadVersion) return;
+        try {
+          const stretchNode = await this.ensureStretchNode(decodedBuffer.numberOfChannels);
+          if (loadVersion !== this.loadVersion) return;
+          await stretchNode.dropBuffers();
+          if (loadVersion !== this.loadVersion) return;
+          await stretchNode.addBuffers(this.prepareStretchBuffers(decodedBuffer));
+          if (loadVersion !== this.loadVersion) return;
+          stretchEnabledForBuffer = true;
+        } catch {
+          console.warn('stretch prep failed, native playback retained');
+          if (loadVersion === this.loadVersion) {
+            await this.disposeStretchNode();
+          }
+        }
+      });
+    }
     stretchMs = performance.now() - stretchStartedAt;
     if (loadVersion !== this.loadVersion) return;
 
     this.stretchEnabledForBuffer = stretchEnabledForBuffer;
-    this.pitchShiftAvailable = true;
+    this.pitchShiftAvailable = stretchEnabledForBuffer;
     this.buffer = decodedBuffer;
     this._filename = file.name;
     this.offsetAt = 0;
@@ -1147,8 +1162,6 @@ export class AudioEngine {
     }
   }
 }
-
-
 
 
 
