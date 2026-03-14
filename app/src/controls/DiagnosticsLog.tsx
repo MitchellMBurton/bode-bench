@@ -2,7 +2,7 @@
 import { useAudioEngine, useDiagnosticsLog, usePerformanceDiagnosticsStore } from '../core/session';
 import { CANVAS, COLORS, FONTS, SPACING } from '../theme';
 import type { FileAnalysis, TransportState } from '../types';
-import type { DiagnosticsEntry, PerformanceDiagnosticsSnapshot, PerformanceEvent } from '../diagnostics/logStore';
+import type { DiagnosticsEntry, PerformanceDiagnosticsSnapshot, PerformanceEvent, PerformanceTraceSample } from '../diagnostics/logStore';
 
 function formatPlaybackTime(seconds: number): string {
   const minutes = Math.floor(seconds / 60);
@@ -546,6 +546,17 @@ function clampMeter(value: number, max: number): number {
   return Math.max(0, Math.min(100, (value / max) * 100));
 }
 
+function formatTraceSpan(samples: readonly PerformanceTraceSample[]): string {
+  if (samples.length < 2) return 'LIVE';
+  const durationMs = Math.max(0, samples[samples.length - 1].atMs - samples[0].atMs);
+  if (durationMs < 1000) return '<1s';
+  const totalSeconds = Math.max(1, Math.round(durationMs / 1000));
+  if (totalSeconds < 60) return `${totalSeconds}s`;
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return seconds === 0 ? `${minutes}m` : `${minutes}m ${String(seconds).padStart(2, '0')}s`;
+}
+
 function inferPerformanceHealth(snapshot: PerformanceDiagnosticsSnapshot): {
   readonly title: string;
   readonly detail: string;
@@ -614,6 +625,7 @@ function buildPerformanceExport(snapshot: PerformanceDiagnosticsSnapshot): strin
     `Recoveries   ${snapshot.videoRecoveryCount}`,
     `Wait/Stall   ${snapshot.videoWaitCount} / ${snapshot.videoStallCount}`,
     `Transport    ${snapshot.transportRate.toFixed(2)}x / ${snapshot.pitchSemitones.toFixed(0)} st`,
+    `Trace Span   ${formatTraceSpan(snapshot.trace)}`,
   ];
 
   if (snapshot.lastLoad) {
@@ -638,6 +650,7 @@ export function PerformanceDiagnostics(): React.ReactElement {
   const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const health = useMemo(() => inferPerformanceHealth(snapshot), [snapshot]);
+  const traceSamples = useMemo(() => snapshot.trace, [snapshot.trace]);
   const recentEvents = useMemo(() => [...snapshot.recentEvents].slice(-12).reverse(), [snapshot.recentEvents]);
 
   useEffect(() => {
@@ -724,6 +737,8 @@ export function PerformanceDiagnostics(): React.ReactElement {
         />
       </div>
 
+      <PerformanceTracePanel samples={traceSamples} />
+
       <div style={perfBodyStyle}>
         <div style={perfPanelStyle}>
           <div style={perfSectionTitleStyle}>PRESSURE MAP</div>
@@ -805,6 +820,160 @@ function PerformanceMeter({
       </div>
       <div style={perfMeterTrackStyle}>
         <div style={{ ...perfMeterFillStyle, width: `${fill}%`, background: fillColor }} />
+      </div>
+    </div>
+  );
+}
+
+function PerformanceTracePanel({ samples }: { samples: readonly PerformanceTraceSample[] }): React.ReactElement {
+  const width = 960;
+  const height = 188;
+  const plotLeft = 84;
+  const plotRight = 18;
+  const plotTop = 18;
+  const laneHeight = 28;
+  const laneGap = 12;
+  const plotWidth = width - plotLeft - plotRight;
+  const latest = samples[samples.length - 1] ?? null;
+  const spanLabel = formatTraceSpan(samples);
+
+  if (samples.length < 2 || !latest) {
+    return (
+      <div style={perfPanelStyle}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: SPACING.sm, alignItems: 'baseline' }}>
+          <div style={perfSectionTitleStyle}>TIME TRACE</div>
+          <div style={{ ...perfMeterValueStyle, color: COLORS.textDim }}>LAST {spanLabel}</div>
+        </div>
+        <div style={perfEmptyStyle}>Keep Perf Lab open while you play, scrub, or retune. This strip will accumulate a rolling performance history over time.</div>
+      </div>
+    );
+  }
+
+  const xForIndex = (index: number): number => plotLeft + (plotWidth * index) / Math.max(1, samples.length - 1);
+  const laneTopAt = (laneIndex: number): number => plotTop + laneIndex * (laneHeight + laneGap);
+  const positiveY = (value: number, max: number, top: number): number => {
+    const ratio = Math.max(0, Math.min(1, value / max));
+    return top + laneHeight - ratio * (laneHeight - 4) - 2;
+  };
+  const centeredY = (value: number, max: number, top: number): number => {
+    const ratio = Math.max(-1, Math.min(1, value / max));
+    return top + laneHeight / 2 - ratio * ((laneHeight - 6) * 0.5);
+  };
+  const buildLinePath = (
+    selector: (sample: PerformanceTraceSample) => number,
+    max: number,
+    laneIndex: number,
+    centered = false,
+  ): string => {
+    const top = laneTopAt(laneIndex);
+    return samples
+      .map((sample, index) => {
+        const x = xForIndex(index);
+        const y = centered
+          ? centeredY(selector(sample), max, top)
+          : positiveY(selector(sample), max, top);
+        return `${index === 0 ? 'M' : 'L'}${x.toFixed(2)} ${y.toFixed(2)}`;
+      })
+      .join(' ');
+  };
+  const buildAreaPath = (
+    selector: (sample: PerformanceTraceSample) => number,
+    max: number,
+    laneIndex: number,
+  ): string => {
+    const top = laneTopAt(laneIndex);
+    const baseline = top + laneHeight - 2;
+    const points = samples.map((sample, index) => `${xForIndex(index).toFixed(2)} ${positiveY(selector(sample), max, top).toFixed(2)}`);
+    if (points.length === 0) return '';
+    return `M${plotLeft} ${baseline.toFixed(2)} L${points.join(' L ')} L${xForIndex(samples.length - 1).toFixed(2)} ${baseline.toFixed(2)} Z`;
+  };
+
+  const lanes = [
+    {
+      label: 'UI P95',
+      detail: formatPerfMs(latest.uiFrameP95Ms),
+      color: 'rgba(134, 222, 255, 0.95)',
+      fill: 'rgba(74, 126, 210, 0.16)',
+      max: 40,
+      selector: (sample: PerformanceTraceSample) => sample.uiFrameP95Ms,
+      centered: false,
+    },
+    {
+      label: 'DRIFT',
+      detail: formatPerfSignedMs(latest.videoDriftMs),
+      color: 'rgba(214, 164, 255, 0.95)',
+      fill: 'rgba(118, 84, 180, 0.12)',
+      max: 240,
+      selector: (sample: PerformanceTraceSample) => sample.videoDriftMs,
+      centered: true,
+    },
+    {
+      label: 'LONG',
+      detail: latest.longTaskPulseMs > 0 ? formatPerfMs(latest.longTaskPulseMs, 0) : '--',
+      color: 'rgba(208, 170, 82, 0.95)',
+      fill: 'rgba(176, 144, 48, 0.18)',
+      max: 180,
+      selector: (sample: PerformanceTraceSample) => sample.longTaskPulseMs,
+      centered: false,
+    },
+    {
+      label: 'LOAD',
+      detail: latest.loadPulseMs > 0 ? formatPerfMs(latest.loadPulseMs, 0) : '--',
+      color: 'rgba(255, 192, 116, 0.95)',
+      fill: 'rgba(196, 126, 52, 0.18)',
+      max: 2400,
+      selector: (sample: PerformanceTraceSample) => sample.loadPulseMs,
+      centered: false,
+    },
+  ] as const;
+
+  const catchupBandWidth = Math.max(3, plotWidth / Math.max(48, samples.length * 1.1));
+
+  return (
+    <div style={perfPanelStyle}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: SPACING.sm, alignItems: 'baseline' }}>
+        <div style={perfSectionTitleStyle}>TIME TRACE</div>
+        <div style={{ ...perfMeterValueStyle, color: COLORS.textDim }}>LAST {spanLabel}</div>
+      </div>
+      <div
+        style={{
+          border: `1px solid ${COLORS.border}`,
+          background: 'linear-gradient(180deg, rgba(7,10,16,0.84), rgba(10,12,18,0.92))',
+          padding: `${SPACING.xs}px ${SPACING.xs}px ${SPACING.sm}px`,
+          boxShadow: 'inset 0 1px 0 rgba(120, 134, 188, 0.06)',
+        }}
+      >
+        <svg viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" style={{ display: 'block', width: '100%', height: 176 }}>
+          <rect x={plotLeft} y={plotTop - 6} width={plotWidth} height={height - plotTop - 18} fill="rgba(9, 12, 18, 0.68)" stroke={COLORS.border} strokeOpacity={0.4} />
+          {samples.map((sample, index) => sample.videoCatchupActive ? (
+            <rect
+              key={`catchup-${sample.atMs}`}
+              x={xForIndex(index) - catchupBandWidth * 0.5}
+              y={laneTopAt(1) - 4}
+              width={catchupBandWidth}
+              height={laneHeight + 8}
+              fill="rgba(132, 106, 228, 0.14)"
+            />
+          ) : null)}
+          {lanes.map((lane, index) => {
+            const top = laneTopAt(index);
+            const baseline = lane.centered ? top + laneHeight / 2 : top + laneHeight - 2;
+            const linePath = buildLinePath(lane.selector, lane.max, index, lane.centered);
+            const areaPath = lane.centered ? '' : buildAreaPath(lane.selector, lane.max, index);
+            return (
+              <g key={lane.label}>
+                <line x1={plotLeft} y1={baseline} x2={width - plotRight} y2={baseline} stroke={COLORS.border} strokeOpacity={lane.centered ? 0.8 : 0.35} />
+                <line x1={plotLeft} y1={top - 6} x2={width - plotRight} y2={top - 6} stroke={COLORS.border} strokeOpacity={0.14} />
+                {areaPath ? <path d={areaPath} fill={lane.fill} /> : null}
+                <path d={linePath} fill="none" stroke={lane.color} strokeWidth={1.7} strokeLinejoin="round" strokeLinecap="round" />
+                <text x={12} y={top + 10} fill={COLORS.textCategory} fontFamily={FONTS.mono} fontSize={11} letterSpacing="1.6">{lane.label}</text>
+                <text x={width - 10} y={top + 10} fill={lane.color} fontFamily={FONTS.mono} fontSize={11} textAnchor="end">{lane.detail}</text>
+              </g>
+            );
+          })}
+          <text x={plotLeft} y={height - 6} fill={COLORS.textDim} fontFamily={FONTS.mono} fontSize={10} letterSpacing="1.2">-{spanLabel}</text>
+          <text x={width - 10} y={height - 6} fill={COLORS.textDim} fontFamily={FONTS.mono} fontSize={10} textAnchor="end" letterSpacing="1.2">NOW</text>
+        </svg>
       </div>
     </div>
   );

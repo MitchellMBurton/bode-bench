@@ -159,6 +159,15 @@ export interface PerformanceLoadSample {
   readonly stretchEnabled: boolean;
 }
 
+export interface PerformanceTraceSample {
+  readonly atMs: number;
+  readonly uiFrameP95Ms: number;
+  readonly videoDriftMs: number;
+  readonly longTaskPulseMs: number;
+  readonly loadPulseMs: number;
+  readonly videoCatchupActive: boolean;
+}
+
 export interface PerformanceDiagnosticsSnapshot {
   readonly filename: string | null;
   readonly transportPlaying: boolean;
@@ -180,6 +189,7 @@ export interface PerformanceDiagnosticsSnapshot {
   readonly videoWaitCount: number;
   readonly videoStallCount: number;
   readonly lastLoad: PerformanceLoadSample | null;
+  readonly trace: readonly PerformanceTraceSample[];
   readonly recentEvents: readonly PerformanceEvent[];
 }
 
@@ -195,6 +205,10 @@ type VideoEventKind = 'waiting' | 'stalled' | 'hard-sync' | 'recover' | 'retune'
 const PERF_MAX_FRAME_SAMPLES = 120;
 const PERF_MAX_EVENTS = 40;
 const PERF_HOT_EMIT_MS = 180;
+const PERF_TRACE_MAX_SAMPLES = 180;
+const PERF_TRACE_SAMPLE_MS = 450;
+const PERF_TRACE_LONG_TASK_HOLD_MS = 2200;
+const PERF_TRACE_LOAD_HOLD_MS = 3000;
 
 function perfNowMs(): number {
   return typeof performance !== 'undefined' ? performance.now() : Date.now();
@@ -228,6 +242,7 @@ const INITIAL_PERF_SNAPSHOT: PerformanceDiagnosticsSnapshot = {
   videoWaitCount: 0,
   videoStallCount: 0,
   lastLoad: null,
+  trace: [],
   recentEvents: [],
 };
 
@@ -239,6 +254,9 @@ export class PerformanceDiagnosticsStore {
   private emitTimer: ReturnType<typeof setTimeout> | null = null;
   private lastEmitAt = 0;
   private lastEventAt = new Map<string, number>();
+  private lastTraceSampleAt = 0;
+  private lastLongTaskAtMs = 0;
+  private lastLoadAtMs = 0;
 
   subscribe = (listener: Listener): (() => void) => {
     this.listeners.add(listener);
@@ -274,6 +292,7 @@ export class PerformanceDiagnosticsStore {
 
   noteLongTask(durationMs: number): void {
     if (!Number.isFinite(durationMs) || durationMs <= 0) return;
+    this.lastLongTaskAtMs = Date.now();
     this.snapshot = {
       ...this.snapshot,
       longTaskCount: this.snapshot.longTaskCount + 1,
@@ -360,6 +379,7 @@ export class PerformanceDiagnosticsStore {
   }
 
   noteLoadSample(sample: PerformanceLoadSample): void {
+    this.lastLoadAtMs = Date.now();
     this.snapshot = {
       ...this.snapshot,
       lastLoad: sample,
@@ -380,11 +400,15 @@ export class PerformanceDiagnosticsStore {
   }
 
   clearEvents(): void {
-    if (this.snapshot.recentEvents.length === 0) return;
+    if (this.snapshot.recentEvents.length === 0 && this.snapshot.trace.length === 0) return;
     this.snapshot = {
       ...this.snapshot,
+      trace: [],
       recentEvents: [],
     };
+    this.lastTraceSampleAt = 0;
+    this.lastLongTaskAtMs = 0;
+    this.lastLoadAtMs = 0;
     this.lastEventAt.clear();
     this.scheduleEmit(true);
   }
@@ -444,9 +468,42 @@ export class PerformanceDiagnosticsStore {
   }
 
   private emit(): void {
+    this.appendTraceSample();
     this.lastEmitAt = perfNowMs();
     for (const listener of this.listeners) {
       listener();
     }
+  }
+
+  private appendTraceSample(): void {
+    const stamp = Date.now();
+    if (this.lastTraceSampleAt > 0 && stamp - this.lastTraceSampleAt < PERF_TRACE_SAMPLE_MS) {
+      return;
+    }
+
+    const longTaskPulseMs =
+      this.snapshot.lastLongTaskMs !== null && stamp - this.lastLongTaskAtMs <= PERF_TRACE_LONG_TASK_HOLD_MS
+        ? this.snapshot.lastLongTaskMs
+        : 0;
+    const loadPulseMs =
+      this.snapshot.lastLoad !== null && stamp - this.lastLoadAtMs <= PERF_TRACE_LOAD_HOLD_MS
+        ? this.snapshot.lastLoad.totalMs
+        : 0;
+
+    const nextSample: PerformanceTraceSample = {
+      atMs: stamp,
+      uiFrameP95Ms: this.snapshot.uiFrameP95Ms,
+      videoDriftMs: this.snapshot.videoDriftMs,
+      longTaskPulseMs,
+      loadPulseMs,
+      videoCatchupActive: this.snapshot.videoCatchupActive,
+    };
+
+    const nextTrace = [...this.snapshot.trace, nextSample];
+    this.snapshot = {
+      ...this.snapshot,
+      trace: nextTrace.length > PERF_TRACE_MAX_SAMPLES ? nextTrace.slice(nextTrace.length - PERF_TRACE_MAX_SAMPLES) : nextTrace,
+    };
+    this.lastTraceSampleAt = stamp;
   }
 }
