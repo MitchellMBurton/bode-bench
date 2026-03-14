@@ -107,6 +107,15 @@ export class AudioEngine {
   // worklet. Used to gate the stretch watchdog so it does not fire when we are
   // running the native path with stretch buffers loaded but idle.
   private _usingStretchForPlayback = false;
+
+  // Media-element path — used for video files to avoid decoding the entire
+  // audio track into a large PCM AudioBuffer, which causes memory pressure and
+  // audio thread starvation (crackling) on long content.
+  private mediaElement: HTMLAudioElement | null = null;
+  private mediaSource: MediaElementAudioSourceNode | null = null;
+  private mediaElementUrl: string | null = null;
+  private mediaElementMode = false;
+
   private seekResumeTimer: number | null = null;
   private seekResumePending = false;
   private scrubActive = false;
@@ -282,6 +291,23 @@ export class AudioEngine {
     return pending;
   }
 
+  private clearMediaElement(): void {
+    if (this.mediaSource) {
+      try { this.mediaSource.disconnect(); } catch { /* already disconnected */ }
+      this.mediaSource = null;
+    }
+    if (this.mediaElement) {
+      this.mediaElement.pause();
+      this.mediaElement.src = '';
+      this.mediaElement = null;
+    }
+    if (this.mediaElementUrl) {
+      URL.revokeObjectURL(this.mediaElementUrl);
+      this.mediaElementUrl = null;
+    }
+    this.mediaElementMode = false;
+  }
+
   private prepareStretchBuffers(buffer: AudioBuffer): Float32Array[] {
     return Array.from({ length: buffer.numberOfChannels }, (_, channel) => {
       return new Float32Array(buffer.getChannelData(channel));
@@ -297,6 +323,7 @@ export class AudioEngine {
     this.stop();
     this.clearSeekResume();
     this.clearScrubTimers();
+    this.clearMediaElement();
     this.scrubActive = false;
     this.scrubResumeAfter = false;
     this.scrubPreviewRate = 1;
@@ -307,6 +334,68 @@ export class AudioEngine {
     this._playbackRate = 1;
     this._pitchSemitones = 0;
 
+    const isVideo = file.type.startsWith('video/') ||
+      /\.(mkv|mp4|m4v|mov|avi|webm|ts|flv|wmv)$/i.test(file.name);
+
+    if (isVideo) {
+      await this.loadViaMediaElement(file, ctx);
+    } else {
+      await this.loadViaBuffer(file, ctx);
+    }
+  }
+
+  private async loadViaMediaElement(file: File, ctx: AudioContext): Promise<void> {
+    const url = URL.createObjectURL(file);
+    const el = new Audio();
+    el.src = url;
+    el.preload = 'auto';
+
+    await new Promise<void>((resolve, reject) => {
+      const onMeta = () => { el.removeEventListener('loadedmetadata', onMeta); el.removeEventListener('error', onErr); resolve(); };
+      const onErr = () => { el.removeEventListener('loadedmetadata', onMeta); el.removeEventListener('error', onErr); reject(new Error('media element failed to load')); };
+      el.addEventListener('loadedmetadata', onMeta, { once: true });
+      el.addEventListener('error', onErr, { once: true });
+    });
+
+    const source = ctx.createMediaElementSource(el);
+    source.connect(this.playGainNode!);
+
+    this.mediaElement = el;
+    this.mediaElementUrl = url;
+    this.mediaSource = source;
+    this.mediaElementMode = true;
+    this.pitchShiftAvailable = false;
+    this.stretchEnabledForBuffer = false;
+    this._filename = file.name;
+    this.offsetAt = 0;
+    this.fileId++;
+    this._displayGain = 1;
+
+    this.emitTransport();
+
+    // Fire a minimal FileAnalysis so the diagnostics log has duration/channel info.
+    const capturedFileId = this.fileId;
+    setTimeout(() => {
+      if (this.fileId !== capturedFileId || !this.mediaElement) return;
+      const analysis: FileAnalysis = {
+        crestFactorDb: 0,
+        peakDb: 0,
+        rmsDb: 0,
+        clipCount: 0,
+        duration: this.mediaElement.duration,
+        channels: this.mediaSource?.channelCount ?? 2,
+        decodedSampleRate: ctx.sampleRate,
+        contextSampleRate: ctx.sampleRate,
+        fileId: capturedFileId,
+      };
+      this._fileAnalysis = analysis;
+      for (const fn of this.fileReadyListeners) {
+        fn(analysis);
+      }
+    }, 0);
+  }
+
+  private async loadViaBuffer(file: File, ctx: AudioContext): Promise<void> {
     const arrayBuffer = await file.arrayBuffer();
     const decodedBuffer = await ctx.decodeAudioData(arrayBuffer);
     this.stretchEnabledForBuffer = false;
@@ -483,18 +572,24 @@ export class AudioEngine {
     if (this._isPlaying && this.ctx) {
       this.rampPlayGain(0, DECLICK_FADE_S);
 
-      if (this.stretchEnabledForBuffer && this.stretchNode) {
-        this.queueStretchCommand(
-          this.stretchNode.stop(this.ctx.currentTime + DECLICK_FADE_S),
-          label,
-        );
-      }
+      if (this.mediaElementMode && this.mediaElement) {
+        // The gain ramp to 0 handles the declick; pause the element after it lands.
+        const el = this.mediaElement;
+        window.setTimeout(() => { try { el.pause(); } catch { /* ignore */ } }, DECLICK_FADE_S * 1000 + 10);
+      } else {
+        if (this.stretchEnabledForBuffer && this.stretchNode) {
+          this.queueStretchCommand(
+            this.stretchNode.stop(this.ctx.currentTime + DECLICK_FADE_S),
+            label,
+          );
+        }
 
-      if (this.sourceNode) {
-        try {
-          this.sourceNode.stop(this.ctx.currentTime + DECLICK_FADE_S + 0.001);
-        } catch {
-          // Ignore stop on an already-ended native source.
+        if (this.sourceNode) {
+          try {
+            this.sourceNode.stop(this.ctx.currentTime + DECLICK_FADE_S + 0.001);
+          } catch {
+            // Ignore stop on an already-ended native source.
+          }
         }
       }
     }
@@ -509,13 +604,40 @@ export class AudioEngine {
 
   play(): void {
     this.clearSeekResume();
-    if (this._isPlaying || !this.buffer || !this.playGainNode) {
-      return;
-    }
+    if (this._isPlaying || !this.playGainNode) return;
+    if (!this.mediaElementMode && !this.buffer) return;
 
     const ctx = this.ensureContext();
     if (ctx.state === 'suspended') {
       void ctx.resume();
+    }
+
+    if (this.mediaElementMode && this.mediaElement) {
+      const el = this.mediaElement;
+      el.currentTime = this.offsetAt;
+      el.playbackRate = this._playbackRate;
+
+      this.rampPlayGain(1, DECLICK_IN_S, ctx.currentTime);
+      this.startedAt = ctx.currentTime;
+      this._isPlaying = true;
+      this.playId++;
+
+      el.onended = () => {
+        if (this.mediaElement !== el || !this._isPlaying) return;
+        this.stopPlayback(this._loopStart === null, 'ended');
+        this.emitTransport();
+      };
+
+      void el.play().catch((error) => {
+        console.error('media element play failed', error);
+        if (this.mediaElement !== el || !this._isPlaying) return;
+        this._isPlaying = false;
+        this.emitTransport();
+      });
+
+      this.startRaf();
+      this.emitTransport();
+      return;
     }
 
     const useNativeScrubPreview = this.scrubActive && this.scrubConfig.preferNative;
@@ -617,6 +739,7 @@ export class AudioEngine {
     this.scrubLastTarget = 0;
     this.scrubLastMoveAt = 0;
     this.stopPlayback(true, 'reset');
+    this.clearMediaElement();
     this.buffer = null;
     this._filename = null;
     this.fileId++;
@@ -637,7 +760,7 @@ export class AudioEngine {
   }
 
   setLoop(start: number, end: number): void {
-    const dur = this.buffer?.duration ?? 0;
+    const dur = this.duration;
     this._loopStart = Math.max(0, Math.min(start, dur));
     this._loopEnd = Math.max(0, Math.min(end, dur));
     if (this._loopStart >= this._loopEnd) {
@@ -657,7 +780,7 @@ export class AudioEngine {
   get loopEnd(): number | null { return this._loopEnd; }
 
   beginScrub(): void {
-    if (!this.buffer) return;
+    if (!this.buffer && !this.mediaElementMode) return;
 
     const pendingResume = this.seekResumePending;
     this.clearSeekResume();
@@ -678,12 +801,24 @@ export class AudioEngine {
   }
 
   scrubTo(seconds: number): void {
-    if (!this.buffer) return;
+    if (!this.buffer && !this.mediaElementMode) return;
     if (!this.scrubActive) {
       this.beginScrub();
     }
 
-    const nextOffset = Math.max(0, Math.min(seconds, this.buffer.duration));
+    // In media-element mode, just seek directly — no preview audio.
+    if (this.mediaElementMode && this.mediaElement) {
+      const nextOffset = Math.max(0, Math.min(seconds, this.duration));
+      this.clearScrubTimers();
+      if (this._isPlaying) this.stopPlayback(false, 'scrub-shift');
+      this.offsetAt = nextOffset;
+      this.scrubLastTarget = nextOffset;
+      this.mediaElement.currentTime = nextOffset;
+      this.emitTransport();
+      return;
+    }
+
+    const nextOffset = Math.max(0, Math.min(seconds, this.buffer!.duration));
     this.updateScrubPreviewRate(nextOffset);
     const shouldRestart = this.shouldRestartScrubPreview(nextOffset);
 
@@ -748,7 +883,7 @@ export class AudioEngine {
       this.clearSeekResume();
     }
 
-    this.offsetAt = Math.max(0, Math.min(seconds, this.buffer?.duration ?? 0));
+    this.offsetAt = Math.max(0, Math.min(seconds, this.duration));
     this.emitTransport();
 
     if (resumeAfterSeek) {
@@ -758,12 +893,19 @@ export class AudioEngine {
 
   get currentTime(): number {
     if (this.scrubActive) return this.scrubLastTarget;
+    if (this.mediaElementMode && this.mediaElement) {
+      return this.mediaElement.currentTime;
+    }
     if (!this.ctx) return 0;
     if (!this._isPlaying) return this.offsetAt;
     return this.playbackHeadTime;
   }
 
   get duration(): number {
+    if (this.mediaElementMode && this.mediaElement) {
+      const d = this.mediaElement.duration;
+      return isFinite(d) ? d : (this.buffer?.duration ?? 0);
+    }
     return this.buffer?.duration ?? 0;
   }
 
@@ -975,6 +1117,12 @@ export class AudioEngine {
     this.rebasePlaybackClock();
     this._playbackRate = nextRate;
     const nowUsingStretch = this.useStretchPath;
+
+    if (this.mediaElementMode && this.mediaElement) {
+      this.mediaElement.playbackRate = nextRate;
+      this.emitTransport();
+      return;
+    }
 
     if (wasUsingStretch !== nowUsingStretch && this._isPlaying) {
       // Crossing the identity threshold — restart with the appropriate path.
