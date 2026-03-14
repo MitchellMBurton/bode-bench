@@ -830,9 +830,11 @@ function PerformanceEventLine({ event }: { event: PerformanceEvent }): React.Rea
 const perfWrapStyle: React.CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
-  gap: SPACING.md,
+  gap: SPACING.sm,
   height: '100%',
-  padding: `${SPACING.md}px ${SPACING.lg}px`,
+  minHeight: 0,
+  overflowY: 'auto',
+  padding: `${SPACING.md}px ${SPACING.lg}px ${SPACING.sm}px`,
   boxSizing: 'border-box',
   background: 'linear-gradient(180deg, rgba(8,10,16,0.96), rgba(14,16,24,0.98))',
 };
@@ -842,12 +844,14 @@ const perfHeaderStyle: React.CSSProperties = {
   justifyContent: 'space-between',
   gap: SPACING.lg,
   alignItems: 'flex-start',
+  paddingBottom: SPACING.sm,
+  borderBottom: `1px solid ${COLORS.border}`,
 };
 
 const perfHeaderTextStyle: React.CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
-  gap: 4,
+  gap: 3,
   minWidth: 0,
 };
 
@@ -863,6 +867,7 @@ const perfHealthTitleStyle: React.CSSProperties = {
   fontSize: FONTS.sizeLg,
   letterSpacing: '0.08em',
   color: COLORS.textPrimary,
+  lineHeight: 1.15,
 };
 
 const perfHealthDetailStyle: React.CSSProperties = {
@@ -870,8 +875,8 @@ const perfHealthDetailStyle: React.CSSProperties = {
   fontSize: FONTS.sizeSm,
   color: COLORS.textSecondary,
   letterSpacing: '0.04em',
-  maxWidth: 720,
-  lineHeight: 1.6,
+  maxWidth: 760,
+  lineHeight: 1.5,
 };
 
 const perfActionsStyle: React.CSSProperties = {
@@ -879,12 +884,14 @@ const perfActionsStyle: React.CSSProperties = {
   gap: SPACING.xs,
   flexWrap: 'wrap',
   justifyContent: 'flex-end',
+  flexShrink: 0,
 };
 
 const perfCardGridStyle: React.CSSProperties = {
   display: 'grid',
-  gridTemplateColumns: 'repeat(5, minmax(0, 1fr))',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(164px, 1fr))',
   gap: SPACING.sm,
+  flexShrink: 0,
 };
 
 const perfCardStyle: React.CSSProperties = {
@@ -892,12 +899,13 @@ const perfCardStyle: React.CSSProperties = {
   borderStyle: 'solid',
   borderColor: COLORS.border,
   background: 'linear-gradient(180deg, rgba(20,22,32,0.92), rgba(11,13,20,0.95))',
-  padding: `${SPACING.sm}px ${SPACING.md}px`,
+  padding: `${SPACING.xs + 1}px ${SPACING.md}px`,
   borderRadius: 2,
   display: 'flex',
   flexDirection: 'column',
-  gap: 4,
+  gap: 3,
   minWidth: 0,
+  boxShadow: 'inset 0 1px 0 rgba(120, 134, 188, 0.08)',
 };
 
 const perfCardLabelStyle: React.CSSProperties = {
@@ -918,15 +926,16 @@ const perfCardDetailStyle: React.CSSProperties = {
   fontSize: FONTS.sizeXs,
   color: COLORS.textSecondary,
   letterSpacing: '0.03em',
-  lineHeight: 1.5,
+  lineHeight: 1.4,
 };
 
 const perfBodyStyle: React.CSSProperties = {
   display: 'grid',
-  gridTemplateColumns: 'minmax(280px, 0.95fr) minmax(360px, 1.05fr)',
-  gap: SPACING.md,
+  gridTemplateColumns: 'minmax(280px, 0.92fr) minmax(360px, 1.08fr)',
+  gap: SPACING.sm,
   minHeight: 0,
   flex: 1,
+  overflow: 'hidden',
 };
 
 const perfPanelStyle: React.CSSProperties = {
@@ -936,8 +945,10 @@ const perfPanelStyle: React.CSSProperties = {
   gap: SPACING.sm,
   border: `1px solid ${COLORS.border}`,
   background: 'rgba(11, 14, 20, 0.88)',
-  padding: SPACING.md,
+  padding: `${SPACING.sm}px ${SPACING.md}px`,
   borderRadius: 2,
+  overflow: 'hidden',
+  boxShadow: 'inset 0 1px 0 rgba(120, 134, 188, 0.07)',
 };
 
 const perfSectionTitleStyle: React.CSSProperties = {
@@ -976,7 +987,7 @@ const perfMeterValueStyle: React.CSSProperties = {
 
 const perfMeterTrackStyle: React.CSSProperties = {
   position: 'relative',
-  height: 8,
+  height: 7,
   borderRadius: 999,
   background: COLORS.levelTrack,
   overflow: 'hidden',
@@ -997,12 +1008,15 @@ const perfEventsStyle: React.CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
   gap: 2,
-  paddingRight: 2,
+  padding: `${SPACING.xs}px ${SPACING.sm}px`,
+  border: `1px solid ${COLORS.border}`,
+  background: 'rgba(7, 10, 16, 0.78)',
+  boxSizing: 'border-box',
 };
 
 const perfEventLineStyle: React.CSSProperties = {
   display: 'grid',
-  gridTemplateColumns: '62px 58px minmax(0, 1fr)',
+  gridTemplateColumns: '60px 54px minmax(0, 1fr)',
   gap: SPACING.sm,
   alignItems: 'start',
 };

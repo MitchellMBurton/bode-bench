@@ -13,6 +13,7 @@
 //   - Each row's left/right boundary (inner row SplitPanes, independent)
 // ============================================================
 
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { VisualMode } from '../audio/displayMode';
 import { LayoutInteractionProvider } from './LayoutInteraction';
 import { SplitPane } from './SplitPane';
@@ -23,6 +24,11 @@ const CHROME_H = SPACING.chromeHeaderH;
 const GLOBAL_H = SPACING.globalHeaderH;
 const TOOLBAR_H = 26; // px — single-line layout toolbar
 const LEFT_COLUMN_DEFAULT = [24, 76] as const;
+const RUNTIME_TRAY_DEFAULT_H = 286;
+const RUNTIME_TRAY_MIN_H = 210;
+const RUNTIME_TRAY_MAX_H = 420;
+const RUNTIME_TRAY_HANDLE_H = 18;
+const RUNTIME_TRAY_STORAGE_KEY = 'console:runtime-tray-height';
 
 interface PanelDef {
   category: string;
@@ -51,6 +57,31 @@ interface Props {
   visualMode?: VisualMode;
   layoutResetToken: number;
   onResetLayout: () => void;
+}
+
+function clampValue(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}
+
+function getRuntimeTrayMaxHeight(): number {
+  if (typeof window === 'undefined') return RUNTIME_TRAY_MAX_H;
+  return clampValue(Math.round(window.innerHeight * 0.46), RUNTIME_TRAY_MIN_H, RUNTIME_TRAY_MAX_H);
+}
+
+function getDefaultRuntimeTrayHeight(): number {
+  return clampValue(RUNTIME_TRAY_DEFAULT_H, RUNTIME_TRAY_MIN_H, getRuntimeTrayMaxHeight());
+}
+
+function readRuntimeTrayHeight(): number {
+  if (typeof window === 'undefined') return getDefaultRuntimeTrayHeight();
+  try {
+    const raw = window.localStorage.getItem(RUNTIME_TRAY_STORAGE_KEY);
+    const parsed = raw ? Number.parseFloat(raw) : NaN;
+    if (!Number.isFinite(parsed)) return getDefaultRuntimeTrayHeight();
+    return clampValue(parsed, RUNTIME_TRAY_MIN_H, getRuntimeTrayMaxHeight());
+  } catch {
+    return getDefaultRuntimeTrayHeight();
+  }
 }
 
 // ── ChromePanel ───────────────────────────────────────────────────────────────
@@ -113,6 +144,8 @@ export function ConsoleLayout({
   layoutResetToken,
   onResetLayout,
 }: Props): React.ReactElement {
+  const [runtimeTrayHeight, setRuntimeTrayHeight] = useState(() => readRuntimeTrayHeight());
+  const runtimeTrayResizeRef = useRef<{ startY: number; startHeight: number } | null>(null);
   const nge = visualMode === 'nge';
   const hyper = visualMode === 'hyper';
   const headerBorder = nge
@@ -151,6 +184,71 @@ export function ConsoleLayout({
       ? 'rgba(8,14,32,0.92)'
       : COLORS.bg1;
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const onResize = () => {
+      setRuntimeTrayHeight((current) =>
+        clampValue(current, RUNTIME_TRAY_MIN_H, getRuntimeTrayMaxHeight()),
+      );
+    };
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      window.localStorage.setItem(RUNTIME_TRAY_STORAGE_KEY, String(runtimeTrayHeight));
+    } catch {
+      // Ignore localStorage failures and keep the session value in memory.
+    }
+  }, [runtimeTrayHeight]);
+
+  useEffect(() => {
+    return () => {
+      runtimeTrayResizeRef.current = null;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+  }, []);
+
+  const resetRuntimeTrayHeight = useCallback(() => {
+    setRuntimeTrayHeight(getDefaultRuntimeTrayHeight());
+  }, []);
+
+  const onRuntimeTrayResizeMouseDown = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    runtimeTrayResizeRef.current = {
+      startY: event.clientY,
+      startHeight: runtimeTrayHeight,
+    };
+    document.body.style.cursor = 'row-resize';
+    document.body.style.userSelect = 'none';
+
+    const onMove = (ev: MouseEvent) => {
+      const resize = runtimeTrayResizeRef.current;
+      if (!resize) return;
+      const nextHeight = clampValue(
+        resize.startHeight + (ev.clientY - resize.startY),
+        RUNTIME_TRAY_MIN_H,
+        getRuntimeTrayMaxHeight(),
+      );
+      setRuntimeTrayHeight(nextHeight);
+    };
+
+    const onUp = () => {
+      runtimeTrayResizeRef.current = null;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }, [runtimeTrayHeight]);
+
   return (
     <LayoutInteractionProvider>
       <div style={shellStyle}>
@@ -170,11 +268,17 @@ export function ConsoleLayout({
       {runtimeDock ? (
         <>
           <div style={{ ...toolbarStyle, ...runtimeToolbarStyle, borderBottom: `1px solid ${toolbarBorder}` }}>
-            <span style={{ ...toolbarLabelStyle, color: toolbarText }}>{runtimeDock.label}</span>
-            <span style={{ ...toolbarValueStyle, color: toolbarText }}>{runtimeDock.value}</span>
-            <div style={toolbarDividerStyle} />
+            <div style={runtimeToolbarMetaStyle}>
+              <span style={{ ...toolbarLabelStyle, color: toolbarText }}>{runtimeDock.label}</span>
+              <span style={{ ...toolbarValueStyle, color: toolbarText }}>{runtimeDock.value}</span>
+              <div style={toolbarDividerStyle} />
+            </div>
             <div style={runtimeSummaryStyle}>{runtimeDock.summary}</div>
-            <div style={{ flex: 1 }} />
+            <div style={runtimeToolbarActionsStyle}>
+              {runtimeDock.open ? (
+                <span style={runtimeToolbarHintStyle}>DRAG PERF LAB EDGE TO RESIZE</span>
+              ) : null}
+            </div>
             <button
               style={{
                 ...toolbarButtonStyle,
@@ -189,8 +293,26 @@ export function ConsoleLayout({
             </button>
           </div>
           {runtimeDock.open ? (
-            <div style={{ ...runtimeTrayStyle, borderBottom: `1px solid ${toolbarBorder}` }}>
-              {runtimeDock.content}
+            <div
+              style={{
+                ...runtimeTrayStyle,
+                height: runtimeTrayHeight,
+                borderBottom: `1px solid ${toolbarBorder}`,
+              }}
+            >
+              <div style={runtimeTrayContentStyle}>
+                {runtimeDock.content}
+              </div>
+              <div
+                style={runtimeResizeHandleStyle}
+                onMouseDown={onRuntimeTrayResizeMouseDown}
+                onDoubleClick={resetRuntimeTrayHeight}
+                title="Drag to resize the Perf Lab tray. Double click to reset the default height."
+              >
+                <div style={runtimeResizeGripStyle} />
+                <span style={runtimeResizeLabelStyle}>DRAG TO RESIZE PERF LAB</span>
+                <span style={runtimeResizeHintStyle}>DBL-CLICK RESET</span>
+              </div>
             </div>
           ) : null}
         </>
@@ -385,6 +507,14 @@ const runtimeToolbarStyle: React.CSSProperties = {
   height: 'auto',
   paddingTop: 4,
   paddingBottom: 4,
+  gap: SPACING.md,
+};
+
+const runtimeToolbarMetaStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: SPACING.sm,
+  flexShrink: 0,
 };
 
 const runtimeSummaryStyle: React.CSSProperties = {
@@ -393,14 +523,79 @@ const runtimeSummaryStyle: React.CSSProperties = {
   gap: SPACING.xs,
   minWidth: 0,
   flexWrap: 'wrap',
+  flex: 1,
+};
+
+const runtimeToolbarActionsStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'flex-end',
+  minWidth: 0,
+};
+
+const runtimeToolbarHintStyle: React.CSSProperties = {
+  fontFamily: FONTS.mono,
+  fontSize: FONTS.sizeXs,
+  color: COLORS.textDim,
+  letterSpacing: '0.12em',
+  textTransform: 'uppercase',
+  whiteSpace: 'nowrap',
 };
 
 const runtimeTrayStyle: React.CSSProperties = {
   flexShrink: 0,
-  height: 'min(34vh, 272px)',
-  minHeight: 208,
+  minHeight: RUNTIME_TRAY_MIN_H,
   background: COLORS.bg0,
   boxSizing: 'border-box',
+  display: 'flex',
+  flexDirection: 'column',
+  overflow: 'hidden',
+};
+
+const runtimeTrayContentStyle: React.CSSProperties = {
+  flex: 1,
+  minHeight: 0,
+  overflow: 'hidden',
+};
+
+const runtimeResizeHandleStyle: React.CSSProperties = {
+  height: RUNTIME_TRAY_HANDLE_H,
+  flexShrink: 0,
+  display: 'flex',
+  alignItems: 'center',
+  gap: SPACING.sm,
+  padding: `0 ${SPACING.md}px`,
+  boxSizing: 'border-box',
+  borderTop: `1px solid ${COLORS.border}`,
+  background: 'linear-gradient(180deg, rgba(12, 14, 20, 0.98), rgba(9, 10, 16, 1))',
+  cursor: 'row-resize',
+  userSelect: 'none',
+};
+
+const runtimeResizeGripStyle: React.CSSProperties = {
+  width: 34,
+  height: 4,
+  borderRadius: 999,
+  background: 'linear-gradient(90deg, rgba(102, 114, 168, 0.18), rgba(148, 154, 206, 0.82), rgba(102, 114, 168, 0.18))',
+  flexShrink: 0,
+};
+
+const runtimeResizeLabelStyle: React.CSSProperties = {
+  fontFamily: FONTS.mono,
+  fontSize: FONTS.sizeXs,
+  color: COLORS.textSecondary,
+  letterSpacing: '0.12em',
+  textTransform: 'uppercase',
+  flexShrink: 0,
+};
+
+const runtimeResizeHintStyle: React.CSSProperties = {
+  fontFamily: FONTS.mono,
+  fontSize: FONTS.sizeXs,
+  color: COLORS.textDim,
+  letterSpacing: '0.10em',
+  textTransform: 'uppercase',
+  marginLeft: 'auto',
 };
 
 const chromeStyle: React.CSSProperties = {
