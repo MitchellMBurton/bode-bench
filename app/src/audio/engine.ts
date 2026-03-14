@@ -46,6 +46,8 @@ const DEFERRED_ANALYSIS_SLICE_MS = 6;
 const DEFERRED_ANALYSIS_SAMPLE_BATCH = 16_384;
 const STREAMED_MEDIA_SAMPLE_RATE = 48_000;
 const STREAMED_MEDIA_CHANNELS = 2;
+
+type PlaybackBackend = 'decoded' | 'streamed';
 const SCRUB_STYLE_CONFIG: Record<ScrubStyle, ScrubStyleConfig> = {
   step: {
     delayMs: 28,
@@ -100,9 +102,10 @@ export class AudioEngine {
   private stretchChannelCount = 0;
   private stretchLatency = 0;
   private stretchEnabledForBuffer = false;
+  private stretchEnabledForStream = false;
   private stretchLastProgressAt = 0;
   private pitchShiftAvailable = true;
-  private playbackBackend: 'decoded' | 'streamed' = 'decoded';
+  private playbackBackend: PlaybackBackend = 'decoded';
 
   private buffer: AudioBuffer | null = null;
   private startedAt = 0;
@@ -231,6 +234,14 @@ export class AudioEngine {
     return this.stretchEnabledForBuffer ? this.transportRate : this.nativeFallbackRate;
   }
 
+  private get stretchActive(): boolean {
+    return this.stretchEnabledForBuffer || this.stretchEnabledForStream;
+  }
+
+  private get streamedPitchShiftActive(): boolean {
+    return this.playbackBackend === 'streamed' && this.stretchEnabledForStream && !!this.mediaElement;
+  }
+
   private get scrubConfig(): ScrubStyleConfig {
     return SCRUB_STYLE_CONFIG[this._scrubStyle];
   }
@@ -299,6 +310,81 @@ export class AudioEngine {
     return Array.from({ length: buffer.numberOfChannels }, (_, channel) => {
       return new Float32Array(buffer.getChannelData(channel));
     });
+  }
+
+  private routeStreamedSource(throughStretch: boolean): void {
+    if (!this.mediaSourceNode || !this.playGainNode) return;
+
+    try {
+      this.mediaSourceNode.disconnect();
+    } catch {
+      // Already disconnected.
+    }
+
+    if (throughStretch) {
+      if (this.stretchNode) {
+        this.mediaSourceNode.connect(this.stretchNode);
+      }
+      return;
+    }
+
+    this.mediaSourceNode.connect(this.playGainNode);
+  }
+
+  private async prepareStreamedPitchShift(loadVersion: number): Promise<void> {
+    await this.runSerializedStretchMutation(async () => {
+      if (loadVersion !== this.loadVersion || this.playbackBackend !== 'streamed' || !this.mediaElement) return;
+      try {
+        await this.ensureStretchNode(STREAMED_MEDIA_CHANNELS);
+        if (loadVersion !== this.loadVersion || this.playbackBackend !== 'streamed' || !this.mediaElement) return;
+        this.pitchShiftAvailable = true;
+        this.emitTransport();
+      } catch (error) {
+        if (loadVersion !== this.loadVersion || this.playbackBackend !== 'streamed') return;
+        this.pitchShiftAvailable = false;
+        this._pitchSemitones = 0;
+        this.emitTransport();
+        console.warn('streamed pitch prep failed, native playback retained', error);
+      }
+    });
+  }
+
+  private async setStreamedPitchShiftEnabled(enabled: boolean): Promise<boolean> {
+    if (this.playbackBackend !== 'streamed' || !this.mediaElement || !this.mediaSourceNode) {
+      return false;
+    }
+
+    if (!enabled) {
+      if (this.stretchEnabledForStream && this.ctx && this.stretchNode) {
+        try {
+          await this.stretchNode.stop(this.ctx.currentTime + DECLICK_FADE_S);
+        } catch {
+          // Ignore live stretch stop failures while returning to native playback.
+        }
+      }
+      this.routeStreamedSource(false);
+      this.stretchEnabledForStream = false;
+      return true;
+    }
+
+    try {
+      await this.ensureStretchNode(STREAMED_MEDIA_CHANNELS);
+    } catch (error) {
+      this.stretchEnabledForStream = false;
+      this.pitchShiftAvailable = false;
+      console.warn('streamed pitch activation failed, native playback retained', error);
+      return false;
+    }
+
+    if (this.playbackBackend !== 'streamed' || !this.mediaElement || !this.mediaSourceNode) {
+      this.stretchEnabledForStream = false;
+      return false;
+    }
+
+    this.routeStreamedSource(true);
+    this.stretchEnabledForStream = true;
+    this.pitchShiftAvailable = true;
+    return true;
   }
 
   private estimateStretchPrepBytes(buffer: AudioBuffer): number {
@@ -379,6 +465,7 @@ export class AudioEngine {
       this.mediaObjectUrl = null;
     }
 
+    this.stretchEnabledForStream = false;
     this.playbackBackend = 'decoded';
   }
 
@@ -418,6 +505,20 @@ export class AudioEngine {
     media.element.defaultPlaybackRate = this.nativeFallbackRate;
     media.element.playbackRate = this.nativeFallbackRate;
     media.element.currentTime = 0;
+    const pitchPreservingElement = media.element as HTMLMediaElement & {
+      preservesPitch?: boolean;
+      mozPreservesPitch?: boolean;
+      webkitPreservesPitch?: boolean;
+    };
+    if ('preservesPitch' in pitchPreservingElement) {
+      pitchPreservingElement.preservesPitch = true;
+    }
+    if ('mozPreservesPitch' in pitchPreservingElement) {
+      pitchPreservingElement.mozPreservesPitch = true;
+    }
+    if ('webkitPreservesPitch' in pitchPreservingElement) {
+      pitchPreservingElement.webkitPreservesPitch = true;
+    }
 
     const sourceNode = ctx.createMediaElementSource(media.element);
     sourceNode.connect(this.playGainNode);
@@ -440,6 +541,7 @@ export class AudioEngine {
     this.playbackBackend = 'streamed';
     this.buffer = null;
     this.stretchEnabledForBuffer = false;
+    this.stretchEnabledForStream = false;
     this.pitchShiftAvailable = false;
     this._pitchSemitones = 0;
     this._displayGain = 1;
@@ -461,6 +563,7 @@ export class AudioEngine {
     });
 
     this.emitTransport();
+    void this.prepareStreamedPitchShift(loadVersion);
   }
 
   private cancelDeferredAnalysis(): void {
@@ -893,7 +996,7 @@ export class AudioEngine {
     if (this._isPlaying && this.ctx) {
       this.rampPlayGain(0, DECLICK_FADE_S);
 
-      if (this.stretchEnabledForBuffer && this.stretchNode) {
+      if (this.stretchActive && this.stretchNode) {
         this.queueStretchCommand(
           this.stretchNode.stop(this.ctx.currentTime + DECLICK_FADE_S),
           label,
@@ -935,16 +1038,39 @@ export class AudioEngine {
     }
 
     if (this.mediaElement && this.playbackBackend === 'streamed') {
-      this.mediaElement.playbackRate = this.nativeFallbackRate;
+      const previewRate = this.scrubActive ? this.scrubPreviewRate : this.nativeFallbackRate;
+      this.mediaElement.playbackRate = previewRate;
       if (Math.abs(this.mediaElement.currentTime - this.offsetAt) > 0.05) {
         this.mediaElement.currentTime = this.offsetAt;
       }
-      this.rampPlayGain(1, DECLICK_IN_S, ctx.currentTime);
-      this.startedAt = ctx.currentTime;
+      const outputTime = this.streamedPitchShiftActive ? ctx.currentTime + this.stretchLatency : ctx.currentTime;
+      this.rampPlayGain(1, DECLICK_IN_S, outputTime);
+      this.startedAt = outputTime;
       this._isPlaying = true;
       this.playId++;
       this.startRaf();
       this.emitTransport();
+      if (this.streamedPitchShiftActive && this.stretchNode) {
+        const schedule: StretchSchedule = {
+          active: true,
+          outputTime,
+          semitones: this._pitchSemitones,
+        };
+        void this.stretchNode.start(schedule).catch((error) => {
+          console.error('streamed pitch start failed, native playback retained', error);
+          if (this.playbackBackend !== 'streamed' || !this.mediaElement) return;
+          const wasPlaying = this._isPlaying;
+          const resumeAt = this.currentTime;
+          this.stopPlayback(false, 'stream-pitch-fallback');
+          this.offsetAt = resumeAt;
+          void this.setStreamedPitchShiftEnabled(false).then(() => {
+            this.pitchShiftAvailable = false;
+            this._pitchSemitones = 0;
+            this.emitTransport();
+            if (wasPlaying) this.play();
+          });
+        });
+      }
       void this.mediaElement.play().catch((error) => {
         if (this.mediaElement) {
           this.offsetAt = this.mediaElement.currentTime;
@@ -1214,6 +1340,9 @@ export class AudioEngine {
   get currentTime(): number {
     if (this.scrubActive) return this.scrubLastTarget;
     if (this.mediaElement) {
+      if (this.streamedPitchShiftActive) {
+        return this.playbackHeadTime;
+      }
       return this._isPlaying ? this.mediaElement.currentTime : this.offsetAt;
     }
     if (!this.ctx) return 0;
@@ -1419,7 +1548,8 @@ export class AudioEngine {
     this._playbackRate = nextRate;
     if (this.stretchEnabledForBuffer) {
       this.scheduleStretchUpdate();
-    } else if (this.mediaElement) {
+    }
+    if (this.mediaElement) {
       this.mediaElement.playbackRate = this.nativeFallbackRate;
     } else if (this.sourceNode) {
       this.sourceNode.playbackRate.value = this.nativeFallbackRate;
@@ -1428,9 +1558,65 @@ export class AudioEngine {
   }
 
   setPitchSemitones(semitones: number): void {
-    if (!this.pitchShiftAvailable) return;
     const nextPitch = Math.max(PITCH_MIN, Math.min(PITCH_MAX, semitones));
     if (Math.abs(nextPitch - this._pitchSemitones) < 0.0001) return;
+
+    if (this.playbackBackend === 'streamed' && this.mediaElement) {
+      const shouldEnableStreamPitch = Math.abs(nextPitch) > 0.0001;
+      this._pitchSemitones = nextPitch;
+
+      if (!shouldEnableStreamPitch) {
+        if (!this.stretchEnabledForStream) {
+          this.emitTransport();
+          return;
+        }
+        const wasPlaying = this._isPlaying;
+        const resumeAt = this.currentTime;
+        if (wasPlaying) {
+          this.stopPlayback(false, 'stream-pitch-off');
+        }
+        this.offsetAt = resumeAt;
+        void this.setStreamedPitchShiftEnabled(false).then(() => {
+          this._pitchSemitones = 0;
+          this.emitTransport();
+          if (wasPlaying) this.play();
+        });
+        return;
+      }
+
+      if (!this.stretchEnabledForStream) {
+        const wasPlaying = this._isPlaying;
+        const resumeAt = this.currentTime;
+        if (wasPlaying) {
+          this.stopPlayback(false, 'stream-pitch-on');
+        }
+        this.offsetAt = resumeAt;
+        void this.setStreamedPitchShiftEnabled(true).then((enabled) => {
+          if (!enabled) {
+            this._pitchSemitones = 0;
+            this.emitTransport();
+            if (wasPlaying) this.play();
+            return;
+          }
+          this.emitTransport();
+          if (wasPlaying) this.play();
+        });
+        return;
+      }
+
+      if (this._isPlaying) {
+        const schedule: StretchSchedule = {
+          active: true,
+          outputTime: this.ctx?.currentTime ?? 0,
+          semitones: this._pitchSemitones,
+        };
+        this.queueStretchCommand(this.stretchNode?.schedule(schedule) ?? Promise.resolve(), 'stream-pitch');
+      }
+      this.emitTransport();
+      return;
+    }
+
+    if (!this.pitchShiftAvailable) return;
 
     if (!this.stretchEnabledForBuffer) {
       this.rebasePlaybackClock();
