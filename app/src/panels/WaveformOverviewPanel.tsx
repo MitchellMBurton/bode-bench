@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAudioEngine, useDisplayMode, useFrameBus, useTheaterMode } from '../core/session';
 import { CANVAS, COLORS, FONTS, SPACING } from '../theme';
-import type { FileAnalysis, ScrubStyle } from '../types';
+import type { FileAnalysis, ScrubStyle, TransportState } from '../types';
 
 interface EnvelopeData {
   peakEnv: Float32Array;
@@ -14,6 +14,9 @@ const PANEL_DPR_MAX = 1.25;
 const DEFAULT_ENVELOPE_COLS = 1024;
 const ENVELOPE_COL_BUCKET = 64;
 const ENVELOPE_SLICE_BUDGET_MS = 5;
+const STREAMED_ENVELOPE_MAX_COLS = 2048;
+const STREAMED_ENVELOPE_SECONDS_PER_COL = 4;
+const STREAMED_ENVELOPE_BRIDGE_MAX_BINS = 24;
 const SCRUB_STYLE_OPTIONS: ReadonlyArray<{
   readonly value: ScrubStyle;
   readonly label: string;
@@ -27,6 +30,16 @@ const SCRUB_STYLE_OPTIONS: ReadonlyArray<{
 function bucketEnvelopeCols(cols: number): number {
   const rounded = Math.max(DEFAULT_ENVELOPE_COLS, Math.round(cols / ENVELOPE_COL_BUCKET) * ENVELOPE_COL_BUCKET);
   return Math.max(64, rounded);
+}
+
+function pickStreamedEnvelopeCols(duration: number): number {
+  const target = Math.max(DEFAULT_ENVELOPE_COLS, Math.round(duration / STREAMED_ENVELOPE_SECONDS_PER_COL));
+  return Math.min(STREAMED_ENVELOPE_MAX_COLS, bucketEnvelopeCols(target));
+}
+
+function buildMediaKey(filename: string | null, duration: number): string | null {
+  if (!filename || !Number.isFinite(duration) || duration <= 0) return null;
+  return `${filename}:${duration.toFixed(3)}`;
 }
 
 function computeEnvelopeAndClipMapAsync(
@@ -156,6 +169,29 @@ export function WaveformOverviewPanel(): React.ReactElement {
   const peakEnvRef = useRef<Float32Array | null>(null);
   const rmsEnvRef = useRef<Float32Array | null>(null);
   const clipMapRef = useRef<Uint8Array | null>(null);
+  const streamedPeakEnvRef = useRef<Float32Array | null>(null);
+  const streamedRmsEnvRef = useRef<Float32Array | null>(null);
+  const streamedCoverageRef = useRef<Uint8Array | null>(null);
+  const streamedPeakMaxRef = useRef(0);
+  const streamedLearnedCountRef = useRef(0);
+  const streamedFileIdRef = useRef<number | null>(null);
+  const streamedLastBinRef = useRef<number | null>(null);
+  const streamedEnvelopeKeyRef = useRef<string | null>(null);
+  const transportModeRef = useRef<TransportState['playbackBackend']>('decoded');
+  const transportKeyRef = useRef<string | null>(null);
+  const transportRef = useRef<TransportState>({
+    isPlaying: false,
+    currentTime: 0,
+    duration: 0,
+    filename: null,
+    playbackBackend: 'decoded',
+    scrubActive: false,
+    playbackRate: 1,
+    pitchSemitones: 0,
+    pitchShiftAvailable: true,
+    loopStart: null,
+    loopEnd: null,
+  });
   const analysisRef = useRef<FileAnalysis | null>(null);
   const centroidRef = useRef(0);
   const rafRef = useRef<number | null>(null);
@@ -173,6 +209,45 @@ export function WaveformOverviewPanel(): React.ReactElement {
       envelopeCancelRef.current = null;
     }
   }, []);
+
+  const resetStreamedEnvelope = useCallback(() => {
+    streamedPeakEnvRef.current = null;
+    streamedRmsEnvRef.current = null;
+    streamedCoverageRef.current = null;
+    streamedPeakMaxRef.current = 0;
+    streamedLearnedCountRef.current = 0;
+    streamedFileIdRef.current = null;
+    streamedLastBinRef.current = null;
+    streamedEnvelopeKeyRef.current = null;
+  }, []);
+
+  const initializeStreamedEnvelope = useCallback((filename: string, duration: number, force = false): boolean => {
+    const key = buildMediaKey(filename, duration);
+    if (!key) {
+      resetStreamedEnvelope();
+      return false;
+    }
+    if (
+      !force
+      && streamedEnvelopeKeyRef.current === key
+      && streamedPeakEnvRef.current
+      && streamedRmsEnvRef.current
+      && streamedCoverageRef.current
+    ) {
+      return true;
+    }
+
+    const cols = pickStreamedEnvelopeCols(duration);
+    streamedPeakEnvRef.current = new Float32Array(cols);
+    streamedRmsEnvRef.current = new Float32Array(cols);
+    streamedCoverageRef.current = new Uint8Array(cols);
+    streamedPeakMaxRef.current = 0;
+    streamedLearnedCountRef.current = 0;
+    streamedFileIdRef.current = null;
+    streamedLastBinRef.current = null;
+    streamedEnvelopeKeyRef.current = key;
+    return true;
+  }, [resetStreamedEnvelope]);
 
   const scheduleEnvelopeCompute = useCallback((requestedCols: number, force = false) => {
     const buffer = audioEngine.audioBuffer;
@@ -211,25 +286,105 @@ export function WaveformOverviewPanel(): React.ReactElement {
 
   useEffect(() => frameBus.subscribe((frame) => {
     centroidRef.current = frame.spectralCentroid;
-  }), [frameBus]);
+
+    const transport = transportRef.current;
+    if (transport.playbackBackend !== 'streamed' || !transport.filename || transport.duration <= 0) {
+      return;
+    }
+
+    if (!initializeStreamedEnvelope(transport.filename, transport.duration)) return;
+    if (
+      streamedFileIdRef.current !== null
+      && streamedFileIdRef.current !== frame.fileId
+      && !initializeStreamedEnvelope(transport.filename, transport.duration, true)
+    ) {
+      return;
+    }
+
+    streamedFileIdRef.current = frame.fileId;
+
+    const peakEnv = streamedPeakEnvRef.current;
+    const rmsEnv = streamedRmsEnvRef.current;
+    const coverage = streamedCoverageRef.current;
+    if (!peakEnv || !rmsEnv || !coverage || peakEnv.length === 0) return;
+
+    const duration = Math.max(0.001, transport.duration);
+    const cols = peakEnv.length;
+    const currentIndex = Math.max(
+      0,
+      Math.min(cols - 1, Math.round((Math.max(0, Math.min(duration, frame.currentTime)) / duration) * (cols - 1))),
+    );
+    const framePeak = Math.max(frame.peakLeft, frame.peakRight);
+    const frameRms = Math.max(frame.rmsLeft, frame.rmsRight);
+    const previousIndex = streamedLastBinRef.current;
+    let startIndex = currentIndex;
+    let endIndex = currentIndex;
+
+    if (previousIndex !== null && Math.abs(currentIndex - previousIndex) <= STREAMED_ENVELOPE_BRIDGE_MAX_BINS) {
+      startIndex = Math.min(previousIndex, currentIndex);
+      endIndex = Math.max(previousIndex, currentIndex);
+    }
+
+    for (let index = startIndex; index <= endIndex; index++) {
+      peakEnv[index] = Math.max(peakEnv[index], framePeak);
+      rmsEnv[index] = Math.max(rmsEnv[index], frameRms);
+      if (coverage[index] === 0) {
+        coverage[index] = 1;
+        streamedLearnedCountRef.current++;
+      }
+    }
+
+    if (framePeak > streamedPeakMaxRef.current) {
+      streamedPeakMaxRef.current = framePeak;
+    }
+    streamedLastBinRef.current = currentIndex;
+  }), [frameBus, initializeStreamedEnvelope]);
+
+  useEffect(() => audioEngine.onTransport((transport) => {
+    transportRef.current = transport;
+    const nextKey = buildMediaKey(transport.filename, transport.duration);
+    const modeChanged = transport.playbackBackend !== transportModeRef.current;
+    const keyChanged = nextKey !== transportKeyRef.current;
+
+    if (!modeChanged && !keyChanged) return;
+
+    transportModeRef.current = transport.playbackBackend;
+    transportKeyRef.current = nextKey;
+
+    if (transport.playbackBackend === 'streamed' && transport.filename && transport.duration > 0) {
+      cancelEnvelopeCompute();
+      peakEnvRef.current = null;
+      rmsEnvRef.current = null;
+      clipMapRef.current = null;
+      analysisRef.current = null;
+      envelopeColsRef.current = 0;
+      envelopeFileIdRef.current = -1;
+      initializeStreamedEnvelope(transport.filename, transport.duration, true);
+      return;
+    }
+
+    resetStreamedEnvelope();
+  }), [audioEngine, cancelEnvelopeCompute, initializeStreamedEnvelope, resetStreamedEnvelope]);
 
   useEffect(() => audioEngine.onFileReady((analysis) => {
+    resetStreamedEnvelope();
     analysisRef.current = analysis;
     const canvas = canvasRef.current;
     const cols = canvas && canvas.width > 0 ? canvas.width : DEFAULT_ENVELOPE_COLS;
     scheduleEnvelopeCompute(cols, true);
-  }), [audioEngine, scheduleEnvelopeCompute]);
+  }), [audioEngine, resetStreamedEnvelope, scheduleEnvelopeCompute]);
 
   useEffect(() => audioEngine.onReset(() => {
     cancelEnvelopeCompute();
     peakEnvRef.current = null;
     rmsEnvRef.current = null;
     clipMapRef.current = null;
+    resetStreamedEnvelope();
     analysisRef.current = null;
     centroidRef.current = 0;
     envelopeColsRef.current = 0;
     envelopeFileIdRef.current = -1;
-  }), [audioEngine, cancelEnvelopeCompute]);
+  }), [audioEngine, cancelEnvelopeCompute, resetStreamedEnvelope]);
 
   const fractionFromPointer = useCallback((event: React.PointerEvent<HTMLCanvasElement>): number => {
     const canvas = canvasRef.current;
@@ -317,31 +472,65 @@ export function WaveformOverviewPanel(): React.ReactElement {
       ctx.fillStyle = backgroundFill;
       ctx.fillRect(0, 0, width, height);
 
-      const peakEnv = peakEnvRef.current;
-      const rmsEnv = rmsEnvRef.current;
+      const decodedPeakEnv = peakEnvRef.current;
+      const decodedRmsEnv = rmsEnvRef.current;
       const clipMap = clipMapRef.current;
+      const streamedPeakEnv = streamedPeakEnvRef.current;
+      const streamedRmsEnv = streamedRmsEnvRef.current;
+      const streamedCoverage = streamedCoverageRef.current;
       const analysis = analysisRef.current;
       const duration = audioEngine.duration;
       const currentTime = audioEngine.currentTime;
+      const isStreamedOverview = Boolean(
+        audioEngine.backendMode === 'streamed'
+        && streamedPeakEnv
+        && streamedRmsEnv
+        && streamedCoverage,
+      );
+      const peakEnv = isStreamedOverview ? streamedPeakEnv! : decodedPeakEnv;
+      const rmsEnv = isStreamedOverview ? streamedRmsEnv! : decodedRmsEnv;
+      const coverageMap = isStreamedOverview ? streamedCoverage! : null;
+      const peakNormalizer = isStreamedOverview
+        ? 1 / Math.max(streamedPeakMaxRef.current, 0.0001)
+        : 1;
+      const learnedRatio = coverageMap
+        ? streamedLearnedCountRef.current / Math.max(1, coverageMap.length)
+        : 0;
 
-      if (clipMap && duration > 0) {
-        const envLen = clipMap.length;
-        const scaleX = width / envLen;
+      if (duration > 0) {
         const clipZoneY = waveH + separatorH;
 
         ctx.fillStyle = stripFill;
         ctx.fillRect(0, clipZoneY, width, clipZoneH);
 
-        for (let i = 0; i < envLen; i++) {
-          const x = i * scaleX;
-          const columnW = Math.max(1, scaleX);
-          ctx.fillStyle = clipMap[i] ? 'rgba(200, 40, 40, 1)' : 'rgba(56, 168, 80, 0.10)';
-          ctx.fillRect(x, clipZoneY, columnW, clipZoneH);
-        }
+        if (clipMap) {
+          const envLen = clipMap.length;
+          const scaleX = width / envLen;
+          for (let i = 0; i < envLen; i++) {
+            const x = i * scaleX;
+            const columnW = Math.max(1, scaleX);
+            ctx.fillStyle = clipMap[i] ? 'rgba(200, 40, 40, 1)' : 'rgba(56, 168, 80, 0.10)';
+            ctx.fillRect(x, clipZoneY, columnW, clipZoneH);
+          }
 
-        ctx.fillStyle = 'rgba(255, 60, 60, 0.90)';
-        for (let i = 0; i < envLen; i++) {
-          if (clipMap[i]) ctx.fillRect(i * scaleX, clipZoneY, Math.max(1, scaleX), 2 * dpr);
+          ctx.fillStyle = 'rgba(255, 60, 60, 0.90)';
+          for (let i = 0; i < envLen; i++) {
+            if (clipMap[i]) ctx.fillRect(i * scaleX, clipZoneY, Math.max(1, scaleX), 2 * dpr);
+          }
+        } else if (coverageMap) {
+          const envLen = coverageMap.length;
+          const scaleX = width / envLen;
+          const learnedFill = hyper ? 'rgba(98,232,255,0.18)' : 'rgba(80, 96, 192, 0.22)';
+          const learnedHighlight = hyper ? 'rgba(255,92,188,0.52)' : 'rgba(160, 170, 240, 0.46)';
+          for (let i = 0; i < envLen; i++) {
+            if (!coverageMap[i]) continue;
+            const x = i * scaleX;
+            const columnW = Math.max(1, scaleX);
+            ctx.fillStyle = learnedFill;
+            ctx.fillRect(x, clipZoneY, columnW, clipZoneH);
+            ctx.fillStyle = learnedHighlight;
+            ctx.fillRect(x, clipZoneY, columnW, Math.max(1, dpr));
+          }
         }
 
         const playX = (currentTime / duration) * width;
@@ -374,26 +563,50 @@ export function WaveformOverviewPanel(): React.ReactElement {
           ctx.fillText(fmtTime(t), x, 2 * dpr);
         }
 
-        ctx.beginPath();
-        ctx.moveTo(0, midY);
-        for (let i = 0; i < envLen; i++) ctx.lineTo(i * scaleX, midY - rmsEnv[i] * ampH);
-        for (let i = envLen - 1; i >= 0; i--) ctx.lineTo(i * scaleX, midY + rmsEnv[i] * ampH);
-        ctx.closePath();
-        ctx.fillStyle = waveformFill;
-        ctx.fill();
+        if (coverageMap) {
+          for (let i = 0; i < envLen; i++) {
+            if (!coverageMap[i]) continue;
+            const x = i * scaleX;
+            const columnW = Math.max(1, scaleX);
+            const peak = Math.max(0, Math.min(1, peakEnv[i] * peakNormalizer));
+            const rms = Math.max(0, Math.min(peak, rmsEnv[i] * peakNormalizer));
+            const rmsHalf = rms * ampH;
+            const peakHalf = peak * ampH;
 
-        ctx.beginPath();
-        ctx.moveTo(0, midY);
-        for (let i = 0; i < envLen; i++) ctx.lineTo(i * scaleX, midY - peakEnv[i] * ampH);
-        ctx.strokeStyle = waveformStroke;
-        ctx.lineWidth = 1;
-        ctx.stroke();
+            if (rmsHalf > 0) {
+              ctx.fillStyle = waveformFill;
+              ctx.fillRect(x, midY - rmsHalf, columnW, rmsHalf * 2);
+            }
 
-        ctx.beginPath();
-        ctx.moveTo(0, midY);
-        for (let i = 0; i < envLen; i++) ctx.lineTo(i * scaleX, midY + peakEnv[i] * ampH);
-        ctx.strokeStyle = waveformShadow;
-        ctx.stroke();
+            if (peakHalf > 0) {
+              ctx.fillStyle = waveformStroke;
+              ctx.fillRect(x, midY - peakHalf, columnW, Math.max(1, dpr));
+              ctx.fillStyle = waveformShadow;
+              ctx.fillRect(x, midY + peakHalf - Math.max(1, dpr), columnW, Math.max(1, dpr));
+            }
+          }
+        } else {
+          ctx.beginPath();
+          ctx.moveTo(0, midY);
+          for (let i = 0; i < envLen; i++) ctx.lineTo(i * scaleX, midY - rmsEnv[i] * ampH);
+          for (let i = envLen - 1; i >= 0; i--) ctx.lineTo(i * scaleX, midY + rmsEnv[i] * ampH);
+          ctx.closePath();
+          ctx.fillStyle = waveformFill;
+          ctx.fill();
+
+          ctx.beginPath();
+          ctx.moveTo(0, midY);
+          for (let i = 0; i < envLen; i++) ctx.lineTo(i * scaleX, midY - peakEnv[i] * ampH);
+          ctx.strokeStyle = waveformStroke;
+          ctx.lineWidth = 1;
+          ctx.stroke();
+
+          ctx.beginPath();
+          ctx.moveTo(0, midY);
+          for (let i = 0; i < envLen; i++) ctx.lineTo(i * scaleX, midY + peakEnv[i] * ampH);
+          ctx.strokeStyle = waveformShadow;
+          ctx.stroke();
+        }
 
         if (clipMap) {
           const cmLen = clipMap.length;
@@ -446,6 +659,10 @@ export function WaveformOverviewPanel(): React.ReactElement {
 
           drawBadge(ctx, `DR ${dr.toFixed(1)} dB`, drColor, width - SPACING.sm * dpr, 4 * dpr, dpr);
           drawBadge(ctx, clipText, clipColor, width - SPACING.sm * dpr, 19 * dpr, dpr);
+        } else if (isStreamedOverview) {
+          const liveColor = hyper ? CANVAS.hyper.trace : COLORS.borderHighlight;
+          drawBadge(ctx, 'LIVE OVR', liveColor, width - SPACING.sm * dpr, 4 * dpr, dpr);
+          drawBadge(ctx, `${Math.round(learnedRatio * 100)}% LEARNED`, COLORS.textTitle, width - SPACING.sm * dpr, 19 * dpr, dpr);
         }
 
         const centroid = centroidRef.current;
@@ -469,7 +686,7 @@ export function WaveformOverviewPanel(): React.ReactElement {
       ctx.fillStyle = textColor;
       ctx.textAlign = 'left';
       ctx.textBaseline = 'top';
-      ctx.fillText('OVERVIEW', SPACING.sm * dpr, 4 * dpr);
+      ctx.fillText(isStreamedOverview ? 'OVERVIEW / LIVE' : 'OVERVIEW', SPACING.sm * dpr, 4 * dpr);
     };
 
     rafRef.current = requestAnimationFrame(draw);
@@ -623,10 +840,5 @@ const canvasStyle: React.CSSProperties = {
   flex: 1,
   cursor: 'crosshair',
 };
-
-
-
-
-
 
 
