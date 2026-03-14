@@ -127,6 +127,9 @@ export function DiagnosticsLog(): React.ReactElement {
         prevTransportRef.current = state;
         if (state.filename) {
           diagnosticsLog.push(`session ${state.filename}`, 'info', 'transport');
+          if (state.playbackBackend === 'streamed') {
+            diagnosticsLog.push('streamed large-media mode active', 'warn', 'transport');
+          }
         }
         return;
       }
@@ -150,6 +153,19 @@ export function DiagnosticsLog(): React.ReactElement {
         flushPendingPitch();
         if (state.filename) diagnosticsLog.push(`loaded ${state.filename}`, 'info', 'transport');
         else if (prev.filename) diagnosticsLog.push('reset / cleared session', 'warn', 'transport');
+        if (state.filename && state.playbackBackend === 'streamed') {
+          diagnosticsLog.push('streamed large-media mode active', 'warn', 'transport');
+        }
+      }
+
+      if (state.playbackBackend !== prev.playbackBackend && state.filename) {
+        diagnosticsLog.push(
+          state.playbackBackend === 'streamed'
+            ? 'streamed large-media mode active'
+            : 'decoded studio mode active',
+          state.playbackBackend === 'streamed' ? 'warn' : 'info',
+          'transport',
+        );
       }
 
       const endedToStart =

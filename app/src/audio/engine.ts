@@ -40,8 +40,12 @@ const SEEK_RESUME_DELAY_MS = 140;
 const STRETCH_WATCHDOG_GRACE_S = 0.75;
 const STRETCH_WATCHDOG_TIMEOUT_S = 0.6;
 const MAX_STRETCH_PREP_BYTES = 512 * 1024 * 1024;
+const MAX_IN_MEMORY_FILE_BYTES = 384 * 1024 * 1024;
+const MAX_DECODE_AUDIO_BYTES = 768 * 1024 * 1024;
 const DEFERRED_ANALYSIS_SLICE_MS = 6;
 const DEFERRED_ANALYSIS_SAMPLE_BATCH = 16_384;
+const STREAMED_MEDIA_SAMPLE_RATE = 48_000;
+const STREAMED_MEDIA_CHANNELS = 2;
 const SCRUB_STYLE_CONFIG: Record<ScrubStyle, ScrubStyleConfig> = {
   step: {
     delayMs: 28,
@@ -88,6 +92,9 @@ export class AudioEngine {
   private playGainNode: GainNode | null = null;
   private splitterNode: ChannelSplitterNode | null = null;
   private sourceNode: AudioBufferSourceNode | null = null;
+  private mediaElement: HTMLMediaElement | null = null;
+  private mediaSourceNode: MediaElementAudioSourceNode | null = null;
+  private mediaObjectUrl: string | null = null;
   private stretchNode: StretchNode | null = null;
   private stretchNodeReady: Promise<StretchNode> | null = null;
   private stretchChannelCount = 0;
@@ -95,6 +102,7 @@ export class AudioEngine {
   private stretchEnabledForBuffer = false;
   private stretchLastProgressAt = 0;
   private pitchShiftAvailable = true;
+  private playbackBackend: 'decoded' | 'streamed' = 'decoded';
 
   private buffer: AudioBuffer | null = null;
   private startedAt = 0;
@@ -137,6 +145,19 @@ export class AudioEngine {
   private lastAnalysisAt = 0;
   private stretchMutationChain: Promise<void> = Promise.resolve();
   private deferredAnalysisCancel: (() => void) | null = null;
+
+  private shouldPreflightStreaming(file: File): boolean {
+    return file.type.startsWith('video/') || file.size >= MAX_IN_MEMORY_FILE_BYTES;
+  }
+
+  private shouldPreferStreamingLoad(file: File, durationSeconds: number | null): boolean {
+    if (file.size >= MAX_IN_MEMORY_FILE_BYTES) return true;
+    if (durationSeconds !== null && Number.isFinite(durationSeconds) && durationSeconds > 0) {
+      const estimatedDecodedBytes = durationSeconds * STREAMED_MEDIA_SAMPLE_RATE * STREAMED_MEDIA_CHANNELS * Float32Array.BYTES_PER_ELEMENT;
+      if (estimatedDecodedBytes >= MAX_DECODE_AUDIO_BYTES) return true;
+    }
+    return false;
+  }
 
   private ensureContext(): AudioContext {
     if (!this.ctx) {
@@ -284,6 +305,164 @@ export class AudioEngine {
     return buffer.length * buffer.numberOfChannels * Float32Array.BYTES_PER_ELEMENT;
   }
 
+  private async createPreflightMediaElement(file: File): Promise<{
+    readonly element: HTMLMediaElement;
+    readonly url: string;
+    readonly duration: number | null;
+  }> {
+    const url = URL.createObjectURL(file);
+    const element = file.type.startsWith('video/')
+      ? document.createElement('video')
+      : new Audio();
+    element.preload = 'metadata';
+    element.src = url;
+    element.crossOrigin = 'anonymous';
+    if (element instanceof HTMLVideoElement) {
+      element.playsInline = true;
+      element.muted = true;
+    }
+
+    return await new Promise((resolve, reject) => {
+      const cleanup = () => {
+        element.onloadedmetadata = null;
+        element.onerror = null;
+      };
+
+      element.onloadedmetadata = () => {
+        cleanup();
+        const duration = Number.isFinite(element.duration) && element.duration > 0
+          ? element.duration
+          : null;
+        resolve({ element, url, duration });
+      };
+
+      element.onerror = () => {
+        cleanup();
+        URL.revokeObjectURL(url);
+        reject(new DOMException('The media element could not read this file.', 'NotSupportedError'));
+      };
+    });
+  }
+
+  private disposePreflightMediaElement(element: HTMLMediaElement, url: string): void {
+    element.pause();
+    element.removeAttribute('src');
+    element.load();
+    URL.revokeObjectURL(url);
+  }
+
+  private disposeStreamedMedia(): void {
+    if (this.mediaElement) {
+      this.mediaElement.pause();
+      this.mediaElement.onended = null;
+      this.mediaElement.onerror = null;
+      this.mediaElement.onloadedmetadata = null;
+      this.mediaElement.onseeked = null;
+      this.mediaElement.onpause = null;
+      this.mediaElement.onplay = null;
+      this.mediaElement.removeAttribute('src');
+      this.mediaElement.load();
+      this.mediaElement = null;
+    }
+
+    if (this.mediaSourceNode) {
+      try {
+        this.mediaSourceNode.disconnect();
+      } catch {
+        // Already disconnected.
+      }
+      this.mediaSourceNode = null;
+    }
+
+    if (this.mediaObjectUrl) {
+      URL.revokeObjectURL(this.mediaObjectUrl);
+      this.mediaObjectUrl = null;
+    }
+
+    this.playbackBackend = 'decoded';
+  }
+
+  private async activateStreamedMediaLoad(
+    file: File,
+    media: {
+      readonly element: HTMLMediaElement;
+      readonly url: string;
+      readonly duration: number | null;
+    },
+    loadVersion: number,
+    loadStartedAt: number,
+    readMs: number,
+    decodeMs: number,
+    stretchMs: number,
+  ): Promise<void> {
+    const ctx = this.ensureContext();
+    if (!this.playGainNode) {
+      this.disposePreflightMediaElement(media.element, media.url);
+      throw new Error('playGainNode is not initialized');
+    }
+
+    this.disposeStreamedMedia();
+    await this.runSerializedStretchMutation(async () => {
+      if (loadVersion !== this.loadVersion) return;
+      if (this.stretchNode || this.stretchNodeReady) {
+        await this.disposeStretchNode();
+      }
+    });
+    if (loadVersion !== this.loadVersion) {
+      this.disposePreflightMediaElement(media.element, media.url);
+      return;
+    }
+
+    media.element.muted = false;
+    media.element.volume = 1;
+    media.element.defaultPlaybackRate = this.nativeFallbackRate;
+    media.element.playbackRate = this.nativeFallbackRate;
+    media.element.currentTime = 0;
+
+    const sourceNode = ctx.createMediaElementSource(media.element);
+    sourceNode.connect(this.playGainNode);
+
+    media.element.onended = () => {
+      if (this.mediaElement !== media.element) return;
+      if (!this._isPlaying) return;
+      this.stopPlayback(true, 'stream-ended');
+      this.emitTransport();
+    };
+    media.element.onseeked = () => {
+      if (this.mediaElement !== media.element || this._isPlaying) return;
+      this.offsetAt = media.element.currentTime;
+      this.emitTransport();
+    };
+
+    this.mediaElement = media.element;
+    this.mediaSourceNode = sourceNode;
+    this.mediaObjectUrl = media.url;
+    this.playbackBackend = 'streamed';
+    this.buffer = null;
+    this.stretchEnabledForBuffer = false;
+    this.pitchShiftAvailable = false;
+    this._pitchSemitones = 0;
+    this._displayGain = 1;
+    this._fileAnalysis = null;
+    this._waveformPeaks = null;
+    this._filename = file.name;
+    this.offsetAt = 0;
+    this.fileId++;
+
+    this.performanceDiagnostics?.noteLoadSample({
+      filename: file.name,
+      totalMs: performance.now() - loadStartedAt,
+      readMs,
+      decodeMs,
+      stretchMs,
+      channels: 0,
+      durationS: media.duration ?? 0,
+      stretchEnabled: false,
+    });
+
+    this.emitTransport();
+  }
+
   private cancelDeferredAnalysis(): void {
     if (this.deferredAnalysisCancel) {
       this.deferredAnalysisCancel();
@@ -407,6 +586,7 @@ export class AudioEngine {
     this.clearSeekResume();
     this.clearScrubTimers();
     this.cancelDeferredAnalysis();
+    this.disposeStreamedMedia();
     this.scrubActive = false;
     this.scrubResumeAfter = false;
     this.scrubPreviewRate = 1;
@@ -425,16 +605,93 @@ export class AudioEngine {
     this._waveformPeaks = null;
     this.stretchEnabledForBuffer = false;
     this.pitchShiftAvailable = true;
+    this.playbackBackend = 'decoded';
     this.emitTransport();
 
-    const readStartedAt = performance.now();
-    const arrayBuffer = await file.arrayBuffer();
-    readMs = performance.now() - readStartedAt;
-    if (loadVersion !== this.loadVersion) return;
+    let preflightMedia: {
+      readonly element: HTMLMediaElement;
+      readonly url: string;
+      readonly duration: number | null;
+    } | null = null;
 
-    const decodeStartedAt = performance.now();
-    const decodedBuffer = await ctx.decodeAudioData(arrayBuffer);
-    decodeMs = performance.now() - decodeStartedAt;
+    if (this.shouldPreflightStreaming(file)) {
+      try {
+        preflightMedia = await this.createPreflightMediaElement(file);
+        if (loadVersion !== this.loadVersion) {
+          this.disposePreflightMediaElement(preflightMedia.element, preflightMedia.url);
+          return;
+        }
+        if (this.shouldPreferStreamingLoad(file, preflightMedia.duration)) {
+          await this.activateStreamedMediaLoad(
+            file,
+            preflightMedia,
+            loadVersion,
+            loadStartedAt,
+            readMs,
+            decodeMs,
+            stretchMs,
+          );
+          return;
+        }
+      } catch {
+        preflightMedia = null;
+      }
+    }
+
+    let arrayBuffer: ArrayBuffer;
+    try {
+      const readStartedAt = performance.now();
+      arrayBuffer = await file.arrayBuffer();
+      readMs = performance.now() - readStartedAt;
+    } catch (error) {
+      const streamedMedia = preflightMedia ?? await this.createPreflightMediaElement(file).catch(() => null);
+      if (streamedMedia) {
+        await this.activateStreamedMediaLoad(
+          file,
+          streamedMedia,
+          loadVersion,
+          loadStartedAt,
+          readMs,
+          decodeMs,
+          stretchMs,
+        );
+        return;
+      }
+      throw error;
+    }
+    if (loadVersion !== this.loadVersion) {
+      if (preflightMedia) {
+        this.disposePreflightMediaElement(preflightMedia.element, preflightMedia.url);
+      }
+      return;
+    }
+
+    if (preflightMedia) {
+      this.disposePreflightMediaElement(preflightMedia.element, preflightMedia.url);
+      preflightMedia = null;
+    }
+
+    let decodedBuffer: AudioBuffer;
+    try {
+      const decodeStartedAt = performance.now();
+      decodedBuffer = await ctx.decodeAudioData(arrayBuffer);
+      decodeMs = performance.now() - decodeStartedAt;
+    } catch (error) {
+      const streamedMedia = await this.createPreflightMediaElement(file).catch(() => null);
+      if (streamedMedia) {
+        await this.activateStreamedMediaLoad(
+          file,
+          streamedMedia,
+          loadVersion,
+          loadStartedAt,
+          readMs,
+          decodeMs,
+          stretchMs,
+        );
+        return;
+      }
+      throw error;
+    }
     if (loadVersion !== this.loadVersion) return;
 
     const stretchStartedAt = performance.now();
@@ -471,6 +728,7 @@ export class AudioEngine {
 
     this.stretchEnabledForBuffer = stretchEnabledForBuffer;
     this.pitchShiftAvailable = stretchEnabledForBuffer;
+    this.playbackBackend = 'decoded';
     this.buffer = decodedBuffer;
     this._filename = file.name;
     this.offsetAt = 0;
@@ -566,7 +824,7 @@ export class AudioEngine {
       window.clearTimeout(this.scrubPreviewTimer);
       this.scrubPreviewTimer = null;
     }
-    if (!this.scrubActive || !this.buffer) return;
+    if (!this.scrubActive || (!this.buffer && !this.mediaElement)) return;
     if (this._isPlaying) {
       this.refreshScrubStopTimer();
       return;
@@ -574,7 +832,7 @@ export class AudioEngine {
 
     this.scrubPreviewTimer = window.setTimeout(() => {
       this.scrubPreviewTimer = null;
-      if (!this.scrubActive || !this.buffer) return;
+      if (!this.scrubActive || (!this.buffer && !this.mediaElement)) return;
 
       this.play();
       this.refreshScrubStopTimer();
@@ -649,24 +907,54 @@ export class AudioEngine {
           // Ignore stop on an already-ended native source.
         }
       }
+
+      if (this.mediaElement) {
+        this.mediaElement.pause();
+      }
     }
 
     this.sourceNode = null;
     this.offsetAt = nextOffset;
     this.startedAt = 0;
     this._isPlaying = false;
+    if (this.mediaElement && resetToStart) {
+      this.mediaElement.currentTime = 0;
+    }
     this.stopRaf();
   }
 
   play(): void {
     this.clearSeekResume();
-    if (this._isPlaying || !this.buffer || !this.playGainNode) {
+    if (this._isPlaying || (!this.buffer && !this.mediaElement) || !this.playGainNode) {
       return;
     }
 
     const ctx = this.ensureContext();
     if (ctx.state === 'suspended') {
       void ctx.resume();
+    }
+
+    if (this.mediaElement && this.playbackBackend === 'streamed') {
+      this.mediaElement.playbackRate = this.nativeFallbackRate;
+      if (Math.abs(this.mediaElement.currentTime - this.offsetAt) > 0.05) {
+        this.mediaElement.currentTime = this.offsetAt;
+      }
+      this.rampPlayGain(1, DECLICK_IN_S, ctx.currentTime);
+      this.startedAt = ctx.currentTime;
+      this._isPlaying = true;
+      this.playId++;
+      this.startRaf();
+      this.emitTransport();
+      void this.mediaElement.play().catch((error) => {
+        if (this.mediaElement) {
+          this.offsetAt = this.mediaElement.currentTime;
+        }
+        this._isPlaying = false;
+        this.stopRaf();
+        this.emitTransport();
+        console.error('streamed media play failed', error);
+      });
+      return;
     }
 
     const useNativeScrubPreview = this.scrubActive && this.scrubConfig.preferNative;
@@ -762,6 +1050,7 @@ export class AudioEngine {
     this.loadVersion++;
     this.clearSeekResume();
     this.clearScrubTimers();
+    this.cancelDeferredAnalysis();
     this.scrubActive = false;
     this.scrubResumeAfter = false;
     this.scrubPreviewRate = 1;
@@ -776,10 +1065,13 @@ export class AudioEngine {
     this._waveformPeaks = null;
     this._loopStart = null;
     this._loopEnd = null;
+    this.playbackBackend = 'decoded';
 
     if (this.stretchNode) {
       this.queueStretchCommand(this.stretchNode.dropBuffers(), 'dropBuffers');
     }
+
+    this.disposeStreamedMedia();
 
     this.emitTransport();
     for (const fn of this.resetListeners) {
@@ -788,7 +1080,7 @@ export class AudioEngine {
   }
 
   setLoop(start: number, end: number): void {
-    const dur = this.buffer?.duration ?? 0;
+    const dur = this.duration;
     this._loopStart = Math.max(0, Math.min(start, dur));
     this._loopEnd = Math.max(0, Math.min(end, dur));
     if (this._loopStart >= this._loopEnd) {
@@ -808,7 +1100,7 @@ export class AudioEngine {
   get loopEnd(): number | null { return this._loopEnd; }
 
   beginScrub(): void {
-    if (!this.buffer) return;
+    if (!this.buffer && !this.mediaElement) return;
 
     const pendingResume = this.seekResumePending;
     this.clearSeekResume();
@@ -829,12 +1121,12 @@ export class AudioEngine {
   }
 
   scrubTo(seconds: number): void {
-    if (!this.buffer) return;
+    if (!this.buffer && !this.mediaElement) return;
     if (!this.scrubActive) {
       this.beginScrub();
     }
 
-    const nextOffset = Math.max(0, Math.min(seconds, this.buffer.duration));
+    const nextOffset = Math.max(0, Math.min(seconds, this.duration));
     this.updateScrubPreviewRate(nextOffset);
     const shouldRestart = this.shouldRestartScrubPreview(nextOffset);
 
@@ -844,9 +1136,15 @@ export class AudioEngine {
     }
 
     this.offsetAt = nextOffset;
+    if (this.mediaElement) {
+      this.mediaElement.currentTime = nextOffset;
+    }
     this.emitTransport();
 
     if (this._isPlaying && !shouldRestart) {
+      if (this.mediaElement) {
+        this.mediaElement.playbackRate = this.scrubPreviewRate;
+      }
       if (this.sourceNode) {
         this.sourceNode.playbackRate.value = this.scrubPreviewRate;
       }
@@ -899,7 +1197,13 @@ export class AudioEngine {
       this.clearSeekResume();
     }
 
-    this.offsetAt = Math.max(0, Math.min(seconds, this.buffer?.duration ?? 0));
+    this.offsetAt = Math.max(0, Math.min(seconds, this.duration));
+    if (this.mediaElement) {
+      this.mediaElement.currentTime = this.offsetAt;
+      if (resumeAfterSeek) {
+        this.mediaElement.playbackRate = this.nativeFallbackRate;
+      }
+    }
     this.emitTransport();
 
     if (resumeAfterSeek) {
@@ -909,13 +1213,20 @@ export class AudioEngine {
 
   get currentTime(): number {
     if (this.scrubActive) return this.scrubLastTarget;
+    if (this.mediaElement) {
+      return this._isPlaying ? this.mediaElement.currentTime : this.offsetAt;
+    }
     if (!this.ctx) return 0;
     if (!this._isPlaying) return this.offsetAt;
     return this.playbackHeadTime;
   }
 
   get duration(): number {
-    return this.buffer?.duration ?? 0;
+    if (this.buffer) return this.buffer.duration;
+    if (this.mediaElement) {
+      return Number.isFinite(this.mediaElement.duration) ? this.mediaElement.duration : 0;
+    }
+    return 0;
   }
 
   private rebasePlaybackClock(): void {
@@ -1108,6 +1419,8 @@ export class AudioEngine {
     this._playbackRate = nextRate;
     if (this.stretchEnabledForBuffer) {
       this.scheduleStretchUpdate();
+    } else if (this.mediaElement) {
+      this.mediaElement.playbackRate = this.nativeFallbackRate;
     } else if (this.sourceNode) {
       this.sourceNode.playbackRate.value = this.nativeFallbackRate;
     }
@@ -1145,6 +1458,7 @@ export class AudioEngine {
   get waveformPeaks(): Float32Array | null { return this._waveformPeaks; }
   get waveformBinSamples(): number { return AudioEngine.WAVEFORM_BIN_SAMPLES; }
   get sampleRate(): number { return this.ctx?.sampleRate ?? 44100; }
+  get backendMode(): 'decoded' | 'streamed' { return this.playbackBackend; }
 
   getTimeDomainData(out: Float32Array): void {
     if (this.analyserL) {
@@ -1182,6 +1496,7 @@ export class AudioEngine {
       currentTime: this.currentTime,
       duration: this.duration,
       filename: this._filename,
+      playbackBackend: this.playbackBackend,
       scrubActive: this.scrubActive,
       playbackRate: this._playbackRate,
       pitchSemitones: this._pitchSemitones,
@@ -1199,4 +1514,3 @@ export class AudioEngine {
     }
   }
 }
-

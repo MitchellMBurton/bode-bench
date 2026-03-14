@@ -91,6 +91,8 @@ export interface TransportState {
   readonly currentTime: number; // seconds
   readonly duration: number;    // seconds
   readonly filename: string | null;
+  /** Playback backend currently driving the session transport. */
+  readonly playbackBackend: 'decoded' | 'streamed';
   /** True while the user is actively scrubbing a seek surface. */
   readonly scrubActive: boolean;
   /** Tempo/speed multiplier. Does not change pitch. */
@@ -143,4 +145,3 @@ export interface ProcessedScore {
   readonly metadata: MovementMetadata;
   readonly events: NoteEvent[];
 }
-

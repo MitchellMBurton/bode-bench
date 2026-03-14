@@ -319,6 +319,7 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
     currentTime: 0,
     duration: 0,
     filename: null,
+    playbackBackend: 'decoded',
     scrubActive: false,
     playbackRate: 1,
     pitchSemitones: 0,
@@ -1280,7 +1281,14 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
     setIsLoading(true);
     try {
       await audioEngine.load(file);
-      setLoadNotice(null);
+      if (audioEngine.backendMode === 'streamed') {
+        setLoadNotice({
+          tone: 'info',
+          message: 'Large media mode active: streamed playback is enabled for stability. Pitch shift and full-file overview are limited.',
+        });
+      } else {
+        setLoadNotice(null);
+      }
       onFileLoaded?.();
     } catch (error) {
       const message = describeLoadError(error);
