@@ -100,6 +100,7 @@ export class AudioEngine {
   private _pitchSemitones = 0;
   private playId = 0;
   private fileId = 0;
+  private loadVersion = 0;
   private _displayGain = 1;
   private _loopStart: number | null = null;
   private _loopEnd: number | null = null;
@@ -128,6 +129,7 @@ export class AudioEngine {
   private _fileAnalysis: FileAnalysis | null = null;
   private _filename: string | null = null;
   private lastAnalysisAt = 0;
+  private stretchMutationChain: Promise<void> = Promise.resolve();
 
   private ensureContext(): AudioContext {
     if (!this.ctx) {
@@ -178,6 +180,15 @@ export class AudioEngine {
     void command.catch((error) => {
       console.error(`stretch ${label} failed`, error);
     });
+  }
+
+  private async runSerializedStretchMutation<T>(fn: () => Promise<T>): Promise<T> {
+    const next = this.stretchMutationChain.then(fn, fn);
+    this.stretchMutationChain = next.then(
+      () => undefined,
+      () => undefined,
+    );
+    return next;
   }
 
   private get transportRate(): number {
@@ -264,11 +275,12 @@ export class AudioEngine {
 
   async load(file: File): Promise<void> {
     const ctx = this.ensureContext();
+    const loadVersion = ++this.loadVersion;
     if (ctx.state === 'suspended') {
       await ctx.resume();
     }
+    if (loadVersion !== this.loadVersion) return;
 
-    this.stop();
     this.clearSeekResume();
     this.clearScrubTimers();
     this.scrubActive = false;
@@ -276,25 +288,48 @@ export class AudioEngine {
     this.scrubPreviewRate = 1;
     this.scrubLastTarget = 0;
     this.scrubLastMoveAt = 0;
+    this.stopPlayback(true, 'load');
     this._loopStart = null;
     this._loopEnd = null;
     this._playbackRate = 1;
     this._pitchSemitones = 0;
-
-    const arrayBuffer = await file.arrayBuffer();
-    const decodedBuffer = await ctx.decodeAudioData(arrayBuffer);
+    this.buffer = null;
+    this._filename = null;
+    this.offsetAt = 0;
+    this._displayGain = 1;
+    this._fileAnalysis = null;
+    this._waveformPeaks = null;
     this.stretchEnabledForBuffer = false;
     this.pitchShiftAvailable = true;
-    try {
-      const stretchNode = await this.ensureStretchNode(decodedBuffer.numberOfChannels);
-      await stretchNode.dropBuffers();
-      await stretchNode.addBuffers(this.prepareStretchBuffers(decodedBuffer));
-      this.stretchEnabledForBuffer = true;
-    } catch (error) {
-      console.error('stretch load failed, falling back to native playback', error);
-      await this.disposeStretchNode();
-    }
+    this.emitTransport();
 
+    const arrayBuffer = await file.arrayBuffer();
+    if (loadVersion !== this.loadVersion) return;
+    const decodedBuffer = await ctx.decodeAudioData(arrayBuffer);
+    if (loadVersion !== this.loadVersion) return;
+
+    let stretchEnabledForBuffer = false;
+    await this.runSerializedStretchMutation(async () => {
+      if (loadVersion !== this.loadVersion) return;
+      try {
+        const stretchNode = await this.ensureStretchNode(decodedBuffer.numberOfChannels);
+        if (loadVersion !== this.loadVersion) return;
+        await stretchNode.dropBuffers();
+        if (loadVersion !== this.loadVersion) return;
+        await stretchNode.addBuffers(this.prepareStretchBuffers(decodedBuffer));
+        if (loadVersion !== this.loadVersion) return;
+        stretchEnabledForBuffer = true;
+      } catch (error) {
+        console.error('stretch load failed, falling back to native playback', error);
+        if (loadVersion === this.loadVersion) {
+          await this.disposeStretchNode();
+        }
+      }
+    });
+    if (loadVersion !== this.loadVersion) return;
+
+    this.stretchEnabledForBuffer = stretchEnabledForBuffer;
+    this.pitchShiftAvailable = true;
     this.buffer = decodedBuffer;
     this._filename = file.name;
     this.offsetAt = 0;
@@ -305,7 +340,7 @@ export class AudioEngine {
     const capturedBuffer = this.buffer;
     const capturedFileId = this.fileId;
     setTimeout(() => {
-      if (this.fileId !== capturedFileId) return;
+      if (this.fileId !== capturedFileId || loadVersion !== this.loadVersion) return;
       this._displayGain = this.computeDisplayGain(capturedBuffer);
       this._fileAnalysis = this.computeFileAnalysis(capturedBuffer);
       this._waveformPeaks = this.computeWaveformPeaks(capturedBuffer);
@@ -580,6 +615,7 @@ export class AudioEngine {
   }
 
   reset(): void {
+    this.loadVersion++;
     this.clearSeekResume();
     this.clearScrubTimers();
     this.scrubActive = false;
@@ -1086,7 +1122,6 @@ export class AudioEngine {
     }
   }
 }
-
 
 
 

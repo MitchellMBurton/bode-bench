@@ -1316,7 +1316,7 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
           defaultValue={0}
           step={0.01}
           style={seekInputStyle}
-          disabled={transport.duration === 0}
+          disabled={isLoading || transport.duration === 0}
           onPointerDown={onSeekPointerDown}
           onPointerUp={onSeekPointerUp}
           onPointerCancel={onSeekPointerUp}
@@ -1345,7 +1345,7 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
         <button
           style={btnStyle}
           onClick={() => audioEngine.stop()}
-          disabled={!transport.filename}
+          disabled={isLoading || !transport.filename}
           title="Stop - return to start"
         >
           STOP
@@ -1353,7 +1353,7 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
         <button
           style={{ ...btnStyle, ...(transport.isPlaying ? btnActiveStyle : {}) }}
           onClick={() => transport.isPlaying ? audioEngine.pause() : audioEngine.play()}
-          disabled={!transport.filename}
+          disabled={isLoading || !transport.filename}
           title={transport.isPlaying ? 'Pause' : 'Play'}
         >
           {transport.isPlaying ? 'PAUSE' : 'PLAY'}
@@ -1361,7 +1361,7 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
         <button
           style={{ ...btnStyle, ...(hasLoop ? btnActiveStyle : {}) }}
           onClick={onToggleLoop}
-          disabled={!transport.filename}
+          disabled={isLoading || !transport.filename}
           title={hasLoop ? 'Clear current loop region' : 'Loop the full file'}
         >
           LOOP
@@ -1369,7 +1369,7 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
         <button
           style={{ ...btnStyle, ...btnResetStyle }}
           onClick={() => audioEngine.reset()}
-          disabled={!transport.filename}
+          disabled={isLoading || !transport.filename}
           title="Reset - clear file and all visuals"
         >
           RESET
@@ -1691,7 +1691,6 @@ const loopClearStyle: React.CSSProperties = {
   outline: 'none',
   flexShrink: 0,
 };
-
 
 
 
