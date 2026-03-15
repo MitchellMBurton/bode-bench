@@ -9,7 +9,8 @@ const PAD = SPACING.panelPad;
 const BASE_SCROLL_PX = CANVAS.timelineScrollPx;
 const PANEL_DPR_MAX = 1.25;
 const LIVE_SAMPLES_PER_PX = 256;
-const LIVE_DISCONTINUITY_FLOOR_S = 0.45;
+const LIVE_HISTORY_BACKWARD_CLEAR_S = 0.35;
+const LIVE_HISTORY_FORWARD_CLEAR_S = 1.5;
 const LIVE_GAIN_PEAK_FLOOR = 0.02;
 const LIVE_GAIN_ATTACK = 0.18;
 const LIVE_GAIN_RELEASE = 0.05;
@@ -181,11 +182,11 @@ function createSnapshot(canvas: HTMLCanvasElement): HTMLCanvasElement | null {
   return snapshot;
 }
 
-function isLiveHistoryDiscontinuity(currentTime: number, previousTime: number | null, expectedAdvance: number): boolean {
+function isLiveHistoryDiscontinuity(currentTime: number, previousTime: number | null): boolean {
   if (previousTime === null) return false;
   const actualAdvance = currentTime - previousTime;
-  if (actualAdvance < -0.02) return true;
-  return Math.abs(actualAdvance - expectedAdvance) > Math.max(LIVE_DISCONTINUITY_FLOOR_S, expectedAdvance * 5);
+  if (actualAdvance <= -LIVE_HISTORY_BACKWARD_CLEAR_S) return true;
+  return actualAdvance >= LIVE_HISTORY_FORWARD_CLEAR_S;
 }
 
 function nextLiveDisplayGain(previous: number, peak: number): number {
@@ -371,8 +372,7 @@ export function WaveformScrollPanel(): React.ReactElement {
         const currentTime = audioEngine.currentTime;
 
         if (historySource === 'live') {
-          const expectedAdvance = dtSec * audioEngine.playbackRate;
-          if (isLiveHistoryDiscontinuity(currentTime, lastCurrentTimeRef.current, expectedAdvance)) {
+          if (isLiveHistoryDiscontinuity(currentTime, lastCurrentTimeRef.current)) {
             clearWaveformHistory(offscreen, mode);
             scrollCarryRef.current = 0;
             liveDisplayGainRef.current = 1;
