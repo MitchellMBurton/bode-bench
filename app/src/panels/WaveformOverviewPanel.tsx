@@ -1341,7 +1341,7 @@ export function WaveformOverviewPanel(): React.ReactElement {
       const playFillWave = nge ? 'rgba(80, 160, 50, 0.07)' : hyper ? 'rgba(98,232,255,0.07)' : 'rgba(80, 96, 192, 0.07)';
       const playCursor = hyper ? 'rgba(255,92,188,0.92)' : COLORS.accent;
       const learnedWaveHint = nge ? 'rgba(160,216,64,0.12)' : hyper ? 'rgba(98,232,255,0.10)' : 'rgba(160, 170, 240, 0.10)';
-      const learnedWaveLine = nge ? 'rgba(160,216,64,0.24)' : hyper ? 'rgba(255,92,188,0.24)' : 'rgba(200, 210, 255, 0.20)';
+      const learnedWaveLine = nge ? 'rgba(160,216,64,0.32)' : hyper ? 'rgba(255,92,188,0.32)' : 'rgba(200, 210, 255, 0.26)';
       const controlFill = nge ? 'rgba(12,20,12,0.96)' : hyper ? 'rgba(10,14,28,0.96)' : 'rgba(14,16,25,0.98)';
       const controlTrack = nge ? 'rgba(40,72,28,0.86)' : hyper ? 'rgba(36,46,90,0.85)' : 'rgba(48,56,86,0.82)';
       const viewWindowFill = hyper ? 'rgba(96,150,255,0.26)' : 'rgba(126, 130, 240, 0.24)';
@@ -1686,7 +1686,7 @@ export function WaveformOverviewPanel(): React.ReactElement {
           }
 
           if (coverageMap) {
-            const scoutSmoothRadius = options.confidenceProfile === 'detail' ? 4 : 7;
+            const scoutSmoothRadius = options.confidenceProfile === 'detail' ? 2 : 4;
             const smoothColumns = (sourceValues: Float32Array): Float32Array => {
               const next = new Float32Array(columnCount);
               for (let column = 0; column < columnCount; column++) {
@@ -1709,7 +1709,12 @@ export function WaveformOverviewPanel(): React.ReactElement {
                   weightedSum += sourceValues[index] * weight;
                   weightTotal += weight;
                 }
-                next[column] = weightTotal > 0 ? weightedSum / weightTotal : sourceValues[column];
+                if (weightTotal <= 0) {
+                  next[column] = sourceValues[column];
+                  continue;
+                }
+                const smoothed = weightedSum / weightTotal;
+                next[column] = Math.max(sourceValues[column] * 0.72, smoothed);
               }
               return next;
             };
@@ -1725,8 +1730,15 @@ export function WaveformOverviewPanel(): React.ReactElement {
             const rms = Math.min(peak, rmsColumns[column]);
             const coverage = coverageColumns[column];
             if (coverage <= 0) continue;
-            peakHalfColumns[column] = peak * ampH;
-            rmsHalfColumns[column] = Math.max(peakHalfColumns[column] * 0.14, rms * ampH);
+            const scoutColumn = confidenceColumns[column] < 1.5;
+            const scoutPeakScale = scoutColumn
+              ? (options.confidenceProfile === 'detail' ? 0.96 : 0.9)
+              : 1;
+            const scoutBodyFloor = scoutColumn
+              ? (options.confidenceProfile === 'detail' ? 0.24 : 0.18)
+              : 0.14;
+            peakHalfColumns[column] = peak * ampH * scoutPeakScale;
+            rmsHalfColumns[column] = Math.max(peakHalfColumns[column] * scoutBodyFloor, rms * ampH);
           }
 
           for (let column = 0; column < columnCount; column++) {
@@ -1760,31 +1772,32 @@ export function WaveformOverviewPanel(): React.ReactElement {
             const averageCoverage = coverageSum / Math.max(1, segmentEnd - segmentStart + 1);
             const averageConfidence = confidenceSum / Math.max(1, segmentEnd - segmentStart + 1);
             const scoutOnly = averageConfidence < 1.5;
-            const alpha = (0.45 + averageCoverage * 0.45) * (scoutOnly ? 0.8 : 1);
+            const alpha = scoutOnly
+              ? 0.72 + averageCoverage * 0.2
+              : 0.5 + averageCoverage * 0.42;
 
             ctx.save();
             ctx.globalAlpha *= alpha;
-            ctx.fillStyle = waveformFill;
+            ctx.fillStyle = scoutOnly ? waveformShadow : waveformFill;
             ctx.beginPath();
             traceEnvelopeHalf(segmentStart, segmentEnd, rmsHalfColumns, 1);
             traceEnvelopeHalf(segmentStart, segmentEnd, rmsHalfColumns, -1);
             ctx.closePath();
             ctx.fill();
 
-            ctx.strokeStyle = scoutOnly ? learnedWaveLine : waveformStroke;
-            ctx.lineWidth = Math.max(1, dpr);
+            ctx.strokeStyle = scoutOnly ? waveformStroke : waveformStroke;
+            ctx.lineWidth = scoutOnly ? Math.max(0.9, dpr * 0.9) : Math.max(1, dpr);
             ctx.lineJoin = 'round';
             ctx.lineCap = 'round';
             ctx.beginPath();
             strokeEnvelopeHalf(segmentStart, segmentEnd, peakHalfColumns, 1);
             ctx.stroke();
 
-            if (!scoutOnly) {
-              ctx.strokeStyle = waveformShadow;
-              ctx.beginPath();
-              strokeEnvelopeHalf(segmentStart, segmentEnd, peakHalfColumns, -1);
-              ctx.stroke();
-            }
+            ctx.globalAlpha *= scoutOnly ? 0.55 : 1;
+            ctx.strokeStyle = waveformShadow;
+            ctx.beginPath();
+            strokeEnvelopeHalf(segmentStart, segmentEnd, peakHalfColumns, -1);
+            ctx.stroke();
             ctx.restore();
 
             if (options.showClipMap && hasClip) {
@@ -1794,7 +1807,7 @@ export function WaveformOverviewPanel(): React.ReactElement {
               ctx.fillRect(x1, rect.y, Math.max(1, x2 - x1), rect.h);
             }
 
-            if (averageCoverage <= 0.28 || scoutOnly) {
+            if (averageCoverage <= 0.18) {
               const x1 = rect.x + (segmentStart / columnCount) * rect.w;
               const x2 = rect.x + ((segmentEnd + 1) / columnCount) * rect.w;
               ctx.fillStyle = learnedWaveLine;

@@ -123,6 +123,7 @@ export class AudioEngine {
   private _playbackRate = 1;
   private _pitchSemitones = 0;
   private playId = 0;
+  private streamedPlayAttemptId = 0;
   private fileId = 0;
   private loadVersion = 0;
   private _displayGain = 1;
@@ -155,6 +156,23 @@ export class AudioEngine {
   private lastAnalysisAt = 0;
   private stretchMutationChain: Promise<void> = Promise.resolve();
   private deferredAnalysisCancel: (() => void) | null = null;
+
+  private invalidateStreamedPlayAttempt(): void {
+    this.streamedPlayAttemptId++;
+  }
+
+  private isBenignStreamedPlayInterruption(error: unknown): boolean {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      return true;
+    }
+
+    const message = error instanceof Error
+      ? error.message
+      : typeof error === 'string'
+        ? error
+        : '';
+    return /play\(\) request was interrupted by a call to pause\(\)/i.test(message);
+  }
 
   private shouldPreflightStreaming(file: File): boolean {
     return file.type.startsWith('video/') || file.size >= MAX_IN_MEMORY_FILE_BYTES;
@@ -493,6 +511,7 @@ export class AudioEngine {
 
   private disposeStreamedMedia(): void {
     if (this.mediaElement) {
+      this.invalidateStreamedPlayAttempt();
       this.mediaElement.pause();
       this.mediaElement.onended = null;
       this.mediaElement.onerror = null;
@@ -1055,6 +1074,7 @@ export class AudioEngine {
       }
 
       if (this.mediaElement) {
+        this.invalidateStreamedPlayAttempt();
         this.mediaElement.pause();
       }
     }
@@ -1081,6 +1101,7 @@ export class AudioEngine {
     }
 
     if (this.mediaElement && this.playbackBackend === 'streamed') {
+      const playAttemptId = ++this.streamedPlayAttemptId;
       const previewRate = this.scrubActive ? this.scrubPreviewRate : this.nativeFallbackRate;
       this.mediaElement.playbackRate = previewRate;
       this.setMediaElementPitchPreservation(!this.streamedPitchShiftActive);
@@ -1112,6 +1133,13 @@ export class AudioEngine {
         });
       }
       void this.mediaElement.play().catch((error) => {
+        const staleAttempt = playAttemptId !== this.streamedPlayAttemptId;
+        if (staleAttempt) {
+          return;
+        }
+        if (this.isBenignStreamedPlayInterruption(error)) {
+          return;
+        }
         if (this.mediaElement) {
           this.offsetAt = this.mediaElement.currentTime;
         }
