@@ -1482,6 +1482,169 @@ export function WaveformOverviewPanel(): React.ReactElement {
         ctx.stroke();
       };
 
+      const drawStreamedSessionMap = (
+        rect: TimelineRect,
+        start: number,
+        end: number,
+        source: {
+          readonly peakEnv: Float32Array | null;
+          readonly rmsEnv: Float32Array | null;
+          readonly coverageMap: Uint8Array | null;
+          readonly peakNormalizer: number;
+        },
+      ): number => {
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(rect.x, rect.y, rect.w, rect.h);
+        ctx.clip();
+
+        ctx.fillStyle = backgroundFill;
+        ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+        ctx.fillStyle = unknownFill;
+        ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+
+        const midY = rect.y + rect.h / 2;
+        const ampH = Math.max(4 * dpr, rect.h * 0.44);
+        ctx.fillStyle = unknownLine;
+        ctx.fillRect(rect.x, midY - Math.max(1, dpr / 2), rect.w, Math.max(1, dpr));
+
+        let coveredColumns = 0;
+        const { peakEnv, rmsEnv, coverageMap, peakNormalizer } = source;
+        if (peakEnv && rmsEnv) {
+          const envLen = peakEnv.length;
+          const columnCount = Math.max(72, Math.min(320, Math.round(rect.w / Math.max(1.75, 1.9 * dpr))));
+          const peakColumns = new Float32Array(columnCount);
+          const rmsColumns = new Float32Array(columnCount);
+          const coverageColumns = new Float32Array(columnCount);
+          const confidenceColumns = new Float32Array(columnCount);
+          const rangeStart = (start / duration) * envLen;
+          const rangeEnd = (end / duration) * envLen;
+          const rangeSpan = Math.max(0.001, rangeEnd - rangeStart);
+
+          for (let column = 0; column < columnCount; column++) {
+            const t0 = column / columnCount;
+            const t1 = (column + 1) / columnCount;
+            const envStart = rangeStart + rangeSpan * t0;
+            const envEnd = rangeStart + rangeSpan * t1;
+            const binStart = Math.max(0, Math.floor(envStart));
+            const binEnd = Math.min(envLen - 1, Math.max(binStart, Math.ceil(envEnd)));
+            const totalBins = Math.max(1, binEnd - binStart + 1);
+            let coveredBins = 0;
+            let maxPeak = 0;
+            let sumPeak = 0;
+            let sumRms = 0;
+            let maxConfidence = 0;
+
+            for (let index = binStart; index <= binEnd; index++) {
+              const covered = !coverageMap || coverageMap[index] !== 0;
+              if (!covered) continue;
+              coveredBins++;
+              const peak = peakEnv[index];
+              const rms = rmsEnv[index];
+              if (peak > maxPeak) maxPeak = peak;
+              sumPeak += peak;
+              sumRms += rms;
+              maxConfidence = Math.max(maxConfidence, coverageMap ? coverageMap[index] : 2);
+            }
+
+            if (coveredBins <= 0) continue;
+            const avgPeak = sumPeak / coveredBins;
+            const avgRms = sumRms / coveredBins;
+            peakColumns[column] = clampNumber((avgPeak * 0.62 + maxPeak * 0.38) * peakNormalizer, 0, 1);
+            rmsColumns[column] = clampNumber(avgRms * peakNormalizer, 0, peakColumns[column]);
+            coverageColumns[column] = coveredBins / totalBins;
+            confidenceColumns[column] = maxConfidence > 0 ? maxConfidence : 2;
+            coveredColumns++;
+          }
+
+          const smoothColumns = (values: Float32Array, radius: number): Float32Array => {
+            const next = new Float32Array(columnCount);
+            for (let column = 0; column < columnCount; column++) {
+              if (coverageColumns[column] <= 0) continue;
+              let weightedSum = 0;
+              let weightTotal = 0;
+              for (let offset = -radius; offset <= radius; offset++) {
+                const index = column + offset;
+                if (index < 0 || index >= columnCount || coverageColumns[index] <= 0) continue;
+                const distance = Math.abs(offset);
+                const closeness = 1 / (1 + distance);
+                const confidence = Math.max(0.2, Math.min(1, confidenceColumns[index] / 2));
+                const coverage = Math.max(0.15, coverageColumns[index]);
+                const weight = closeness * confidence * coverage;
+                weightedSum += values[index] * weight;
+                weightTotal += weight;
+              }
+              next[column] = weightTotal > 0 ? weightedSum / weightTotal : values[column];
+            }
+            return next;
+          };
+
+          peakColumns.set(smoothColumns(peakColumns, 4));
+          rmsColumns.set(smoothColumns(rmsColumns, 6));
+
+          const bodyHalfColumns = new Float32Array(columnCount);
+          const peakHalfColumns = new Float32Array(columnCount);
+          for (let column = 0; column < columnCount; column++) {
+            if (coverageColumns[column] <= 0) continue;
+            const peak = peakColumns[column];
+            const rms = Math.min(peak, rmsColumns[column]);
+            const scoutColumn = confidenceColumns[column] < 1.5;
+            const bodyFloor = scoutColumn ? 0.1 : 0.08;
+            const body = Math.max(ampH * bodyFloor, rms * ampH * (scoutColumn ? 0.92 : 1));
+            const crest = Math.max(body, peak * ampH * (scoutColumn ? 0.9 : 0.96));
+            bodyHalfColumns[column] = body;
+            peakHalfColumns[column] = crest;
+          }
+
+          for (let column = 0; column < columnCount; column++) {
+            const coverage = coverageColumns[column];
+            const x1 = rect.x + (column / columnCount) * rect.w;
+            const x2 = rect.x + ((column + 1) / columnCount) * rect.w;
+            const colW = Math.max(1, x2 - x1);
+            if (coverage <= 0) {
+              ctx.fillStyle = learnedWaveHint;
+              ctx.fillRect(x1, midY - Math.max(1, dpr / 2), colW, Math.max(1, dpr));
+              continue;
+            }
+
+            const scoutColumn = confidenceColumns[column] < 1.5;
+            const coverageAlpha = scoutColumn
+              ? 0.38 + coverage * 0.22
+              : 0.52 + coverage * 0.24;
+            const bodyHalf = bodyHalfColumns[column];
+            const peakHalf = peakHalfColumns[column];
+
+            ctx.save();
+            ctx.globalAlpha *= coverageAlpha;
+            ctx.fillStyle = scoutColumn ? waveformShadow : waveformFill;
+            ctx.fillRect(x1, midY - bodyHalf, colW, bodyHalf * 2);
+            ctx.globalAlpha *= scoutColumn ? 0.72 : 0.86;
+            ctx.fillStyle = scoutColumn ? learnedWaveLine : waveformStroke;
+            ctx.fillRect(x1, midY - peakHalf, colW, Math.max(1, peakHalf - bodyHalf));
+            ctx.fillRect(x1, midY + bodyHalf, colW, Math.max(1, peakHalf - bodyHalf));
+            ctx.restore();
+          }
+
+          ctx.lineWidth = Math.max(1, dpr);
+          for (let column = 0; column < columnCount; column++) {
+            if (coverageColumns[column] <= 0) continue;
+            const x = rect.x + ((column + 0.5) / columnCount) * rect.w;
+            const peakHalf = peakHalfColumns[column];
+            const scoutColumn = confidenceColumns[column] < 1.5;
+            ctx.strokeStyle = scoutColumn ? learnedWaveLine : waveformStroke;
+            ctx.beginPath();
+            ctx.moveTo(x, midY - peakHalf);
+            ctx.lineTo(x, midY + peakHalf);
+            ctx.stroke();
+          }
+        }
+
+        drawLoopOverlay(rect, start, end);
+        drawPlayCursor(rect, start, end, true);
+        ctx.restore();
+        return coveredColumns;
+      };
+
       const drawEnvelopeWindow = (
         rect: TimelineRect,
         start: number,
@@ -1844,19 +2007,33 @@ export function WaveformOverviewPanel(): React.ReactElement {
       ctx.fillStyle = viewWindowFill;
       ctx.fillRect(viewportStartX, layout.session.y, Math.max(1, viewportEndX - viewportStartX), layout.session.h);
       drawTimeGrid(layout.session, 0, duration, true);
-      drawEnvelopeWindow(
-        layout.session,
-        0,
-        duration,
-        { emphasizeCoverage: true, fillPlayback: true, confidenceProfile: 'session' },
-        {
-          peakEnv: sessionPeakEnv,
-          rmsEnv: sessionRmsEnv,
-          clipMap: sessionClipMap,
-          coverageMap: sessionCoverageMap,
-          peakNormalizer: sessionPeakNormalizer,
-        },
-      );
+      if (isStreamedOverview) {
+        drawStreamedSessionMap(
+          layout.session,
+          0,
+          duration,
+          {
+            peakEnv: sessionPeakEnv,
+            rmsEnv: sessionRmsEnv,
+            coverageMap: sessionCoverageMap,
+            peakNormalizer: sessionPeakNormalizer,
+          },
+        );
+      } else {
+        drawEnvelopeWindow(
+          layout.session,
+          0,
+          duration,
+          { emphasizeCoverage: true, fillPlayback: true, confidenceProfile: 'session' },
+          {
+            peakEnv: sessionPeakEnv,
+            rmsEnv: sessionRmsEnv,
+            clipMap: sessionClipMap,
+            coverageMap: sessionCoverageMap,
+            peakNormalizer: sessionPeakNormalizer,
+          },
+        );
+      }
       ctx.strokeStyle = viewWindowStroke;
       ctx.lineWidth = 1.2 * dpr;
       ctx.strokeRect(viewportStartX, layout.session.y + 0.5 * dpr, Math.max(1, viewportEndX - viewportStartX), Math.max(1, layout.session.h - dpr));
@@ -1925,10 +2102,10 @@ export function WaveformOverviewPanel(): React.ReactElement {
       ctx.fillStyle = textColor;
       ctx.textAlign = 'left';
       ctx.textBaseline = 'top';
-      ctx.fillText(isStreamedOverview ? 'SESSION MAP / LIVE' : 'SESSION MAP', SPACING.sm * dpr, layout.session.y + 4 * dpr);
+      ctx.fillText(isStreamedOverview ? 'SESSION MAP / COARSE' : 'SESSION MAP', SPACING.sm * dpr, layout.session.y + 4 * dpr);
       ctx.fillText('VIEW WINDOW', SPACING.sm * dpr, layout.view.y + 1 * dpr);
       ctx.fillText(loopStart !== null && loopEnd !== null ? 'LOOP REGION' : 'LOOP DRAG TO SET', SPACING.sm * dpr, layout.loop.y + 1 * dpr);
-      ctx.fillText(`DETAIL WINDOW ${formatSpan(viewRange.end - viewRange.start)}`, SPACING.sm * dpr, layout.detail.y + 4 * dpr);
+      ctx.fillText(`DETAIL WAVEFORM ${formatSpan(viewRange.end - viewRange.start)}`, SPACING.sm * dpr, layout.detail.y + 4 * dpr);
 
       ctx.textAlign = 'left';
       ctx.fillText(fmtTime(viewRange.start), SPACING.sm * dpr, layout.detail.y + 18 * dpr);
@@ -1947,8 +2124,8 @@ export function WaveformOverviewPanel(): React.ReactElement {
         drawBadge(ctx, clipText, clipColor, badgeX, layout.session.y + 19 * dpr, dpr);
       } else if (isStreamedOverview) {
         const liveColor = hyper ? CANVAS.hyper.trace : COLORS.borderHighlight;
-        drawBadge(ctx, 'LIVE MAP', liveColor, badgeX, layout.session.y + 4 * dpr, dpr);
-        drawBadge(ctx, `${Math.round(learnedRatio * 100)}% LEARNED`, COLORS.textTitle, badgeX, layout.session.y + 19 * dpr, dpr);
+        drawBadge(ctx, 'COARSE MAP', liveColor, badgeX, layout.session.y + 4 * dpr, dpr);
+        drawBadge(ctx, `${Math.round(learnedRatio * 100)}% MAPPED`, COLORS.textTitle, badgeX, layout.session.y + 19 * dpr, dpr);
       }
 
       drawBadge(ctx, `VIEW ${formatSpan(viewRange.end - viewRange.start)}`, COLORS.textSecondary, badgeX, layout.view.y + 1 * dpr, dpr);
@@ -1972,7 +2149,7 @@ export function WaveformOverviewPanel(): React.ReactElement {
         ctx.fillStyle = textColor;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText('DETAIL BUILDS AROUND PLAYBACK AND SEEK TARGETS', width / 2, layout.detail.y + layout.detail.h / 2);
+        ctx.fillText('DETAIL WAVEFORM BUILDS AROUND PLAYBACK AND SEEK TARGETS', width / 2, layout.detail.y + layout.detail.h / 2);
       }
     };
 
