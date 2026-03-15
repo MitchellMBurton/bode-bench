@@ -120,21 +120,51 @@ function seekMediaElement(element: HTMLMediaElement, time: number, timeoutMs: nu
   });
 }
 
-function sampleTimeDomainLevels(data: Float32Array): { peak: number; rms: number } {
-  let peak = 0;
-  let sumSquares = 0;
+function mergeTimeDomainShapeIntoRange(
+  peakEnv: Float32Array,
+  rmsEnv: Float32Array,
+  coverage: Uint8Array,
+  startIndex: number,
+  endIndex: number,
+  data: Float32Array,
+): number {
+  if (peakEnv.length === 0 || rmsEnv.length === 0 || coverage.length === 0 || data.length === 0) return 0;
 
-  for (let index = 0; index < data.length; index++) {
-    const value = data[index];
-    const abs = Math.abs(value);
-    if (abs > peak) peak = abs;
-    sumSquares += value * value;
+  const boundedStart = Math.max(0, Math.min(peakEnv.length - 1, startIndex));
+  const boundedEnd = Math.max(boundedStart, Math.min(peakEnv.length - 1, endIndex));
+  const columnCount = boundedEnd - boundedStart + 1;
+  const samplesPerColumn = Math.max(1, Math.floor(data.length / columnCount));
+  let localPeakMax = 0;
+
+  for (let column = 0; column < columnCount; column++) {
+    const envIndex = boundedStart + column;
+    const sampleStart = Math.min(data.length - 1, column * samplesPerColumn);
+    const sampleEnd = column === columnCount - 1
+      ? data.length
+      : Math.min(data.length, sampleStart + samplesPerColumn);
+
+    let peak = 0;
+    let sumSquares = 0;
+    let count = 0;
+
+    for (let sample = sampleStart; sample < sampleEnd; sample++) {
+      const value = data[sample];
+      const abs = Math.abs(value);
+      if (abs > peak) peak = abs;
+      sumSquares += value * value;
+      count++;
+    }
+
+    const rms = count > 0 ? Math.sqrt(sumSquares / count) : 0;
+    peakEnv[envIndex] = Math.max(peakEnv[envIndex], peak);
+    rmsEnv[envIndex] = Math.max(rmsEnv[envIndex], Math.min(peak, rms));
+    if (coverage[envIndex] === 0) {
+      coverage[envIndex] = 1;
+    }
+    if (peak > localPeakMax) localPeakMax = peak;
   }
 
-  return {
-    peak,
-    rms: data.length > 0 ? Math.sqrt(sumSquares / data.length) : 0,
-  };
+  return localPeakMax;
 }
 
 function buildMidpointScoutOrder(sampleCount: number): number[] {
@@ -408,6 +438,28 @@ export function WaveformOverviewPanel(): React.ReactElement {
     }
   }, []);
 
+  const mergeStreamedEnvelopeShape = useCallback((startIndex: number, endIndex: number, timeDomain: Float32Array) => {
+    const peakEnv = streamedPeakEnvRef.current;
+    const rmsEnv = streamedRmsEnvRef.current;
+    const coverage = streamedCoverageRef.current;
+    if (!peakEnv || !rmsEnv || !coverage || peakEnv.length === 0) return;
+
+    const previousLearnedCount = streamedLearnedCountRef.current;
+    const localPeakMax = mergeTimeDomainShapeIntoRange(peakEnv, rmsEnv, coverage, startIndex, endIndex, timeDomain);
+
+    let learnedCount = 0;
+    for (let index = 0; index < coverage.length; index++) {
+      if (coverage[index] !== 0) learnedCount++;
+    }
+    if (learnedCount !== previousLearnedCount) {
+      streamedLearnedCountRef.current = learnedCount;
+    }
+
+    if (localPeakMax > streamedPeakMaxRef.current) {
+      streamedPeakMaxRef.current = localPeakMax;
+    }
+  }, []);
+
   const resetStreamedEnvelope = useCallback(() => {
     streamedPeakEnvRef.current = null;
     streamedRmsEnvRef.current = null;
@@ -540,10 +592,10 @@ export function WaveformOverviewPanel(): React.ReactElement {
             continue;
           }
 
-          let sampledPeak = 0;
-          let sampledRms = 0;
           let sampledAny = false;
-          for (const sampleTime of buildScoutSampleTimes(target)) {
+          const sampleTimes = buildScoutSampleTimes(target);
+          for (let sampleIndex = 0; sampleIndex < sampleTimes.length; sampleIndex++) {
+            const sampleTime = sampleTimes[sampleIndex];
             await seekMediaElement(probe.element, sampleTime, STREAMED_SCOUT_READY_TIMEOUT_MS);
             if (cancelled) break;
             await waitForMediaReadyState(probe.element, STREAMED_SCOUT_READY_TIMEOUT_MS);
@@ -561,14 +613,14 @@ export function WaveformOverviewPanel(): React.ReactElement {
 
             probe.analyser.getFloatTimeDomainData(probe.timeDomain as Float32Array<ArrayBuffer>);
             if (played) probe.element.pause();
-            const { peak, rms } = sampleTimeDomainLevels(probe.timeDomain);
-            if (peak > sampledPeak) sampledPeak = peak;
-            if (rms > sampledRms) sampledRms = rms;
+            const segmentStart = target.colStart + Math.floor(((target.colEnd - target.colStart + 1) * sampleIndex) / sampleTimes.length);
+            const segmentEnd = target.colStart + Math.floor(((target.colEnd - target.colStart + 1) * (sampleIndex + 1)) / sampleTimes.length) - 1;
+            mergeStreamedEnvelopeShape(segmentStart, Math.max(segmentStart, segmentEnd), probe.timeDomain);
             sampledAny = true;
           }
 
-          if (!cancelled && sampledAny) {
-            mergeStreamedEnvelopeRange(target.colStart, target.colEnd, sampledPeak, sampledRms);
+          if (!cancelled && !sampledAny) {
+            mergeStreamedEnvelopeRange(target.colStart, target.colEnd, 0, 0);
           }
 
           await delay(transportRef.current.isPlaying ? STREAMED_SCOUT_ACTIVE_DELAY_MS : STREAMED_SCOUT_IDLE_DELAY_MS);
@@ -583,7 +635,7 @@ export function WaveformOverviewPanel(): React.ReactElement {
     };
 
     void run();
-  }, [audioEngine, cancelStreamedScout, initializeStreamedEnvelope, mergeStreamedEnvelopeRange]);
+  }, [audioEngine, cancelStreamedScout, initializeStreamedEnvelope, mergeStreamedEnvelopeRange, mergeStreamedEnvelopeShape]);
 
   useEffect(() => frameBus.subscribe((frame) => {
     centroidRef.current = frame.spectralCentroid;
