@@ -17,6 +17,7 @@ The core is not a single file type or a single repertoire. The core is disciplin
 - The product is a scientific listening instrument.
 - The hero is the harmony of interfaces, not a single panel.
 - Beauty emerges from precision, composition, and trust in tools.
+- Large streamed media should use honest coarse representations rather than fake full-resolution certainty.
 - Signal analysis and optional structural annotation are separate domains.
 - No decorative mode should exist only to look impressive.
 - The default interface is presentation-safe during ordinary use.
@@ -32,6 +33,8 @@ The core is not a single file type or a single repertoire. The core is disciplin
 - Browser parity for the shared frontend
 - Temporary session audio and video ingest
 - Playback transport with timing readout, loop, and scrub
+- Zoomable timeline with a full-session map and focused detail window
+- One primary loop region with direct timeline adjustment
 - Windowed, theater, and in-app full-screen video presentation
 - Diagnostics log for review and support
 - Levels, waveform, pitch, oscilloscope, loudness, response, and spectrogram surfaces
@@ -50,7 +53,7 @@ The core is not a single file type or a single repertoire. The core is disciplin
 
 ## Immediate Milestone
 
-Stabilize a robust single-session console for arbitrary local audio/video review, with optional aligned annotation workflows and presentation-safe desktop behavior.
+Stabilize a robust single-session console for arbitrary local audio/video review, with optional aligned annotation workflows, presentation-safe desktop behavior, and a trustworthy timeline model for both decoded and streamed large media.
 
 ## Audience
 

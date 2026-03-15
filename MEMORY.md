@@ -10,36 +10,43 @@
 
 ### Accepted Dev Baseline
 
-- Current accepted daily-development baseline is commit `84c4824` on `dev`.
+- Current accepted daily-development baseline is commit `9fef272` on `dev`.
 - Large media now uses a streamed fallback path instead of forcing full in-memory decode.
-- Streamed large-media overview now fills in live during playback rather than remaining blank.
+- Large-media timelines now follow a two-tier model:
+  - coarse full-session map for whole-duration navigation
+  - zoomed detail window for focused waveform work
+- Looping and viewport control now live directly in the timeline model instead of being implied only by transport state.
 - Streamed high-quality video pitch was restored through live stretch processing.
+- Streamed pitch/seek handoff is now hardened against stale interrupted `play()` calls during retune.
 - Streamed scrubbing now stays continuous instead of pausing on each movement.
 
 ### Product Reality Tonight
 
 - The desktop app can now handle very large or film-length media more credibly than earlier baselines.
-- Video playback quality is currently stronger than overview completeness for extreme files, which is acceptable for the current architecture direction.
+- Video playback quality is currently stronger than large-file timeline fidelity, which is acceptable for the current architecture direction but still an active refinement area.
 - Perf Lab is part of the intended operating experience and should remain available as an expert-facing telemetry surface.
 
 ### Known Watch Points
 
 - Streamed live pitch should keep being judged by ear on difficult material; artifact quality matters as much as feature presence.
+- Large streamed timeline rendering is now structurally correct, but the visual grammar of coarse session-map waveforms still needs refinement to feel fully intentional.
 - Heavy ingest and deferred analysis still deserve longer-term worker/off-main-thread treatment.
 - The next reliability step is a small regression suite around transport, large-media fallback, and layout behavior.
 
 ### Next AI Handoff
 
-- Start from `dev` commit `93c8213`.
+- Start from `dev` commit `9fef272`.
 - Treat `main` as the stable/share-safe branch and `dev` as the active integration branch.
 - The current large-media strategy is intentional:
   - streamed fallback for oversized media
-  - live-learned overview for streamed media
+  - coarse session map plus zoomed detail window for streamed media
+  - live-learned timeline refinement for streamed media
   - restored live pitch for streamed high-quality video
   - continuous scrubbing for streamed media
 - Do not revert toward unconditional full-file decode for large video just to recover features.
 - Highest-value next work:
   - improve subjective quality of streamed live pitch on difficult material
+  - refine the visual language of coarse streamed timelines so they feel honest and intentional rather than malformed
   - move more ingest/analysis work off the main thread
   - add a small regression suite for transport, large-media fallback, and layout resizing
 - Perf Lab is part of the intended product UX, not temporary debugging clutter.

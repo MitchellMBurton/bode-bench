@@ -33,6 +33,16 @@ The default layout is already authoritative. No separate presentation skin. Tran
 
 The current four-quadrant desktop interface remains the baseline, with transport and context on the left and the denser analysis surfaces on the right.
 
+## Timeline Doctrine
+
+The top timeline system must separate whole-session navigation from local inspection.
+
+- The session map may be coarse on streamed large media, but it must always feel honest and useful.
+- The detail window is where focused waveform reading, looping, and precise scrubbing happen.
+- Zoom and loop controls should be explicit, compact, and readable at a glance.
+- A streamed large-media timeline must not pretend to have decoded certainty it does not actually possess.
+- Coarse learned regions and high-confidence played/decoded regions should be visually related, but not indistinguishable.
+
 ## Overlays
 
 Structural overlays may add meaning, segmentation, or annotation. They must never reduce clarity of the diagnostic layer beneath.
