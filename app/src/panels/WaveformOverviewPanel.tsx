@@ -208,6 +208,7 @@ function mergeTimeDomainShapeIntoRange(
   startIndex: number,
   endIndex: number,
   data: Float32Array,
+  coverageValue = 1,
 ): number {
   if (peakEnv.length === 0 || rmsEnv.length === 0 || coverage.length === 0 || data.length === 0) return 0;
 
@@ -239,9 +240,7 @@ function mergeTimeDomainShapeIntoRange(
     const rms = count > 0 ? Math.sqrt(sumSquares / count) : 0;
     peakEnv[envIndex] = Math.max(peakEnv[envIndex], peak);
     rmsEnv[envIndex] = Math.max(rmsEnv[envIndex], Math.min(peak, rms));
-    if (coverage[envIndex] === 0) {
-      coverage[envIndex] = 1;
-    }
+    coverage[envIndex] = Math.max(coverage[envIndex], coverageValue);
     if (peak > localPeakMax) localPeakMax = peak;
   }
 
@@ -601,10 +600,9 @@ export function WaveformOverviewPanel(): React.ReactElement {
       for (let index = startIndex; index <= endIndex; index++) {
         peakEnv[index] = Math.max(peakEnv[index], boundedPeak);
         rmsEnv[index] = Math.max(rmsEnv[index], boundedRms);
-        if (coverage[index] === 0) {
-          coverage[index] = 1;
-          if (trackLearnedCount) streamedLearnedCountRef.current++;
-        }
+        const wasUnknown = coverage[index] === 0;
+        coverage[index] = Math.max(coverage[index], 1);
+        if (wasUnknown && trackLearnedCount) streamedLearnedCountRef.current++;
       }
 
       if (boundedPeak > peakMaxRef.current) {
@@ -615,7 +613,12 @@ export function WaveformOverviewPanel(): React.ReactElement {
     apply(streamedPeakEnvRef.current, streamedRmsEnvRef.current, streamedCoverageRef.current, streamedPeakMaxRef, true);
   }, []);
 
-  const mergeStreamedEnvelopeShape = useCallback((timeStart: number, timeEnd: number, timeDomain: Float32Array) => {
+  const mergeStreamedEnvelopeShape = useCallback((
+    timeStart: number,
+    timeEnd: number,
+    timeDomain: Float32Array,
+    coverageValue = 2,
+  ) => {
     const duration = Math.max(0.001, transportRef.current.duration);
     const apply = (
       peakEnv: Float32Array | null,
@@ -634,7 +637,15 @@ export function WaveformOverviewPanel(): React.ReactElement {
         ),
       );
       const previousLearnedCount = trackLearnedCount ? streamedLearnedCountRef.current : 0;
-      const localPeakMax = mergeTimeDomainShapeIntoRange(peakEnv, rmsEnv, coverage, startIndex, endIndex, timeDomain);
+      const localPeakMax = mergeTimeDomainShapeIntoRange(
+        peakEnv,
+        rmsEnv,
+        coverage,
+        startIndex,
+        endIndex,
+        timeDomain,
+        coverageValue,
+      );
 
       if (trackLearnedCount) {
         let learnedCount = 0;
@@ -833,7 +844,7 @@ export function WaveformOverviewPanel(): React.ReactElement {
             const localRms = probe.timeDomain.length > 0 ? Math.sqrt(localRmsSum / probe.timeDomain.length) : 0;
             const segmentTimeStart = target.timeStart + ((target.timeEnd - target.timeStart) * sampleIndex) / sampleTimes.length;
             const segmentTimeEnd = target.timeStart + ((target.timeEnd - target.timeStart) * (sampleIndex + 1)) / sampleTimes.length;
-            mergeStreamedEnvelopeShape(segmentTimeStart, Math.max(segmentTimeStart, segmentTimeEnd), probe.timeDomain);
+            mergeStreamedEnvelopeShape(segmentTimeStart, Math.max(segmentTimeStart, segmentTimeEnd), probe.timeDomain, 1);
             if (localPeak > sampledPeak) sampledPeak = localPeak;
             sampledRmsSum += localRms;
             sampledCount++;
@@ -1475,7 +1486,12 @@ export function WaveformOverviewPanel(): React.ReactElement {
         rect: TimelineRect,
         start: number,
         end: number,
-        options: { readonly emphasizeCoverage?: boolean; readonly showClipMap?: boolean; readonly fillPlayback?: boolean },
+        options: {
+          readonly emphasizeCoverage?: boolean;
+          readonly showClipMap?: boolean;
+          readonly fillPlayback?: boolean;
+          readonly confidenceProfile?: 'session' | 'detail';
+        },
         source: {
           readonly peakEnv: Float32Array | null;
           readonly rmsEnv: Float32Array | null;
@@ -1507,6 +1523,7 @@ export function WaveformOverviewPanel(): React.ReactElement {
           const peakColumns = new Float32Array(columnCount);
           const rmsColumns = new Float32Array(columnCount);
           const coverageColumns = new Float32Array(columnCount);
+          const confidenceColumns = new Float32Array(columnCount);
           const clipColumns = new Uint8Array(columnCount);
           const rangeStart = (start / duration) * envLen;
           const rangeEnd = (end / duration) * envLen;
@@ -1626,6 +1643,7 @@ export function WaveformOverviewPanel(): React.ReactElement {
             let coveredBins = 0;
             let maxPeak = 0;
             let maxRms = 0;
+            let maxConfidence = 0;
             let clipped = false;
 
             for (let index = binStart; index <= binEnd; index++) {
@@ -1634,6 +1652,7 @@ export function WaveformOverviewPanel(): React.ReactElement {
               coveredBins++;
               maxPeak = Math.max(maxPeak, peakEnv[index]);
               maxRms = Math.max(maxRms, rmsEnv[index]);
+              maxConfidence = Math.max(maxConfidence, coverageMap ? coverageMap[index] : 2);
               if (options.showClipMap && clipMap && clipMap[index]) clipped = true;
             }
 
@@ -1641,6 +1660,7 @@ export function WaveformOverviewPanel(): React.ReactElement {
               peakColumns[column] = clampNumber(maxPeak * peakNormalizer, 0, 1);
               rmsColumns[column] = clampNumber(maxRms * peakNormalizer, 0, peakColumns[column]);
               coverageColumns[column] = coveredBins / totalBins;
+              confidenceColumns[column] = maxConfidence > 0 ? maxConfidence : 2;
               clipColumns[column] = clipped ? 1 : 0;
               coveredColumns++;
             }
@@ -1661,7 +1681,41 @@ export function WaveformOverviewPanel(): React.ReactElement {
               peakColumns[column] = peakColumns[left] + (peakColumns[right] - peakColumns[left]) * ratio;
               rmsColumns[column] = rmsColumns[left] + (rmsColumns[right] - rmsColumns[left]) * ratio;
               coverageColumns[column] = Math.min(coverageColumns[left], coverageColumns[right]) * 0.3;
+              confidenceColumns[column] = Math.min(confidenceColumns[left], confidenceColumns[right]) * 0.5;
             }
+          }
+
+          if (coverageMap) {
+            const scoutSmoothRadius = options.confidenceProfile === 'detail' ? 4 : 7;
+            const smoothColumns = (sourceValues: Float32Array): Float32Array => {
+              const next = new Float32Array(columnCount);
+              for (let column = 0; column < columnCount; column++) {
+                if (coverageColumns[column] <= 0) continue;
+                if (confidenceColumns[column] >= 1.5) {
+                  next[column] = sourceValues[column];
+                  continue;
+                }
+
+                let weightedSum = 0;
+                let weightTotal = 0;
+                for (let offset = -scoutSmoothRadius; offset <= scoutSmoothRadius; offset++) {
+                  const index = column + offset;
+                  if (index < 0 || index >= columnCount || coverageColumns[index] <= 0) continue;
+                  const distance = Math.abs(offset);
+                  const closeness = 1 / (1 + distance);
+                  const confidence = Math.max(0.15, Math.min(1, confidenceColumns[index]));
+                  const coverageWeight = Math.max(0.15, coverageColumns[index]);
+                  const weight = closeness * confidence * coverageWeight;
+                  weightedSum += sourceValues[index] * weight;
+                  weightTotal += weight;
+                }
+                next[column] = weightTotal > 0 ? weightedSum / weightTotal : sourceValues[column];
+              }
+              return next;
+            };
+
+            peakColumns.set(smoothColumns(peakColumns));
+            rmsColumns.set(smoothColumns(rmsColumns));
           }
 
           const peakHalfColumns = new Float32Array(columnCount);
@@ -1695,14 +1749,18 @@ export function WaveformOverviewPanel(): React.ReactElement {
 
             const segmentEnd = column - 1;
             let coverageSum = 0;
+            let confidenceSum = 0;
             let hasClip = false;
             for (let index = segmentStart; index <= segmentEnd; index++) {
               coverageSum += coverageColumns[index];
+              confidenceSum += confidenceColumns[index];
               if (clipColumns[index]) hasClip = true;
             }
 
             const averageCoverage = coverageSum / Math.max(1, segmentEnd - segmentStart + 1);
-            const alpha = 0.45 + averageCoverage * 0.45;
+            const averageConfidence = confidenceSum / Math.max(1, segmentEnd - segmentStart + 1);
+            const scoutOnly = averageConfidence < 1.5;
+            const alpha = (0.45 + averageCoverage * 0.45) * (scoutOnly ? 0.8 : 1);
 
             ctx.save();
             ctx.globalAlpha *= alpha;
@@ -1713,7 +1771,7 @@ export function WaveformOverviewPanel(): React.ReactElement {
             ctx.closePath();
             ctx.fill();
 
-            ctx.strokeStyle = waveformStroke;
+            ctx.strokeStyle = scoutOnly ? learnedWaveLine : waveformStroke;
             ctx.lineWidth = Math.max(1, dpr);
             ctx.lineJoin = 'round';
             ctx.lineCap = 'round';
@@ -1721,10 +1779,12 @@ export function WaveformOverviewPanel(): React.ReactElement {
             strokeEnvelopeHalf(segmentStart, segmentEnd, peakHalfColumns, 1);
             ctx.stroke();
 
-            ctx.strokeStyle = waveformShadow;
-            ctx.beginPath();
-            strokeEnvelopeHalf(segmentStart, segmentEnd, peakHalfColumns, -1);
-            ctx.stroke();
+            if (!scoutOnly) {
+              ctx.strokeStyle = waveformShadow;
+              ctx.beginPath();
+              strokeEnvelopeHalf(segmentStart, segmentEnd, peakHalfColumns, -1);
+              ctx.stroke();
+            }
             ctx.restore();
 
             if (options.showClipMap && hasClip) {
@@ -1734,7 +1794,7 @@ export function WaveformOverviewPanel(): React.ReactElement {
               ctx.fillRect(x1, rect.y, Math.max(1, x2 - x1), rect.h);
             }
 
-            if (averageCoverage <= 0.28) {
+            if (averageCoverage <= 0.28 || scoutOnly) {
               const x1 = rect.x + (segmentStart / columnCount) * rect.w;
               const x2 = rect.x + ((segmentEnd + 1) / columnCount) * rect.w;
               ctx.fillStyle = learnedWaveLine;
@@ -1775,7 +1835,7 @@ export function WaveformOverviewPanel(): React.ReactElement {
         layout.session,
         0,
         duration,
-        { emphasizeCoverage: true, fillPlayback: true },
+        { emphasizeCoverage: true, fillPlayback: true, confidenceProfile: 'session' },
         {
           peakEnv: sessionPeakEnv,
           rmsEnv: sessionRmsEnv,
@@ -1837,6 +1897,7 @@ export function WaveformOverviewPanel(): React.ReactElement {
           emphasizeCoverage: true,
           showClipMap: !isStreamedOverview,
           fillPlayback: true,
+          confidenceProfile: 'detail',
         },
         {
           peakEnv: detailPeakEnv,
