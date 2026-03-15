@@ -593,6 +593,9 @@ export function WaveformOverviewPanel(): React.ReactElement {
           }
 
           let sampledAny = false;
+          let sampledPeak = 0;
+          let sampledRmsSum = 0;
+          let sampledCount = 0;
           const sampleTimes = buildScoutSampleTimes(target);
           for (let sampleIndex = 0; sampleIndex < sampleTimes.length; sampleIndex++) {
             const sampleTime = sampleTimes[sampleIndex];
@@ -613,13 +616,32 @@ export function WaveformOverviewPanel(): React.ReactElement {
 
             probe.analyser.getFloatTimeDomainData(probe.timeDomain as Float32Array<ArrayBuffer>);
             if (played) probe.element.pause();
+            let localPeak = 0;
+            let localRmsSum = 0;
+            for (let sample = 0; sample < probe.timeDomain.length; sample++) {
+              const value = probe.timeDomain[sample];
+              const abs = Math.abs(value);
+              if (abs > localPeak) localPeak = abs;
+              localRmsSum += value * value;
+            }
+            const localRms = probe.timeDomain.length > 0 ? Math.sqrt(localRmsSum / probe.timeDomain.length) : 0;
             const segmentStart = target.colStart + Math.floor(((target.colEnd - target.colStart + 1) * sampleIndex) / sampleTimes.length);
             const segmentEnd = target.colStart + Math.floor(((target.colEnd - target.colStart + 1) * (sampleIndex + 1)) / sampleTimes.length) - 1;
             mergeStreamedEnvelopeShape(segmentStart, Math.max(segmentStart, segmentEnd), probe.timeDomain);
+            if (localPeak > sampledPeak) sampledPeak = localPeak;
+            sampledRmsSum += localRms;
+            sampledCount++;
             sampledAny = true;
           }
 
-          if (!cancelled && !sampledAny) {
+          if (!cancelled && sampledAny) {
+            mergeStreamedEnvelopeRange(
+              target.colStart,
+              target.colEnd,
+              sampledPeak,
+              sampledCount > 0 ? sampledRmsSum / sampledCount : 0,
+            );
+          } else if (!cancelled && !sampledAny) {
             mergeStreamedEnvelopeRange(target.colStart, target.colEnd, 0, 0);
           }
 
