@@ -512,6 +512,8 @@ export function WaveformOverviewPanel(): React.ReactElement {
 
           await seekMediaElement(probe.element, target.time, STREAMED_SCOUT_READY_TIMEOUT_MS);
           if (cancelled) break;
+          await waitForMediaReadyState(probe.element, STREAMED_SCOUT_READY_TIMEOUT_MS);
+          if (cancelled) break;
 
           try {
             await Promise.resolve(probe.element.play());

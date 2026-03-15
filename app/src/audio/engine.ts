@@ -1719,10 +1719,11 @@ export class AudioEngine {
     element.crossOrigin = 'anonymous';
     element.defaultPlaybackRate = 1;
     element.playbackRate = 1;
+    element.defaultMuted = true;
+    element.muted = true;
 
     if (element instanceof HTMLVideoElement) {
       element.playsInline = true;
-      element.muted = true;
     }
 
     const source = ctx.createMediaElementSource(element);
