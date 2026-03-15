@@ -1845,7 +1845,7 @@ export function WaveformOverviewPanel(): React.ReactElement {
           const rmsColumns = new Float32Array(columnCount);
           const coverageColumns = new Float32Array(columnCount);
           const confidenceColumns = new Float32Array(columnCount);
-          const clipColumns = new Uint8Array(columnCount);
+          const clipColumns = new Float32Array(columnCount);
           const rangeStart = (start / duration) * envLen;
           const rangeEnd = (end / duration) * envLen;
           const rangeSpan = Math.max(0.001, rangeEnd - rangeStart);
@@ -1965,7 +1965,7 @@ export function WaveformOverviewPanel(): React.ReactElement {
             let maxPeak = 0;
             let maxRms = 0;
             let maxConfidence = 0;
-            let clipped = false;
+            let clippedBins = 0;
 
             for (let index = binStart; index <= binEnd; index++) {
               const covered = !coverageMap || coverageMap[index] !== 0;
@@ -1974,7 +1974,7 @@ export function WaveformOverviewPanel(): React.ReactElement {
               maxPeak = Math.max(maxPeak, peakEnv[index]);
               maxRms = Math.max(maxRms, rmsEnv[index]);
               maxConfidence = Math.max(maxConfidence, coverageMap ? coverageMap[index] : 2);
-              if (options.showClipMap && clipMap && clipMap[index]) clipped = true;
+              if (options.showClipMap && clipMap && clipMap[index]) clippedBins++;
             }
 
             if (coveredBins > 0) {
@@ -1982,7 +1982,7 @@ export function WaveformOverviewPanel(): React.ReactElement {
               rmsColumns[column] = clampNumber(maxRms * peakNormalizer, 0, peakColumns[column]);
               coverageColumns[column] = coveredBins / totalBins;
               confidenceColumns[column] = maxConfidence > 0 ? maxConfidence : 2;
-              clipColumns[column] = clipped ? 1 : 0;
+              clipColumns[column] = clippedBins / totalBins;
               coveredColumns++;
             }
           }
@@ -2083,11 +2083,11 @@ export function WaveformOverviewPanel(): React.ReactElement {
             const segmentEnd = column - 1;
             let coverageSum = 0;
             let confidenceSum = 0;
-            let hasClip = false;
+            let maxClipDensity = 0;
             for (let index = segmentStart; index <= segmentEnd; index++) {
               coverageSum += coverageColumns[index];
               confidenceSum += confidenceColumns[index];
-              if (clipColumns[index]) hasClip = true;
+              maxClipDensity = Math.max(maxClipDensity, clipColumns[index]);
             }
 
             const averageCoverage = coverageSum / Math.max(1, segmentEnd - segmentStart + 1);
@@ -2121,18 +2121,29 @@ export function WaveformOverviewPanel(): React.ReactElement {
             ctx.stroke();
             ctx.restore();
 
-            if (options.showClipMap && hasClip) {
-              const x1 = rect.x + (segmentStart / columnCount) * rect.w;
-              const x2 = rect.x + ((segmentEnd + 1) / columnCount) * rect.w;
-              ctx.fillStyle = 'rgba(200, 40, 40, 0.18)';
-              ctx.fillRect(x1, rect.y, Math.max(1, x2 - x1), rect.h);
-            }
-
             if (averageCoverage <= 0.18) {
               const x1 = rect.x + (segmentStart / columnCount) * rect.w;
               const x2 = rect.x + ((segmentEnd + 1) / columnCount) * rect.w;
               ctx.fillStyle = learnedWaveLine;
               ctx.fillRect(x1, midY - Math.max(1, dpr / 2), Math.max(1, x2 - x1), Math.max(1, dpr));
+            }
+
+            if (options.showClipMap && maxClipDensity > 0) {
+              for (let index = segmentStart; index <= segmentEnd; index++) {
+                const clipDensity = clipColumns[index];
+                if (clipDensity <= 0) continue;
+                const x1 = rect.x + (index / columnCount) * rect.w;
+                const x2 = rect.x + ((index + 1) / columnCount) * rect.w;
+                const colW = Math.max(1, x2 - x1);
+                const markerH = Math.max(2 * dpr, rect.h * 0.06);
+                const alpha = 0.28 + clipDensity * 0.44;
+                ctx.save();
+                ctx.globalAlpha *= alpha;
+                ctx.fillStyle = 'rgba(214, 70, 70, 0.9)';
+                ctx.fillRect(x1, rect.y, colW, markerH);
+                ctx.fillRect(x1, rect.y + rect.h - markerH, colW, markerH);
+                ctx.restore();
+              }
             }
 
             segmentStart = -1;
