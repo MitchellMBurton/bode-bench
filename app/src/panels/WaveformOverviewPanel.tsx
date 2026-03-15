@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useAudioEngine, useDisplayMode, useFrameBus, useTheaterMode } from '../core/session';
+import { useAudioEngine, useDisplayMode, useFrameBus, usePerformanceProfile, useTheaterMode } from '../core/session';
+import type { TimelineProfile } from '../runtime/performanceProfile';
 import { CANVAS, COLORS, FONTS, SPACING } from '../theme';
 import type { FileAnalysis, ScrubStyle, TransportState } from '../types';
 
@@ -83,20 +84,12 @@ const PANEL_DPR_MAX = 1.25;
 const DEFAULT_ENVELOPE_COLS = 1024;
 const ENVELOPE_COL_BUCKET = 64;
 const ENVELOPE_SLICE_BUDGET_MS = 5;
-const STREAMED_SESSION_MIN_COLS = 256;
-const STREAMED_ENVELOPE_MAX_COLS = 768;
-const STREAMED_ENVELOPE_SECONDS_PER_COL = 12;
 const STREAMED_ENVELOPE_BRIDGE_MAX_BINS = 24;
-const STREAMED_DETAIL_ENVELOPE_MAX_COLS = 32768;
 const STREAMED_DETAIL_SECONDS_PER_COL = 0.5;
 const STREAMED_DETAIL_BRIDGE_MAX_BINS = 96;
-const STREAMED_SCOUT_TARGET_SAMPLES = STREAMED_ENVELOPE_MAX_COLS;
 const STREAMED_SCOUT_READY_TIMEOUT_MS = 1800;
 const STREAMED_SCOUT_SAMPLE_WINDOW_MS = 110;
 const STREAMED_SCOUT_IDLE_DELAY_MS = 24;
-const STREAMED_SCOUT_ACTIVE_DELAY_MS = 120;
-const STREAMED_SCOUT_STRESS_DELAY_MS = 900;
-const STREAMED_SCOUT_SAMPLES_PER_TARGET = 1;
 const MIN_VIEWPORT_SECONDS = 3;
 const MIN_LOOP_SECONDS = 0.1;
 const VIEW_FOLLOW_MARGIN = 0.22;
@@ -123,19 +116,28 @@ function bucketEnvelopeCols(cols: number, minCols = DEFAULT_ENVELOPE_COLS): numb
   return Math.max(64, rounded);
 }
 
-function pickStreamedEnvelopeCols(duration: number): number {
-  const target = Math.max(STREAMED_SESSION_MIN_COLS, Math.round(duration / STREAMED_ENVELOPE_SECONDS_PER_COL));
-  return Math.min(STREAMED_ENVELOPE_MAX_COLS, bucketEnvelopeCols(target, STREAMED_SESSION_MIN_COLS));
+function pickStreamedEnvelopeCols(duration: number, timeline: TimelineProfile): number {
+  const target = Math.max(timeline.sessionMapMinCols, Math.round(duration / timeline.sessionMapSecondsPerCol));
+  return Math.min(timeline.sessionMapMaxCols, bucketEnvelopeCols(target, timeline.sessionMapMinCols));
 }
 
-function pickStreamedDetailEnvelopeCols(duration: number): number {
+function pickStreamedDetailEnvelopeCols(duration: number, timeline: TimelineProfile): number {
   const target = Math.max(DEFAULT_ENVELOPE_COLS, Math.round(duration / STREAMED_DETAIL_SECONDS_PER_COL));
-  return Math.min(STREAMED_DETAIL_ENVELOPE_MAX_COLS, bucketEnvelopeCols(target));
+  return Math.min(timeline.detailMapMaxCols, bucketEnvelopeCols(target));
 }
 
 function buildMediaKey(filename: string | null, duration: number): string | null {
   if (!filename || !Number.isFinite(duration) || duration <= 0) return null;
   return `${filename}:${duration.toFixed(3)}`;
+}
+
+function buildStreamedProfileKey(
+  filename: string | null,
+  duration: number,
+  profileId: string,
+): string | null {
+  const mediaKey = buildMediaKey(filename, duration);
+  return mediaKey ? `${mediaKey}:${profileId}` : null;
 }
 
 function delay(ms: number): Promise<void> {
@@ -248,8 +250,8 @@ function mergeTimeDomainShapeIntoRange(
   return localPeakMax;
 }
 
-function buildStreamedScoutTargets(cols: number, duration: number): StreamedScoutTarget[] {
-  const targetCount = Math.max(1, Math.min(cols, STREAMED_SCOUT_TARGET_SAMPLES));
+function buildStreamedScoutTargets(cols: number, duration: number, timeline: TimelineProfile): StreamedScoutTarget[] {
+  const targetCount = Math.max(1, Math.min(cols, timeline.scoutTargetSamples));
   return Array.from({ length: targetCount }, (_, slot) => {
     const colStart = Math.floor((slot * cols) / targetCount);
     const colEnd = Math.min(cols - 1, Math.max(colStart, Math.floor(((slot + 1) * cols) / targetCount) - 1));
@@ -267,15 +269,15 @@ function buildStreamedScoutTargets(cols: number, duration: number): StreamedScou
   });
 }
 
-function buildScoutSampleTimes(target: StreamedScoutTarget): number[] {
+function buildScoutSampleTimes(target: StreamedScoutTarget, timeline: TimelineProfile): number[] {
   const span = Math.max(0, target.timeEnd - target.timeStart);
   if (span <= 0.25) {
     return [target.time];
   }
 
   const samples: number[] = [];
-  const divisor = STREAMED_SCOUT_SAMPLES_PER_TARGET + 1;
-  for (let index = 1; index <= STREAMED_SCOUT_SAMPLES_PER_TARGET; index++) {
+  const divisor = timeline.scoutSamplesPerTarget + 1;
+  for (let index = 1; index <= timeline.scoutSamplesPerTarget; index++) {
     const fraction = index / divisor;
     samples.push(target.timeStart + span * fraction);
   }
@@ -492,6 +494,7 @@ export function WaveformOverviewPanel(): React.ReactElement {
   const frameBus = useFrameBus();
   const audioEngine = useAudioEngine();
   const displayMode = useDisplayMode();
+  const performanceProfile = usePerformanceProfile();
   const theaterMode = useTheaterMode();
   const [scrubStyle, setScrubStyle] = useState<ScrubStyle>(() => audioEngine.scrubStyle);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -664,7 +667,7 @@ export function WaveformOverviewPanel(): React.ReactElement {
   }, []);
 
   const initializeStreamedEnvelope = useCallback((filename: string, duration: number, force = false): boolean => {
-    const key = buildMediaKey(filename, duration);
+    const key = buildStreamedProfileKey(filename, duration, performanceProfile.activeProfile);
     if (!key) {
       resetStreamedEnvelope();
       return false;
@@ -679,8 +682,8 @@ export function WaveformOverviewPanel(): React.ReactElement {
       return true;
     }
 
-    const cols = pickStreamedEnvelopeCols(duration);
-    const detailCols = pickStreamedDetailEnvelopeCols(duration);
+    const cols = pickStreamedEnvelopeCols(duration, performanceProfile.timeline);
+    const detailCols = pickStreamedDetailEnvelopeCols(duration, performanceProfile.timeline);
     streamedPeakEnvRef.current = new Float32Array(cols);
     streamedRmsEnvRef.current = new Float32Array(cols);
     streamedCoverageRef.current = new Uint8Array(cols);
@@ -695,7 +698,7 @@ export function WaveformOverviewPanel(): React.ReactElement {
     streamedDetailLastBinRef.current = null;
     streamedEnvelopeKeyRef.current = key;
     return true;
-  }, [resetStreamedEnvelope]);
+  }, [performanceProfile.activeProfile, performanceProfile.timeline, resetStreamedEnvelope]);
 
   const scheduleEnvelopeCompute = useCallback((requestedCols: number, force = false) => {
     const buffer = audioEngine.audioBuffer;
@@ -733,7 +736,7 @@ export function WaveformOverviewPanel(): React.ReactElement {
   }, [audioEngine, cancelEnvelopeCompute]);
 
   const startStreamedScout = useCallback((filename: string, duration: number) => {
-    const key = buildMediaKey(filename, duration);
+    const key = buildStreamedProfileKey(filename, duration, performanceProfile.activeProfile);
     if (!key) return;
 
     if (!initializeStreamedEnvelope(filename, duration)) return;
@@ -766,8 +769,9 @@ export function WaveformOverviewPanel(): React.ReactElement {
         if (cancelled) return;
 
         const targets = buildStreamedScoutTargets(
-          streamedPeakEnvRef.current?.length ?? pickStreamedEnvelopeCols(duration),
+          streamedPeakEnvRef.current?.length ?? pickStreamedEnvelopeCols(duration, performanceProfile.timeline),
           duration,
+          performanceProfile.timeline,
         );
 
         for (const target of targets) {
@@ -786,7 +790,7 @@ export function WaveformOverviewPanel(): React.ReactElement {
           if (!needsSample) continue;
 
           if (shouldThrottleStreamedScout(transportRef.current)) {
-            await delay(STREAMED_SCOUT_STRESS_DELAY_MS);
+            await delay(performanceProfile.timeline.scoutStressDelayMs);
             continue;
           }
 
@@ -794,7 +798,7 @@ export function WaveformOverviewPanel(): React.ReactElement {
           let sampledPeak = 0;
           let sampledRmsSum = 0;
           let sampledCount = 0;
-          const sampleTimes = buildScoutSampleTimes(target);
+          const sampleTimes = buildScoutSampleTimes(target, performanceProfile.timeline);
           for (let sampleIndex = 0; sampleIndex < sampleTimes.length; sampleIndex++) {
             const sampleTime = sampleTimes[sampleIndex];
             await seekMediaElement(probe.element, sampleTime, STREAMED_SCOUT_READY_TIMEOUT_MS);
@@ -808,7 +812,7 @@ export function WaveformOverviewPanel(): React.ReactElement {
               played = true;
               await delay(STREAMED_SCOUT_SAMPLE_WINDOW_MS);
             } catch {
-              await delay(STREAMED_SCOUT_ACTIVE_DELAY_MS);
+              await delay(performanceProfile.timeline.scoutActiveDelayMs);
               continue;
             }
 
@@ -843,7 +847,7 @@ export function WaveformOverviewPanel(): React.ReactElement {
             mergeStreamedEnvelopeRange(target.timeStart, target.timeEnd, 0, 0);
           }
 
-          await delay(transportRef.current.isPlaying ? STREAMED_SCOUT_ACTIVE_DELAY_MS : STREAMED_SCOUT_IDLE_DELAY_MS);
+          await delay(transportRef.current.isPlaying ? performanceProfile.timeline.scoutActiveDelayMs : STREAMED_SCOUT_IDLE_DELAY_MS);
         }
       } catch (error) {
         if (!cancelled) {
@@ -855,7 +859,15 @@ export function WaveformOverviewPanel(): React.ReactElement {
     };
 
     void run();
-  }, [audioEngine, cancelStreamedScout, initializeStreamedEnvelope, mergeStreamedEnvelopeRange, mergeStreamedEnvelopeShape]);
+  }, [
+    audioEngine,
+    cancelStreamedScout,
+    initializeStreamedEnvelope,
+    mergeStreamedEnvelopeRange,
+    mergeStreamedEnvelopeShape,
+    performanceProfile.activeProfile,
+    performanceProfile.timeline,
+  ]);
 
   const setCanvasCursor = useCallback((cursor: string) => {
     if (canvasRef.current) {
@@ -1054,6 +1066,23 @@ export function WaveformOverviewPanel(): React.ReactElement {
       startStreamedScout(transport.filename, transport.duration);
     }
   }), [audioEngine, startStreamedScout]);
+
+  useEffect(() => {
+    const transport = transportRef.current;
+    if (transport.playbackBackend !== 'streamed' || !transport.filename || transport.duration <= 0) {
+      return;
+    }
+
+    cancelStreamedScout();
+    initializeStreamedEnvelope(transport.filename, transport.duration, true);
+    startStreamedScout(transport.filename, transport.duration);
+  }, [
+    cancelStreamedScout,
+    initializeStreamedEnvelope,
+    performanceProfile.activeProfile,
+    performanceProfile.timeline,
+    startStreamedScout,
+  ]);
 
   useEffect(() => audioEngine.onFileReady((analysis) => {
     cancelStreamedScout();

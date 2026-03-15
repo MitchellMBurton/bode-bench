@@ -6,6 +6,7 @@ import { DisplayModeStore } from '../audio/displayMode';
 import { FrameBus } from '../audio/frameBus';
 import { ScrollSpeedStore } from '../audio/scrollSpeed';
 import { DiagnosticsLogStore, PerformanceDiagnosticsStore } from '../diagnostics/logStore';
+import { PerformanceProfileStore, type PerformanceProfileSnapshot } from '../runtime/performanceProfile';
 import { TheaterModeStore } from '../video/theaterMode';
 
 export interface AppSession {
@@ -15,6 +16,7 @@ export interface AppSession {
   scrollSpeed: ScrollSpeedStore;
   diagnosticsLog: DiagnosticsLogStore;
   performanceDiagnostics: PerformanceDiagnosticsStore;
+  performanceProfile: PerformanceProfileStore;
   theaterMode: TheaterModeStore;
 }
 
@@ -29,6 +31,7 @@ export function createAppSession(): AppSession {
   const frameBus = new FrameBus();
   const diagnosticsLog = new DiagnosticsLogStore();
   const performanceDiagnostics = new PerformanceDiagnosticsStore();
+  const performanceProfile = new PerformanceProfileStore();
   const theaterMode = new TheaterModeStore();
   diagnosticsLog.attachGlobalCapture();
 
@@ -39,6 +42,7 @@ export function createAppSession(): AppSession {
     scrollSpeed: new ScrollSpeedStore(),
     diagnosticsLog,
     performanceDiagnostics,
+    performanceProfile,
     theaterMode,
   };
 }
@@ -84,6 +88,19 @@ export function useDiagnosticsLog(): DiagnosticsLogStore {
 
 export function usePerformanceDiagnosticsStore(): PerformanceDiagnosticsStore {
   return useAppSession().performanceDiagnostics;
+}
+
+export function usePerformanceProfileStore(): PerformanceProfileStore {
+  return useAppSession().performanceProfile;
+}
+
+export function usePerformanceProfile(): PerformanceProfileSnapshot {
+  const performanceProfile = usePerformanceProfileStore();
+  return useSyncExternalStore(
+    performanceProfile.subscribe,
+    performanceProfile.getSnapshot,
+    performanceProfile.getSnapshot,
+  );
 }
 
 export function useTheaterModeStore(): TheaterModeStore {

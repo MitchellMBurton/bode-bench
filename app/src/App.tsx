@@ -20,7 +20,7 @@ import { FrequencyBandsPanel } from './panels/FrequencyBandsPanel';
 import { PitchTrackerPanel } from './panels/PitchTrackerPanel';
 import { HarmonicLadderPanel } from './panels/HarmonicLadderPanel';
 import { LoudnessHistoryPanel } from './panels/LoudnessHistoryPanel';
-import { useAudioEngine, useDiagnosticsLog, useDisplayMode, usePerformanceDiagnosticsStore, useTheaterMode } from './core/session';
+import { useAudioEngine, useDiagnosticsLog, useDisplayMode, usePerformanceDiagnosticsStore, usePerformanceProfile, useTheaterMode } from './core/session';
 import type { VisualMode } from './audio/displayMode';
 import type { PerformanceDiagnosticsSnapshot } from './diagnostics/logStore';
 import { COLORS, FONTS, SPACING } from './theme';
@@ -73,6 +73,7 @@ export default function App(): React.ReactElement {
   const diagnosticsLog = useDiagnosticsLog();
   const displayMode = useDisplayMode();
   const performanceDiagnostics = usePerformanceDiagnosticsStore();
+  const performanceProfile = usePerformanceProfile();
   const perfSnapshot = useSyncExternalStore(
     performanceDiagnostics.subscribe,
     performanceDiagnostics.getSnapshot,
@@ -207,6 +208,11 @@ export default function App(): React.ReactElement {
                 label="LOAD"
                 value={perfSnapshot.lastLoad ? `${perfSnapshot.lastLoad.totalMs.toFixed(0)} MS` : '--'}
                 tone={perfSnapshot.lastLoad && perfSnapshot.lastLoad.totalMs >= 1200 ? 'warn' : perfSnapshot.lastLoad && perfSnapshot.lastLoad.totalMs >= 900 ? 'info' : 'dim'}
+              />
+              <RuntimeMetricPill
+                label="PROFILE"
+                value={performanceProfile.label}
+                tone={performanceProfile.activeProfile === 'desktop-high' ? 'info' : 'dim'}
               />
               <RuntimeMetricPill
                 label="LONG"
@@ -468,3 +474,4 @@ const scanLineStyle: React.CSSProperties = {
   mixBlendMode: 'overlay',
   willChange: 'background-position',
 };
+

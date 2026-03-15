@@ -1,5 +1,12 @@
 ﻿import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
-import { useAudioEngine, useDiagnosticsLog, usePerformanceDiagnosticsStore } from '../core/session';
+import {
+  useAudioEngine,
+  useDiagnosticsLog,
+  usePerformanceDiagnosticsStore,
+  usePerformanceProfile,
+  usePerformanceProfileStore,
+} from '../core/session';
+import type { PerformanceProfilePreference } from '../runtime/performanceProfile';
 import { CANVAS, COLORS, FONTS, SPACING } from '../theme';
 import type { FileAnalysis, TransportState } from '../types';
 import type { DiagnosticsEntry, PerformanceDiagnosticsSnapshot, PerformanceEvent, PerformanceTraceSample } from '../diagnostics/logStore';
@@ -31,6 +38,15 @@ const SCROLL_BOTTOM_SLOP_PX = 12;
 const TRANSPORT_END_TAIL_S = 0.35;
 const TRANSPORT_LOOP_HEAD_S = 0.2;
 const TRANSPORT_SLIDER_SETTLE_MS = 180;
+const PERFORMANCE_PROFILE_OPTIONS: ReadonlyArray<{
+  readonly value: PerformanceProfilePreference;
+  readonly label: string;
+  readonly detail: string;
+}> = [
+  { value: 'auto', label: 'AUTO', detail: 'runtime decides' },
+  { value: 'web-safe', label: 'WEB SAFE', detail: 'browser budget' },
+  { value: 'desktop-high', label: 'DESKTOP HIGH', detail: 'installed headroom' },
+];
 
 export function DiagnosticsLog(): React.ReactElement {
   const audioEngine = useAudioEngine();
@@ -657,6 +673,8 @@ function buildPerformanceExport(snapshot: PerformanceDiagnosticsSnapshot): strin
 
 export function PerformanceDiagnostics(): React.ReactElement {
   const performanceDiagnostics = usePerformanceDiagnosticsStore();
+  const performanceProfileStore = usePerformanceProfileStore();
+  const performanceProfile = usePerformanceProfile();
   const snapshot = useSyncExternalStore(
     performanceDiagnostics.subscribe,
     performanceDiagnostics.getSnapshot,
@@ -697,6 +715,10 @@ export function PerformanceDiagnostics(): React.ReactElement {
     performanceDiagnostics.clearEvents();
   }, [performanceDiagnostics]);
 
+  const onSetProfilePreference = useCallback((next: PerformanceProfilePreference) => {
+    performanceProfileStore.setPreference(next);
+  }, [performanceProfileStore]);
+
   const healthColor =
     health.tone === 'warn'
       ? COLORS.statusWarn
@@ -717,6 +739,34 @@ export function PerformanceDiagnostics(): React.ReactElement {
             {copyState === 'copied' ? 'COPIED' : copyState === 'failed' ? 'COPY FAIL' : 'COPY SNAPSHOT'}
           </button>
           <button style={actionButtonStyle} onClick={onClear}>CLEAR TRACE</button>
+        </div>
+      </div>
+
+      <div style={perfProfileRailStyle}>
+        <div style={perfProfileSummaryStyle}>
+          <div style={perfSectionTitleStyle}>PERFORMANCE PROFILE</div>
+          <div style={perfProfileActiveStyle}>
+            {performanceProfile.label}
+            <span style={perfProfileMetaStyle}>
+              {performanceProfile.runtimeKind.toUpperCase()} / {performanceProfile.preference.toUpperCase()}
+            </span>
+          </div>
+          <div style={perfProfileDetailStyle}>{performanceProfile.summary}</div>
+        </div>
+        <div style={perfProfileButtonGroupStyle}>
+          {PERFORMANCE_PROFILE_OPTIONS.map((option) => (
+            <button
+              key={option.value}
+              style={{
+                ...actionButtonStyle,
+                ...(performanceProfile.preference === option.value ? actionButtonActiveStyle : {}),
+              }}
+              onClick={() => onSetProfilePreference(option.value)}
+              title={option.detail}
+            >
+              {option.label}
+            </button>
+          ))}
         </div>
       </div>
 
@@ -744,6 +794,12 @@ export function PerformanceDiagnostics(): React.ReactElement {
           value={snapshot.lastLoad ? `${snapshot.lastLoad.totalMs.toFixed(0)} ms` : '--'}
           detail={snapshot.lastLoad ? `${snapshot.lastLoad.decodeMs.toFixed(0)} ms decode / ${snapshot.lastLoad.stretchMs.toFixed(0)} ms stretch` : 'Awaiting media load'}
           tone={snapshot.lastLoad && snapshot.lastLoad.totalMs >= 1200 ? 'warn' : snapshot.lastLoad && snapshot.lastLoad.totalMs >= 900 ? 'info' : 'dim'}
+        />
+        <PerformanceStatCard
+          label="PROFILE"
+          value={performanceProfile.label}
+          detail={`${performanceProfile.runtimeKind.toUpperCase()} / ${performanceProfile.preference.toUpperCase()}`}
+          tone={performanceProfile.activeProfile === 'desktop-high' ? 'info' : 'dim'}
         />
         <PerformanceStatCard
           label="RECOVERY"
@@ -1236,6 +1292,59 @@ const perfHealthDetailStyle: React.CSSProperties = {
 };
 
 const perfActionsStyle: React.CSSProperties = {
+  display: 'flex',
+  gap: SPACING.xs,
+  flexWrap: 'wrap',
+  justifyContent: 'flex-end',
+  flexShrink: 0,
+};
+
+const perfProfileRailStyle: React.CSSProperties = {
+  display: 'flex',
+  justifyContent: 'space-between',
+  gap: SPACING.lg,
+  alignItems: 'flex-start',
+  padding: `${SPACING.sm}px ${SPACING.md}px`,
+  border: `1px solid ${COLORS.border}`,
+  background: 'rgba(12, 15, 22, 0.86)',
+  borderRadius: 2,
+  boxShadow: 'inset 0 1px 0 rgba(120, 134, 188, 0.06)',
+};
+
+const perfProfileSummaryStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 3,
+  minWidth: 0,
+};
+
+const perfProfileActiveStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'baseline',
+  gap: SPACING.sm,
+  fontFamily: FONTS.mono,
+  fontSize: FONTS.sizeMd,
+  color: COLORS.textPrimary,
+  letterSpacing: '0.08em',
+  flexWrap: 'wrap',
+};
+
+const perfProfileMetaStyle: React.CSSProperties = {
+  fontSize: FONTS.sizeXs,
+  color: COLORS.textCategory,
+  letterSpacing: '0.12em',
+};
+
+const perfProfileDetailStyle: React.CSSProperties = {
+  fontFamily: FONTS.mono,
+  fontSize: FONTS.sizeXs,
+  color: COLORS.textSecondary,
+  letterSpacing: '0.03em',
+  lineHeight: 1.45,
+  maxWidth: 700,
+};
+
+const perfProfileButtonGroupStyle: React.CSSProperties = {
   display: 'flex',
   gap: SPACING.xs,
   flexWrap: 'wrap',
