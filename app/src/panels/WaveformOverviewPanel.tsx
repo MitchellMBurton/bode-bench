@@ -1538,6 +1538,36 @@ export function WaveformOverviewPanel(): React.ReactElement {
             coveredColumns++;
           }
 
+          if (coverageMap) {
+            const bridgeGapColumns = Math.max(1, Math.min(10, Math.round(columnCount / 64)));
+            const findCoveredIndex = (from: number, step: 1 | -1, limit: number): number => {
+              let travelled = 0;
+              for (let index = from; index >= 0 && index < columnCount; index += step) {
+                if (coverageColumns[index] > 0) return index;
+                travelled++;
+                if (travelled > limit) break;
+              }
+              return -1;
+            };
+
+            for (let column = 0; column < columnCount; column++) {
+              if (coverageColumns[column] > 0) continue;
+
+              const left = findCoveredIndex(column - 1, -1, bridgeGapColumns);
+              const right = findCoveredIndex(column + 1, 1, bridgeGapColumns);
+              if (left < 0 || right < 0) continue;
+
+              const span = right - left;
+              if (span <= 1 || span - 1 > bridgeGapColumns) continue;
+
+              const ratio = (column - left) / span;
+              peakColumns[column] = peakColumns[left] + (peakColumns[right] - peakColumns[left]) * ratio;
+              rmsColumns[column] = rmsColumns[left] + (rmsColumns[right] - rmsColumns[left]) * ratio;
+              coverageColumns[column] = Math.min(coverageColumns[left], coverageColumns[right]) * 0.35;
+              confidenceColumns[column] = Math.min(confidenceColumns[left], confidenceColumns[right]) * 0.6;
+            }
+          }
+
           const smoothColumns = (values: Float32Array, radius: number): Float32Array => {
             const next = new Float32Array(columnCount);
             for (let column = 0; column < columnCount; column++) {
@@ -1560,8 +1590,8 @@ export function WaveformOverviewPanel(): React.ReactElement {
             return next;
           };
 
-          peakColumns.set(smoothColumns(peakColumns, 4));
-          rmsColumns.set(smoothColumns(rmsColumns, 6));
+          peakColumns.set(smoothColumns(peakColumns, 5));
+          rmsColumns.set(smoothColumns(rmsColumns, 7));
 
           const bodyHalfColumns = new Float32Array(columnCount);
           const peakHalfColumns = new Float32Array(columnCount);
@@ -1570,53 +1600,169 @@ export function WaveformOverviewPanel(): React.ReactElement {
             const peak = peakColumns[column];
             const rms = Math.min(peak, rmsColumns[column]);
             const scoutColumn = confidenceColumns[column] < 1.5;
-            const bodyFloor = scoutColumn ? 0.1 : 0.08;
-            const body = Math.max(ampH * bodyFloor, rms * ampH * (scoutColumn ? 0.92 : 1));
-            const crest = Math.max(body, peak * ampH * (scoutColumn ? 0.9 : 0.96));
+            const bodyFloor = scoutColumn ? 0.13 : 0.1;
+            const body = Math.max(ampH * bodyFloor, rms * ampH * (scoutColumn ? 0.95 : 1));
+            const crest = Math.max(body, peak * ampH * (scoutColumn ? 0.93 : 0.98));
             bodyHalfColumns[column] = body;
             peakHalfColumns[column] = crest;
           }
 
-          for (let column = 0; column < columnCount; column++) {
-            const coverage = coverageColumns[column];
-            const x1 = rect.x + (column / columnCount) * rect.w;
-            const x2 = rect.x + ((column + 1) / columnCount) * rect.w;
-            const colW = Math.max(1, x2 - x1);
-            if (coverage <= 0) {
-              ctx.fillStyle = learnedWaveHint;
-              ctx.fillRect(x1, midY - Math.max(1, dpr / 2), colW, Math.max(1, dpr));
-              continue;
+          const traceEnvelopeHalf = (
+            from: number,
+            to: number,
+            values: Float32Array,
+            direction: 1 | -1,
+          ): void => {
+            let first = true;
+            if (direction > 0) {
+              for (let index = from; index <= to; index++) {
+                const x = rect.x + ((index + 0.5) / columnCount) * rect.w;
+                const y = midY - values[index];
+                if (first) {
+                  ctx.moveTo(x, y);
+                  first = false;
+                  continue;
+                }
+                const prevX = rect.x + (((index - 1) + 0.5) / columnCount) * rect.w;
+                const prevY = midY - values[index - 1];
+                const midX = (prevX + x) / 2;
+                const midYLocal = (prevY + y) / 2;
+                ctx.quadraticCurveTo(prevX, prevY, midX, midYLocal);
+              }
+              const endX = rect.x + ((to + 0.5) / columnCount) * rect.w;
+              ctx.lineTo(endX, midY - values[to]);
+              return;
             }
 
-            const scoutColumn = confidenceColumns[column] < 1.5;
-            const coverageAlpha = scoutColumn
-              ? 0.38 + coverage * 0.22
-              : 0.52 + coverage * 0.24;
-            const bodyHalf = bodyHalfColumns[column];
-            const peakHalf = peakHalfColumns[column];
+            for (let index = to; index >= from; index--) {
+              const x = rect.x + ((index + 0.5) / columnCount) * rect.w;
+              const y = midY + values[index];
+              if (first) {
+                ctx.lineTo(x, y);
+                first = false;
+                continue;
+              }
+              const prevX = rect.x + (((index + 1) + 0.5) / columnCount) * rect.w;
+              const prevY = midY + values[index + 1];
+              const midX = (prevX + x) / 2;
+              const midYLocal = (prevY + y) / 2;
+              ctx.quadraticCurveTo(prevX, prevY, midX, midYLocal);
+            }
+            const endX = rect.x + ((from + 0.5) / columnCount) * rect.w;
+            ctx.lineTo(endX, midY + values[from]);
+          };
 
-            ctx.save();
-            ctx.globalAlpha *= coverageAlpha;
-            ctx.fillStyle = scoutColumn ? waveformShadow : waveformFill;
-            ctx.fillRect(x1, midY - bodyHalf, colW, bodyHalf * 2);
-            ctx.globalAlpha *= scoutColumn ? 0.72 : 0.86;
-            ctx.fillStyle = scoutColumn ? learnedWaveLine : waveformStroke;
-            ctx.fillRect(x1, midY - peakHalf, colW, Math.max(1, peakHalf - bodyHalf));
-            ctx.fillRect(x1, midY + bodyHalf, colW, Math.max(1, peakHalf - bodyHalf));
-            ctx.restore();
+          const strokeEnvelopeHalf = (
+            from: number,
+            to: number,
+            values: Float32Array,
+            direction: 1 | -1,
+          ): void => {
+            let first = true;
+            if (direction > 0) {
+              for (let index = from; index <= to; index++) {
+                const x = rect.x + ((index + 0.5) / columnCount) * rect.w;
+                const y = midY - values[index];
+                if (first) {
+                  ctx.moveTo(x, y);
+                  first = false;
+                  continue;
+                }
+                const prevX = rect.x + (((index - 1) + 0.5) / columnCount) * rect.w;
+                const prevY = midY - values[index - 1];
+                const midX = (prevX + x) / 2;
+                const midYLocal = (prevY + y) / 2;
+                ctx.quadraticCurveTo(prevX, prevY, midX, midYLocal);
+              }
+              const endX = rect.x + ((to + 0.5) / columnCount) * rect.w;
+              ctx.lineTo(endX, midY - values[to]);
+              return;
+            }
+
+            for (let index = from; index <= to; index++) {
+              const x = rect.x + ((index + 0.5) / columnCount) * rect.w;
+              const y = midY + values[index];
+              if (first) {
+                ctx.moveTo(x, y);
+                first = false;
+                continue;
+              }
+              const prevX = rect.x + (((index - 1) + 0.5) / columnCount) * rect.w;
+              const prevY = midY + values[index - 1];
+              const midX = (prevX + x) / 2;
+              const midYLocal = (prevY + y) / 2;
+              ctx.quadraticCurveTo(prevX, prevY, midX, midYLocal);
+            }
+            const endX = rect.x + ((to + 0.5) / columnCount) * rect.w;
+            ctx.lineTo(endX, midY + values[to]);
+          };
+
+          for (let column = 0; column < columnCount; column++) {
+            const coverage = coverageColumns[column];
+            if (coverage <= 0) {
+              ctx.fillStyle = learnedWaveHint;
+              const x1 = rect.x + (column / columnCount) * rect.w;
+              const x2 = rect.x + ((column + 1) / columnCount) * rect.w;
+              ctx.fillRect(x1, midY - Math.max(1, dpr / 2), Math.max(1, x2 - x1), Math.max(1, dpr));
+            }
           }
 
-          ctx.lineWidth = Math.max(1, dpr);
-          for (let column = 0; column < columnCount; column++) {
-            if (coverageColumns[column] <= 0) continue;
-            const x = rect.x + ((column + 0.5) / columnCount) * rect.w;
-            const peakHalf = peakHalfColumns[column];
-            const scoutColumn = confidenceColumns[column] < 1.5;
-            ctx.strokeStyle = scoutColumn ? learnedWaveLine : waveformStroke;
+          let segmentStart = -1;
+          for (let column = 0; column <= columnCount; column++) {
+            const active = column < columnCount && coverageColumns[column] > 0;
+            if (active && segmentStart < 0) {
+              segmentStart = column;
+              continue;
+            }
+            if (active || segmentStart < 0) continue;
+
+            const segmentEnd = column - 1;
+            let coverageSum = 0;
+            let confidenceSum = 0;
+            for (let index = segmentStart; index <= segmentEnd; index++) {
+              coverageSum += coverageColumns[index];
+              confidenceSum += confidenceColumns[index];
+            }
+
+            const averageCoverage = coverageSum / Math.max(1, segmentEnd - segmentStart + 1);
+            const averageConfidence = confidenceSum / Math.max(1, segmentEnd - segmentStart + 1);
+            const scoutOnly = averageConfidence < 1.5;
+
+            ctx.save();
+            ctx.globalAlpha *= scoutOnly
+              ? 0.46 + averageCoverage * 0.16
+              : 0.62 + averageCoverage * 0.2;
+            ctx.fillStyle = waveformFill;
             ctx.beginPath();
-            ctx.moveTo(x, midY - peakHalf);
-            ctx.lineTo(x, midY + peakHalf);
+            traceEnvelopeHalf(segmentStart, segmentEnd, bodyHalfColumns, 1);
+            traceEnvelopeHalf(segmentStart, segmentEnd, bodyHalfColumns, -1);
+            ctx.closePath();
+            ctx.fill();
+
+            ctx.globalAlpha *= scoutOnly ? 0.82 : 1;
+            ctx.strokeStyle = waveformStroke;
+            ctx.lineWidth = scoutOnly ? Math.max(0.95, dpr * 0.95) : Math.max(1.1, dpr);
+            ctx.lineJoin = 'round';
+            ctx.lineCap = 'round';
+            ctx.beginPath();
+            strokeEnvelopeHalf(segmentStart, segmentEnd, peakHalfColumns, 1);
             ctx.stroke();
+            ctx.beginPath();
+            strokeEnvelopeHalf(segmentStart, segmentEnd, peakHalfColumns, -1);
+            ctx.stroke();
+
+            ctx.globalAlpha *= scoutOnly ? 0.42 : 0.55;
+            ctx.strokeStyle = learnedWaveLine;
+            ctx.lineWidth = Math.max(1, dpr * 0.75);
+            ctx.beginPath();
+            const startX = rect.x + ((segmentStart + 0.5) / columnCount) * rect.w;
+            const endX = rect.x + ((segmentEnd + 0.5) / columnCount) * rect.w;
+            ctx.moveTo(startX, midY);
+            ctx.lineTo(endX, midY);
+            ctx.stroke();
+            ctx.restore();
+
+            segmentStart = -1;
           }
         }
 
