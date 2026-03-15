@@ -473,6 +473,49 @@ export class AudioEngine {
     return true;
   }
 
+  private async enableStreamedPitchShiftLive(): Promise<boolean> {
+    if (
+      this.playbackBackend !== 'streamed'
+      || !this.mediaElement
+      || !this.mediaSourceNode
+      || !this.ctx
+      || !this._isPlaying
+    ) {
+      return this.setStreamedPitchShiftEnabled(true);
+    }
+
+    const resumeAt = this.currentTime;
+    const previewRate = this.scrubActive ? this.scrubPreviewRate : this.nativeFallbackRate;
+    const enabled = await this.setStreamedPitchShiftEnabled(true);
+    if (!enabled || !this.stretchNode || this.playbackBackend !== 'streamed' || !this.mediaElement || !this.ctx) {
+      return false;
+    }
+
+    const outputTime = this.ctx.currentTime + this.streamedPitchScheduleLeadTime;
+    this.offsetAt = resumeAt;
+    this.startedAt = outputTime;
+    this.mediaElement.currentTime = resumeAt;
+    this.mediaElement.defaultPlaybackRate = this.nativeFallbackRate;
+    this.mediaElement.playbackRate = previewRate;
+    this.rampPlayGain(1, DECLICK_IN_S, outputTime);
+    this.emitTransport();
+
+    try {
+      await this.stretchNode.start(this.buildStreamedPitchSchedule(outputTime));
+      return true;
+    } catch (error) {
+      console.error('streamed pitch live-enable failed, native playback retained', error);
+      this.offsetAt = resumeAt;
+      this.startedAt = this.ctx.currentTime;
+      await this.setStreamedPitchShiftEnabled(false);
+      this.pitchShiftAvailable = false;
+      this._pitchSemitones = 0;
+      this.setMediaElementPitchPreservation(true);
+      this.emitTransport();
+      return false;
+    }
+  }
+
   private estimateStretchPrepBytes(buffer: AudioBuffer): number {
     return buffer.length * buffer.numberOfChannels * Float32Array.BYTES_PER_ELEMENT;
   }
@@ -1695,19 +1738,20 @@ export class AudioEngine {
       if (!this.stretchEnabledForStream) {
         const wasPlaying = this._isPlaying;
         const resumeAt = this.currentTime;
-        if (wasPlaying) {
-          this.stopPlayback(false, 'stream-pitch-on');
+        if (!wasPlaying) {
+          this.offsetAt = resumeAt;
         }
-        this.offsetAt = resumeAt;
-        void this.setStreamedPitchShiftEnabled(true).then((enabled) => {
+        const enablePitch = wasPlaying
+          ? this.enableStreamedPitchShiftLive()
+          : this.setStreamedPitchShiftEnabled(true);
+        void enablePitch.then((enabled) => {
           if (!enabled) {
             this._pitchSemitones = 0;
             this.emitTransport();
-            if (wasPlaying) this.play();
             return;
           }
           this.emitTransport();
-          if (wasPlaying) this.play();
+          if (!wasPlaying) this.play();
         });
         return;
       }
