@@ -11,6 +11,8 @@ interface EnvelopeData {
 interface StreamedScoutTarget {
   readonly colStart: number;
   readonly colEnd: number;
+  readonly timeStart: number;
+  readonly timeEnd: number;
   readonly time: number;
 }
 
@@ -28,6 +30,7 @@ const STREAMED_SCOUT_SAMPLE_WINDOW_MS = 110;
 const STREAMED_SCOUT_IDLE_DELAY_MS = 24;
 const STREAMED_SCOUT_ACTIVE_DELAY_MS = 120;
 const STREAMED_SCOUT_STRESS_DELAY_MS = 900;
+const STREAMED_SCOUT_SAMPLES_PER_TARGET = 3;
 const SCRUB_STYLE_OPTIONS: ReadonlyArray<{
   readonly value: ScrubStyle;
   readonly label: string;
@@ -159,14 +162,33 @@ function buildStreamedScoutTargets(cols: number, duration: number): StreamedScou
   return slotOrder.map((slot) => {
     const colStart = Math.floor((slot * cols) / targetCount);
     const colEnd = Math.min(cols - 1, Math.max(colStart, Math.floor(((slot + 1) * cols) / targetCount) - 1));
+    const timeStart = Math.max(0, Math.min(duration, (colStart / cols) * duration));
+    const timeEnd = Math.max(timeStart, Math.min(duration, ((colEnd + 1) / cols) * duration));
     const timeFraction = ((colStart + colEnd + 1) / 2) / cols;
 
     return {
       colStart,
       colEnd,
+      timeStart,
+      timeEnd,
       time: Math.max(0, Math.min(duration, timeFraction * duration)),
     };
   });
+}
+
+function buildScoutSampleTimes(target: StreamedScoutTarget): number[] {
+  const span = Math.max(0, target.timeEnd - target.timeStart);
+  if (span <= 0.25) {
+    return [target.time];
+  }
+
+  const samples: number[] = [];
+  const divisor = STREAMED_SCOUT_SAMPLES_PER_TARGET + 1;
+  for (let index = 1; index <= STREAMED_SCOUT_SAMPLES_PER_TARGET; index++) {
+    const fraction = index / divisor;
+    samples.push(target.timeStart + span * fraction);
+  }
+  return samples;
 }
 
 function shouldThrottleStreamedScout(transport: TransportState): boolean {
@@ -510,23 +532,30 @@ export function WaveformOverviewPanel(): React.ReactElement {
             continue;
           }
 
-          await seekMediaElement(probe.element, target.time, STREAMED_SCOUT_READY_TIMEOUT_MS);
-          if (cancelled) break;
-          await waitForMediaReadyState(probe.element, STREAMED_SCOUT_READY_TIMEOUT_MS);
-          if (cancelled) break;
+          let sampledPeak = 0;
+          let sampledRms = 0;
+          for (const sampleTime of buildScoutSampleTimes(target)) {
+            await seekMediaElement(probe.element, sampleTime, STREAMED_SCOUT_READY_TIMEOUT_MS);
+            if (cancelled) break;
+            await waitForMediaReadyState(probe.element, STREAMED_SCOUT_READY_TIMEOUT_MS);
+            if (cancelled) break;
 
-          try {
-            await Promise.resolve(probe.element.play());
-            await delay(STREAMED_SCOUT_SAMPLE_WINDOW_MS);
-          } catch {
-            await delay(STREAMED_SCOUT_SAMPLE_WINDOW_MS);
+            try {
+              await Promise.resolve(probe.element.play());
+              await delay(STREAMED_SCOUT_SAMPLE_WINDOW_MS);
+            } catch {
+              await delay(STREAMED_SCOUT_SAMPLE_WINDOW_MS);
+            }
+
+            probe.analyser.getFloatTimeDomainData(probe.timeDomain as Float32Array<ArrayBuffer>);
+            probe.element.pause();
+            const { peak, rms } = sampleTimeDomainLevels(probe.timeDomain);
+            if (peak > sampledPeak) sampledPeak = peak;
+            if (rms > sampledRms) sampledRms = rms;
           }
 
-          probe.analyser.getFloatTimeDomainData(probe.timeDomain as Float32Array<ArrayBuffer>);
-          probe.element.pause();
-          const { peak, rms } = sampleTimeDomainLevels(probe.timeDomain);
-          if (peak > 0.0001) {
-            mergeStreamedEnvelopeRange(target.colStart, target.colEnd, peak, rms);
+          if (!cancelled) {
+            mergeStreamedEnvelopeRange(target.colStart, target.colEnd, sampledPeak, sampledRms);
           }
 
           await delay(transportRef.current.isPlaying ? STREAMED_SCOUT_ACTIVE_DELAY_MS : STREAMED_SCOUT_IDLE_DELAY_MS);
@@ -719,6 +748,8 @@ export function WaveformOverviewPanel(): React.ReactElement {
       const playFill = nge ? 'rgba(80, 160, 50, 0.10)' : hyper ? 'rgba(98,232,255,0.08)' : 'rgba(80, 96, 192, 0.10)';
       const playFillWave = nge ? 'rgba(80, 160, 50, 0.07)' : hyper ? 'rgba(98,232,255,0.07)' : 'rgba(80, 96, 192, 0.07)';
       const playCursor = hyper ? 'rgba(255,92,188,0.92)' : COLORS.accent;
+      const learnedWaveHint = nge ? 'rgba(160,216,64,0.12)' : hyper ? 'rgba(98,232,255,0.10)' : 'rgba(160, 170, 240, 0.10)';
+      const learnedWaveLine = nge ? 'rgba(160,216,64,0.24)' : hyper ? 'rgba(255,92,188,0.24)' : 'rgba(200, 210, 255, 0.20)';
 
       ctx.clearRect(0, 0, width, height);
       ctx.fillStyle = backgroundFill;
@@ -825,6 +856,9 @@ export function WaveformOverviewPanel(): React.ReactElement {
             const rmsHalf = rms * ampH;
             const peakHalf = peak * ampH;
 
+            ctx.fillStyle = learnedWaveHint;
+            ctx.fillRect(x, midY - Math.max(1, dpr), columnW, Math.max(2, 2 * dpr));
+
             if (rmsHalf > 0) {
               ctx.fillStyle = waveformFill;
               ctx.fillRect(x, midY - rmsHalf, columnW, rmsHalf * 2);
@@ -835,6 +869,9 @@ export function WaveformOverviewPanel(): React.ReactElement {
               ctx.fillRect(x, midY - peakHalf, columnW, Math.max(1, dpr));
               ctx.fillStyle = waveformShadow;
               ctx.fillRect(x, midY + peakHalf - Math.max(1, dpr), columnW, Math.max(1, dpr));
+            } else {
+              ctx.fillStyle = learnedWaveLine;
+              ctx.fillRect(x, midY - Math.max(1, dpr / 2), columnW, Math.max(1, dpr));
             }
           }
         } else {
