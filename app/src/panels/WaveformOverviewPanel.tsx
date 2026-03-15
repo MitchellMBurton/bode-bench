@@ -8,11 +8,69 @@ interface EnvelopeData {
   rmsEnv: Float32Array;
   clipMap: Uint8Array;
 }
+
 interface StreamedScoutTarget {
   readonly colStart: number;
   readonly colEnd: number;
   readonly timeStart: number;
   readonly timeEnd: number;
+  readonly time: number;
+}
+
+interface ViewRange {
+  readonly start: number;
+  readonly end: number;
+}
+
+interface TimelineRect {
+  readonly x: number;
+  readonly y: number;
+  readonly w: number;
+  readonly h: number;
+}
+
+interface TimelineLayout {
+  readonly session: TimelineRect;
+  readonly view: TimelineRect;
+  readonly loop: TimelineRect;
+  readonly detail: TimelineRect;
+}
+
+type TimelineGestureKind =
+  | 'scrub-session'
+  | 'scrub-detail'
+  | 'view-pan'
+  | 'view-resize-start'
+  | 'view-resize-end'
+  | 'loop-create'
+  | 'loop-pan'
+  | 'loop-resize-start'
+  | 'loop-resize-end';
+
+interface TimelineGesture {
+  readonly kind: TimelineGestureKind;
+  readonly pointerId: number;
+  readonly anchorTime: number;
+  readonly anchorX: number;
+  readonly initialView: ViewRange;
+  readonly initialLoopStart: number | null;
+  readonly initialLoopEnd: number | null;
+}
+
+type TimelineHitRegion =
+  | 'session'
+  | 'detail'
+  | 'view-track'
+  | 'view-body'
+  | 'view-start'
+  | 'view-end'
+  | 'loop-track'
+  | 'loop-body'
+  | 'loop-start'
+  | 'loop-end';
+
+interface TimelineHit {
+  readonly region: TimelineHitRegion;
   readonly time: number;
 }
 
@@ -31,6 +89,17 @@ const STREAMED_SCOUT_IDLE_DELAY_MS = 24;
 const STREAMED_SCOUT_ACTIVE_DELAY_MS = 120;
 const STREAMED_SCOUT_STRESS_DELAY_MS = 900;
 const STREAMED_SCOUT_SAMPLES_PER_TARGET = 3;
+const MIN_VIEWPORT_SECONDS = 3;
+const MIN_LOOP_SECONDS = 0.1;
+const VIEW_FOLLOW_MARGIN = 0.22;
+const VIEW_FOLLOW_LEAD = 0.35;
+const SESSION_MAP_MIN_PX = 34;
+const SESSION_MAP_MAX_PX = 56;
+const CONTROL_ROW_MIN_PX = 10;
+const CONTROL_ROW_MAX_PX = 14;
+const TIMELINE_SEPARATOR_PX = 1;
+const HANDLE_HIT_PX = 8;
+
 const SCRUB_STYLE_OPTIONS: ReadonlyArray<{
   readonly value: ScrubStyle;
   readonly label: string;
@@ -331,6 +400,81 @@ function fmtTime(seconds: number): string {
   return minutes > 0 ? `${minutes}:${String(secs).padStart(2, '0')}` : `${secs}s`;
 }
 
+function formatSpan(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds <= 0) return '0s';
+  if (seconds < 60) return `${Math.round(seconds)}s`;
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const secs = Math.floor(seconds % 60);
+  if (hours > 0) return `${hours}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+  return `${minutes}:${String(secs).padStart(2, '0')}`;
+}
+
+function clampNumber(value: number, min: number, max: number): number {
+  if (!Number.isFinite(value)) return min;
+  return Math.max(min, Math.min(max, value));
+}
+
+function pickDefaultViewSpan(duration: number): number {
+  if (!Number.isFinite(duration) || duration <= 0) return 0;
+  return Math.min(duration, Math.max(30, Math.min(180, duration * 0.12)));
+}
+
+function normalizeViewRange(start: number, end: number, duration: number, minSpan: number): ViewRange {
+  if (!Number.isFinite(duration) || duration <= 0) {
+    return { start: 0, end: 0 };
+  }
+
+  const boundedMinSpan = Math.max(0.25, Math.min(duration, minSpan));
+  const requestedSpan = Math.max(end - start, boundedMinSpan);
+  const span = Math.min(duration, requestedSpan);
+  const clampedStart = clampNumber(start, 0, Math.max(0, duration - span));
+  return { start: clampedStart, end: clampedStart + span };
+}
+
+function centerViewRange(centerTime: number, span: number, duration: number): ViewRange {
+  if (!Number.isFinite(duration) || duration <= 0) {
+    return { start: 0, end: 0 };
+  }
+
+  const safeSpan = Math.min(duration, Math.max(0.25, span));
+  const start = clampNumber(centerTime - safeSpan / 2, 0, Math.max(0, duration - safeSpan));
+  return { start, end: start + safeSpan };
+}
+
+function buildTimelineLayout(width: number, height: number, dpr: number): TimelineLayout {
+  const separator = Math.max(1, Math.round(TIMELINE_SEPARATOR_PX * dpr));
+  const controlRowH = Math.max(
+    Math.round(CONTROL_ROW_MIN_PX * dpr),
+    Math.min(Math.round(CONTROL_ROW_MAX_PX * dpr), Math.round(height * 0.12)),
+  );
+  const sessionMapH = Math.max(
+    Math.round(SESSION_MAP_MIN_PX * dpr),
+    Math.min(Math.round(SESSION_MAP_MAX_PX * dpr), Math.round(height * 0.34)),
+  );
+  const viewY = sessionMapH + separator;
+  const loopY = viewY + controlRowH + separator;
+  const detailY = loopY + controlRowH + separator;
+
+  return {
+    session: { x: 0, y: 0, w: width, h: sessionMapH },
+    view: { x: 0, y: viewY, w: width, h: controlRowH },
+    loop: { x: 0, y: loopY, w: width, h: controlRowH },
+    detail: { x: 0, y: detailY, w: width, h: Math.max(24, height - detailY) },
+  };
+}
+
+function timeToX(time: number, start: number, end: number, rect: TimelineRect): number {
+  const span = Math.max(0.001, end - start);
+  const fraction = clampNumber((time - start) / span, 0, 1);
+  return rect.x + fraction * rect.w;
+}
+
+function xToTime(x: number, start: number, end: number, rect: TimelineRect): number {
+  const fraction = rect.w > 0 ? clampNumber((x - rect.x) / rect.w, 0, 1) : 0;
+  return start + fraction * Math.max(0, end - start);
+}
+
 function drawBadge(
   ctx: CanvasRenderingContext2D,
   text: string,
@@ -394,9 +538,10 @@ export function WaveformOverviewPanel(): React.ReactElement {
   const envelopeRequestIdRef = useRef(0);
   const envelopeColsRef = useRef(0);
   const envelopeFileIdRef = useRef(-1);
-  const isDraggingRef = useRef(false);
-  const isShiftDragRef = useRef(false);
-  const loopDragStartRef = useRef<number | null>(null);
+  const gestureRef = useRef<TimelineGesture | null>(null);
+  const viewRangeRef = useRef<ViewRange>({ start: 0, end: 0 });
+  const viewFollowRef = useRef(true);
+  const viewKeyRef = useRef<string | null>(null);
 
   const cancelEnvelopeCompute = useCallback(() => {
     if (envelopeCancelRef.current) {
@@ -659,6 +804,42 @@ export function WaveformOverviewPanel(): React.ReactElement {
     void run();
   }, [audioEngine, cancelStreamedScout, initializeStreamedEnvelope, mergeStreamedEnvelopeRange, mergeStreamedEnvelopeShape]);
 
+  const setCanvasCursor = useCallback((cursor: string) => {
+    if (canvasRef.current) {
+      canvasRef.current.style.cursor = cursor;
+    }
+  }, []);
+
+  const setViewRange = useCallback((next: ViewRange, options?: { readonly manual?: boolean; readonly follow?: boolean }) => {
+    const duration = Math.max(0, transportRef.current.duration || audioEngine.duration);
+    if (duration <= 0) {
+      viewRangeRef.current = { start: 0, end: 0 };
+      return;
+    }
+
+    const normalized = normalizeViewRange(next.start, next.end, duration, Math.min(MIN_VIEWPORT_SECONDS, duration));
+    viewRangeRef.current = normalized;
+
+    if (typeof options?.follow === 'boolean') {
+      viewFollowRef.current = options.follow;
+    } else if (options?.manual) {
+      viewFollowRef.current = false;
+    }
+  }, [audioEngine]);
+
+  const resetViewRange = useCallback((durationOverride?: number) => {
+    const duration = Math.max(0, durationOverride ?? transportRef.current.duration ?? audioEngine.duration);
+    if (duration <= 0) {
+      viewRangeRef.current = { start: 0, end: 0 };
+      viewFollowRef.current = true;
+      return;
+    }
+
+    const span = pickDefaultViewSpan(duration);
+    viewRangeRef.current = { start: 0, end: Math.min(duration, span) };
+    viewFollowRef.current = true;
+  }, [audioEngine]);
+
   useEffect(() => frameBus.subscribe((frame) => {
     centroidRef.current = frame.spectralCentroid;
 
@@ -710,6 +891,42 @@ export function WaveformOverviewPanel(): React.ReactElement {
     const modeChanged = transport.playbackBackend !== transportModeRef.current;
     const keyChanged = nextKey !== transportKeyRef.current;
 
+    if (keyChanged) {
+      viewKeyRef.current = nextKey;
+      resetViewRange(transport.duration);
+    } else if (transport.duration > 0) {
+      const currentRange = viewRangeRef.current;
+      const span = currentRange.end > currentRange.start
+        ? currentRange.end - currentRange.start
+        : pickDefaultViewSpan(transport.duration);
+      let nextRange = normalizeViewRange(
+        currentRange.start,
+        currentRange.start + span,
+        transport.duration,
+        Math.min(MIN_VIEWPORT_SECONDS, transport.duration),
+      );
+
+      if (viewFollowRef.current && nextRange.end > nextRange.start && nextRange.end < transport.duration + 0.001) {
+        const viewSpan = nextRange.end - nextRange.start;
+        const margin = viewSpan * VIEW_FOLLOW_MARGIN;
+        if (
+          transport.currentTime < nextRange.start + margin
+          || transport.currentTime > nextRange.end - margin
+        ) {
+          const anchoredStart = clampNumber(
+            transport.currentTime - viewSpan * VIEW_FOLLOW_LEAD,
+            0,
+            Math.max(0, transport.duration - viewSpan),
+          );
+          nextRange = { start: anchoredStart, end: anchoredStart + viewSpan };
+        }
+      }
+
+      viewRangeRef.current = nextRange;
+    } else {
+      viewRangeRef.current = { start: 0, end: 0 };
+    }
+
     if (!modeChanged && !keyChanged) return;
 
     transportModeRef.current = transport.playbackBackend;
@@ -732,7 +949,7 @@ export function WaveformOverviewPanel(): React.ReactElement {
 
     cancelStreamedScout();
     resetStreamedEnvelope();
-  }), [audioEngine, cancelEnvelopeCompute, cancelStreamedScout, initializeStreamedEnvelope, resetStreamedEnvelope, startStreamedScout]);
+  }), [audioEngine, cancelEnvelopeCompute, cancelStreamedScout, initializeStreamedEnvelope, resetStreamedEnvelope, resetViewRange, startStreamedScout]);
 
   useEffect(() => audioEngine.onTransport((transport) => {
     if (
@@ -767,29 +984,173 @@ export function WaveformOverviewPanel(): React.ReactElement {
     centroidRef.current = 0;
     envelopeColsRef.current = 0;
     envelopeFileIdRef.current = -1;
+    viewRangeRef.current = { start: 0, end: 0 };
+    viewKeyRef.current = null;
+    viewFollowRef.current = true;
   }), [audioEngine, cancelEnvelopeCompute, cancelStreamedScout, resetStreamedEnvelope]);
 
-  const fractionFromPointer = useCallback((event: React.PointerEvent<HTMLCanvasElement>): number => {
-    const canvas = canvasRef.current;
-    if (!canvas) return 0;
-    const rect = canvas.getBoundingClientRect();
-    return Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
+  const hitTestTimeline = useCallback((x: number, y: number, layout: TimelineLayout, duration: number): TimelineHit => {
+    const safeDuration = Math.max(0.001, duration);
+    const viewRange = normalizeViewRange(
+      viewRangeRef.current.start,
+      viewRangeRef.current.end || pickDefaultViewSpan(safeDuration),
+      safeDuration,
+      Math.min(MIN_VIEWPORT_SECONDS, safeDuration),
+    );
+
+    const viewHandleTol = Math.max(HANDLE_HIT_PX, layout.view.h * 0.75);
+    const loopHandleTol = Math.max(HANDLE_HIT_PX, layout.loop.h * 0.75);
+    const viewStartX = timeToX(viewRange.start, 0, safeDuration, layout.view);
+    const viewEndX = timeToX(viewRange.end, 0, safeDuration, layout.view);
+    const loopStart = transportRef.current.loopStart;
+    const loopEnd = transportRef.current.loopEnd;
+    const sessionTime = xToTime(x, 0, safeDuration, layout.session);
+    const detailTime = xToTime(x, viewRange.start, viewRange.end, layout.detail);
+
+    if (y >= layout.session.y && y <= layout.session.y + layout.session.h) {
+      return { region: 'session', time: sessionTime };
+    }
+    if (y >= layout.view.y && y <= layout.view.y + layout.view.h) {
+      if (Math.abs(x - viewStartX) <= viewHandleTol) return { region: 'view-start', time: sessionTime };
+      if (Math.abs(x - viewEndX) <= viewHandleTol) return { region: 'view-end', time: sessionTime };
+      if (x >= viewStartX && x <= viewEndX) return { region: 'view-body', time: sessionTime };
+      return { region: 'view-track', time: sessionTime };
+    }
+    if (y >= layout.loop.y && y <= layout.loop.y + layout.loop.h) {
+      if (loopStart !== null && loopEnd !== null) {
+        const loopStartX = timeToX(loopStart, 0, safeDuration, layout.loop);
+        const loopEndX = timeToX(loopEnd, 0, safeDuration, layout.loop);
+        if (Math.abs(x - loopStartX) <= loopHandleTol) return { region: 'loop-start', time: sessionTime };
+        if (Math.abs(x - loopEndX) <= loopHandleTol) return { region: 'loop-end', time: sessionTime };
+        if (x >= loopStartX && x <= loopEndX) return { region: 'loop-body', time: sessionTime };
+      }
+      return { region: 'loop-track', time: sessionTime };
+    }
+    return { region: 'detail', time: detailTime };
   }, []);
 
-  const scrubFromPointer = useCallback((event: React.PointerEvent<HTMLCanvasElement>) => {
-    const duration = audioEngine.duration;
-    if (duration > 0) audioEngine.scrubTo(fractionFromPointer(event) * duration);
-  }, [audioEngine, fractionFromPointer]);
+  const updatePointerCursor = useCallback((event: React.PointerEvent<HTMLCanvasElement>) => {
+    const canvas = canvasRef.current;
+    if (!canvas || gestureRef.current) return;
 
-  const finishPointerGesture = useCallback(() => {
-    const shouldEndScrub = !isShiftDragRef.current;
-    isDraggingRef.current = false;
-    isShiftDragRef.current = false;
-    loopDragStartRef.current = null;
-    if (shouldEndScrub) {
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return;
+
+    const x = ((event.clientX - rect.left) / rect.width) * canvas.width;
+    const y = ((event.clientY - rect.top) / rect.height) * canvas.height;
+    const duration = Math.max(0, transportRef.current.duration || audioEngine.duration);
+    if (duration <= 0) {
+      setCanvasCursor('default');
+      return;
+    }
+
+    const layout = buildTimelineLayout(canvas.width, canvas.height, Math.min(devicePixelRatio, PANEL_DPR_MAX));
+    const hit = hitTestTimeline(x, y, layout, duration);
+    switch (hit.region) {
+      case 'view-start':
+      case 'view-end':
+      case 'loop-start':
+      case 'loop-end':
+        setCanvasCursor('ew-resize');
+        return;
+      case 'view-body':
+      case 'loop-body':
+        setCanvasCursor('grab');
+        return;
+      case 'view-track':
+      case 'loop-track':
+        setCanvasCursor('pointer');
+        return;
+      default:
+        setCanvasCursor('crosshair');
+    }
+  }, [audioEngine, hitTestTimeline, setCanvasCursor]);
+
+  const updateGestureFromPointer = useCallback((event: React.PointerEvent<HTMLCanvasElement>) => {
+    const canvas = canvasRef.current;
+    const gesture = gestureRef.current;
+    if (!canvas || !gesture) return;
+
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return;
+
+    const x = ((event.clientX - rect.left) / rect.width) * canvas.width;
+    const duration = Math.max(0, transportRef.current.duration || audioEngine.duration);
+    if (duration <= 0) return;
+
+    const dpr = Math.min(devicePixelRatio, PANEL_DPR_MAX);
+    const layout = buildTimelineLayout(canvas.width, canvas.height, dpr);
+    const fullTime = xToTime(x, 0, duration, layout.session);
+    const detailRange = viewRangeRef.current.end > viewRangeRef.current.start
+      ? viewRangeRef.current
+      : normalizeViewRange(0, pickDefaultViewSpan(duration), duration, Math.min(MIN_VIEWPORT_SECONDS, duration));
+    const detailTime = xToTime(x, detailRange.start, detailRange.end, layout.detail);
+    const deltaTime = ((x - gesture.anchorX) / Math.max(1, layout.view.w)) * duration;
+
+    switch (gesture.kind) {
+      case 'scrub-session':
+        audioEngine.scrubTo(fullTime);
+        break;
+      case 'scrub-detail':
+        audioEngine.scrubTo(detailTime);
+        break;
+      case 'view-pan': {
+        const span = gesture.initialView.end - gesture.initialView.start;
+        const start = clampNumber(gesture.initialView.start + deltaTime, 0, Math.max(0, duration - span));
+        setViewRange({ start, end: start + span }, { manual: true });
+        break;
+      }
+      case 'view-resize-start':
+        setViewRange({ start: fullTime, end: gesture.initialView.end }, { manual: true });
+        break;
+      case 'view-resize-end':
+        setViewRange({ start: gesture.initialView.start, end: fullTime }, { manual: true });
+        break;
+      case 'loop-create': {
+        const start = Math.min(gesture.anchorTime, fullTime);
+        const end = Math.max(gesture.anchorTime, fullTime);
+        if (end - start >= MIN_LOOP_SECONDS) {
+          audioEngine.setLoop(start, end);
+        }
+        break;
+      }
+      case 'loop-pan': {
+        if (gesture.initialLoopStart === null || gesture.initialLoopEnd === null) break;
+        const span = gesture.initialLoopEnd - gesture.initialLoopStart;
+        const start = clampNumber(gesture.initialLoopStart + deltaTime, 0, Math.max(0, duration - span));
+        audioEngine.setLoop(start, start + span);
+        break;
+      }
+      case 'loop-resize-start':
+        if (gesture.initialLoopEnd !== null) {
+          audioEngine.setLoop(Math.min(fullTime, gesture.initialLoopEnd - MIN_LOOP_SECONDS), gesture.initialLoopEnd);
+        }
+        break;
+      case 'loop-resize-end':
+        if (gesture.initialLoopStart !== null) {
+          audioEngine.setLoop(gesture.initialLoopStart, Math.max(fullTime, gesture.initialLoopStart + MIN_LOOP_SECONDS));
+        }
+        break;
+      default:
+        break;
+    }
+  }, [audioEngine, setViewRange]);
+
+  const finishPointerGesture = useCallback((event?: React.PointerEvent<HTMLCanvasElement>) => {
+    if (event) {
+      updateGestureFromPointer(event);
+    }
+
+    const gesture = gestureRef.current;
+    if (!gesture) return;
+
+    if (gesture.kind === 'scrub-session' || gesture.kind === 'scrub-detail') {
       audioEngine.endScrub();
     }
-  }, [audioEngine]);
+
+    gestureRef.current = null;
+    setCanvasCursor('crosshair');
+  }, [audioEngine, setCanvasCursor, updateGestureFromPointer]);
 
   const onScrubStyleChange = useCallback((nextStyle: ScrubStyle) => {
     setScrubStyle(nextStyle);
@@ -835,23 +1196,31 @@ export function WaveformOverviewPanel(): React.ReactElement {
       const width = canvas.width;
       const height = canvas.height;
       const dpr = Math.min(devicePixelRatio, PANEL_DPR_MAX);
+      const layout = buildTimelineLayout(width, height, dpr);
       const nge = displayMode.nge;
       const hyper = displayMode.hyper;
-      const clipZoneH = Math.round(18 * dpr);
-      const separatorH = 1;
-      const waveH = height - clipZoneH - separatorH;
       const backgroundFill = nge ? CANVAS.nge.bg2 : hyper ? CANVAS.hyper.bg2 : COLORS.bg2;
-      const stripFill = nge ? 'rgba(8,18,8,0.92)' : hyper ? 'rgba(8,14,32,0.92)' : COLORS.bg3;
       const gridColor = nge ? 'rgba(22,54,18,1)' : hyper ? 'rgba(28,42,88,0.92)' : COLORS.bg3;
       const textColor = nge ? CANVAS.nge.label : hyper ? CANVAS.hyper.label : COLORS.textDim;
       const waveformFill = nge ? 'rgba(160,216,64,0.18)' : hyper ? 'rgba(98,232,255,0.22)' : 'rgba(200, 146, 42, 0.22)';
       const waveformStroke = nge ? CANVAS.nge.trace : hyper ? CANVAS.hyper.trace : COLORS.waveform;
       const waveformShadow = nge ? 'rgba(160,216,64,0.35)' : hyper ? 'rgba(255,92,188,0.32)' : 'rgba(200, 146, 42, 0.35)';
-      const playFill = nge ? 'rgba(80, 160, 50, 0.10)' : hyper ? 'rgba(98,232,255,0.08)' : 'rgba(80, 96, 192, 0.10)';
       const playFillWave = nge ? 'rgba(80, 160, 50, 0.07)' : hyper ? 'rgba(98,232,255,0.07)' : 'rgba(80, 96, 192, 0.07)';
       const playCursor = hyper ? 'rgba(255,92,188,0.92)' : COLORS.accent;
       const learnedWaveHint = nge ? 'rgba(160,216,64,0.12)' : hyper ? 'rgba(98,232,255,0.10)' : 'rgba(160, 170, 240, 0.10)';
       const learnedWaveLine = nge ? 'rgba(160,216,64,0.24)' : hyper ? 'rgba(255,92,188,0.24)' : 'rgba(200, 210, 255, 0.20)';
+      const controlFill = nge ? 'rgba(12,20,12,0.96)' : hyper ? 'rgba(10,14,28,0.96)' : 'rgba(14,16,25,0.98)';
+      const controlTrack = nge ? 'rgba(40,72,28,0.86)' : hyper ? 'rgba(36,46,90,0.85)' : 'rgba(48,56,86,0.82)';
+      const viewWindowFill = hyper ? 'rgba(96,150,255,0.26)' : 'rgba(126, 130, 240, 0.24)';
+      const viewWindowStroke = hyper ? 'rgba(120,210,255,0.9)' : COLORS.borderHighlight;
+      const loopFill = 'rgba(80, 200, 120, 0.16)';
+      const loopStroke = 'rgba(80, 200, 120, 0.74)';
+      const unknownFill = nge ? 'rgba(160,216,64,0.04)' : hyper ? 'rgba(98,232,255,0.04)' : 'rgba(120, 134, 200, 0.05)';
+      const unknownLine = nge ? 'rgba(160,216,64,0.12)' : hyper ? 'rgba(98,232,255,0.14)' : 'rgba(130, 142, 212, 0.14)';
+      const badgeX = width - SPACING.sm * dpr;
+      const transport = transportRef.current;
+      const duration = Math.max(0, transport.duration);
+      const currentTime = clampNumber(transport.currentTime, 0, duration || 0);
 
       ctx.clearRect(0, 0, width, height);
       ctx.fillStyle = backgroundFill;
@@ -859,225 +1228,308 @@ export function WaveformOverviewPanel(): React.ReactElement {
 
       const decodedPeakEnv = peakEnvRef.current;
       const decodedRmsEnv = rmsEnvRef.current;
-      const clipMap = clipMapRef.current;
-      const streamedPeakEnv = streamedPeakEnvRef.current;
-      const streamedRmsEnv = streamedRmsEnvRef.current;
-      const streamedCoverage = streamedCoverageRef.current;
+      const decodedClipMap = clipMapRef.current;
       const analysis = analysisRef.current;
-      const duration = audioEngine.duration;
-      const currentTime = audioEngine.currentTime;
-      const isStreamedOverview = Boolean(
-        audioEngine.backendMode === 'streamed'
-        && streamedPeakEnv
-        && streamedRmsEnv
-        && streamedCoverage,
-      );
-      const peakEnv = isStreamedOverview ? streamedPeakEnv! : decodedPeakEnv;
-      const rmsEnv = isStreamedOverview ? streamedRmsEnv! : decodedRmsEnv;
-      const coverageMap = isStreamedOverview ? streamedCoverage! : null;
-      const peakNormalizer = isStreamedOverview
-        ? 1 / Math.max(streamedPeakMaxRef.current, 0.0001)
-        : 1;
-      const learnedRatio = coverageMap
-        ? streamedLearnedCountRef.current / Math.max(1, coverageMap.length)
+      const isStreamedOverview = transport.playbackBackend === 'streamed';
+      const peakEnv = isStreamedOverview ? streamedPeakEnvRef.current : decodedPeakEnv;
+      const rmsEnv = isStreamedOverview ? streamedRmsEnvRef.current : decodedRmsEnv;
+      const clipMap = isStreamedOverview ? null : decodedClipMap;
+      const coverageMap = isStreamedOverview ? streamedCoverageRef.current : null;
+      const learnedRatio = coverageMap && coverageMap.length > 0
+        ? streamedLearnedCountRef.current / coverageMap.length
         : 0;
+      const peakNormalizer = isStreamedOverview && streamedPeakMaxRef.current > 0
+        ? 1 / streamedPeakMaxRef.current
+        : 1;
 
-      if (duration > 0) {
-        const clipZoneY = waveH + separatorH;
-
-        ctx.fillStyle = stripFill;
-        ctx.fillRect(0, clipZoneY, width, clipZoneH);
-
-        if (clipMap) {
-          const envLen = clipMap.length;
-          const scaleX = width / envLen;
-          for (let i = 0; i < envLen; i++) {
-            const x = i * scaleX;
-            const columnW = Math.max(1, scaleX);
-            ctx.fillStyle = clipMap[i] ? 'rgba(200, 40, 40, 1)' : 'rgba(56, 168, 80, 0.10)';
-            ctx.fillRect(x, clipZoneY, columnW, clipZoneH);
-          }
-
-          ctx.fillStyle = 'rgba(255, 60, 60, 0.90)';
-          for (let i = 0; i < envLen; i++) {
-            if (clipMap[i]) ctx.fillRect(i * scaleX, clipZoneY, Math.max(1, scaleX), 2 * dpr);
-          }
-        } else if (coverageMap) {
-          const envLen = coverageMap.length;
-          const scaleX = width / envLen;
-          const learnedFill = hyper ? 'rgba(98,232,255,0.18)' : 'rgba(80, 96, 192, 0.22)';
-          const learnedHighlight = hyper ? 'rgba(255,92,188,0.52)' : 'rgba(160, 170, 240, 0.46)';
-          for (let i = 0; i < envLen; i++) {
-            if (!coverageMap[i]) continue;
-            const x = i * scaleX;
-            const columnW = Math.max(1, scaleX);
-            ctx.fillStyle = learnedFill;
-            ctx.fillRect(x, clipZoneY, columnW, clipZoneH);
-            ctx.fillStyle = learnedHighlight;
-            ctx.fillRect(x, clipZoneY, columnW, Math.max(1, dpr));
-          }
-        }
-
-        const playX = (currentTime / duration) * width;
-        ctx.fillStyle = playFill;
-        ctx.fillRect(0, clipZoneY, playX, clipZoneH);
-
-        ctx.fillStyle = hyper ? 'rgba(32,52,110,0.92)' : COLORS.border;
-        ctx.fillRect(0, waveH, width, separatorH);
+      if (duration <= 0) {
+        ctx.strokeStyle = gridColor;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(0, layout.detail.y + layout.detail.h / 2);
+        ctx.lineTo(width, layout.detail.y + layout.detail.h / 2);
+        ctx.stroke();
+        ctx.font = `${8 * dpr}px ${FONTS.mono}`;
+        ctx.fillStyle = textColor;
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'top';
+        ctx.fillText('SESSION MAP', SPACING.sm * dpr, 4 * dpr);
+        return;
       }
 
-      if (peakEnv && rmsEnv && duration > 0) {
-        const midY = waveH / 2;
-        const ampH = midY - 3 * dpr;
-        const envLen = peakEnv.length;
-        const scaleX = width / envLen;
+      const viewRange = normalizeViewRange(
+        viewRangeRef.current.start,
+        viewRangeRef.current.end || pickDefaultViewSpan(duration),
+        duration,
+        Math.min(MIN_VIEWPORT_SECONDS, duration),
+      );
+      viewRangeRef.current = viewRange;
+      const loopStart = transport.loopStart;
+      const loopEnd = transport.loopEnd;
 
-        const interval = pickGridInterval(duration);
+      const drawTimeGrid = (rect: TimelineRect, start: number, end: number, drawLabels: boolean, labelOffsetY = 3 * dpr): void => {
+        const span = Math.max(0.001, end - start);
+        const interval = pickGridInterval(span);
+        const firstTick = Math.ceil(start / interval) * interval;
         ctx.lineWidth = 1;
-        for (let t = interval; t < duration; t += interval) {
-          const x = Math.round((t / duration) * width) + 0.5;
+        ctx.font = `${7 * dpr}px ${FONTS.mono}`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'top';
+
+        for (let t = firstTick; t < end; t += interval) {
+          const x = Math.round(timeToX(t, start, end, rect)) + 0.5;
           ctx.strokeStyle = gridColor;
           ctx.beginPath();
-          ctx.moveTo(x, 0);
-          ctx.lineTo(x, waveH);
+          ctx.moveTo(x, rect.y);
+          ctx.lineTo(x, rect.y + rect.h);
           ctx.stroke();
-          ctx.font = `${7 * dpr}px ${FONTS.mono}`;
-          ctx.fillStyle = textColor;
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'top';
-          ctx.fillText(fmtTime(t), x, 2 * dpr);
+          if (drawLabels) {
+            ctx.fillStyle = textColor;
+            ctx.fillText(fmtTime(t), x, rect.y + labelOffsetY);
+          }
         }
+      };
 
-        if (coverageMap) {
-          for (let i = 0; i < envLen; i++) {
-            if (!coverageMap[i]) continue;
-            const x = i * scaleX;
-            const columnW = Math.max(1, scaleX);
-            const peak = Math.max(0, Math.min(1, peakEnv[i] * peakNormalizer));
-            const rms = Math.max(0, Math.min(peak, rmsEnv[i] * peakNormalizer));
+      const drawPlayCursor = (rect: TimelineRect, start: number, end: number, fillLeft: boolean): void => {
+        if (currentTime < start || currentTime > end) return;
+        const playX = timeToX(currentTime, start, end, rect);
+        if (fillLeft) {
+          ctx.fillStyle = playFillWave;
+          ctx.fillRect(rect.x, rect.y, playX - rect.x, rect.h);
+        }
+        ctx.strokeStyle = playCursor;
+        ctx.lineWidth = dpr;
+        ctx.beginPath();
+        ctx.moveTo(playX, rect.y);
+        ctx.lineTo(playX, rect.y + rect.h);
+        ctx.stroke();
+      };
+
+      const drawLoopOverlay = (rect: TimelineRect, start: number, end: number): void => {
+        if (loopStart === null || loopEnd === null) return;
+        const overlapStart = Math.max(start, loopStart);
+        const overlapEnd = Math.min(end, loopEnd);
+        if (overlapEnd <= overlapStart) return;
+        const x1 = timeToX(overlapStart, start, end, rect);
+        const x2 = timeToX(overlapEnd, start, end, rect);
+        ctx.fillStyle = loopFill;
+        ctx.fillRect(x1, rect.y, Math.max(1, x2 - x1), rect.h);
+        ctx.strokeStyle = loopStroke;
+        ctx.lineWidth = 1.2 * dpr;
+        ctx.beginPath();
+        ctx.moveTo(x1, rect.y);
+        ctx.lineTo(x1, rect.y + rect.h);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(x2, rect.y);
+        ctx.lineTo(x2, rect.y + rect.h);
+        ctx.stroke();
+      };
+
+      const drawEnvelopeWindow = (
+        rect: TimelineRect,
+        start: number,
+        end: number,
+        options: { readonly emphasizeCoverage?: boolean; readonly showClipMap?: boolean; readonly fillPlayback?: boolean },
+      ): number => {
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(rect.x, rect.y, rect.w, rect.h);
+        ctx.clip();
+
+        ctx.fillStyle = backgroundFill;
+        ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+        ctx.fillStyle = unknownFill;
+        ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+
+        const midY = rect.y + rect.h / 2;
+        const ampH = Math.max(4 * dpr, rect.h * 0.42);
+        ctx.fillStyle = unknownLine;
+        ctx.fillRect(rect.x, midY - Math.max(1, dpr / 2), rect.w, Math.max(1, dpr));
+
+        let coveredColumns = 0;
+        if (peakEnv && rmsEnv) {
+          const envLen = peakEnv.length;
+          const firstIndex = Math.max(0, Math.floor((start / duration) * envLen) - 1);
+          const lastIndex = Math.min(envLen - 1, Math.ceil((end / duration) * envLen) + 1);
+
+          for (let index = firstIndex; index <= lastIndex; index++) {
+            const time0 = (index / envLen) * duration;
+            const time1 = ((index + 1) / envLen) * duration;
+            if (time1 <= start || time0 >= end) continue;
+
+            const x1 = timeToX(Math.max(start, time0), start, end, rect);
+            const x2 = timeToX(Math.min(end, time1), start, end, rect);
+            const columnW = Math.max(1, x2 - x1);
+            const covered = !coverageMap || coverageMap[index] !== 0;
+            if (covered) coveredColumns++;
+
+            if (!covered) {
+              if (options.emphasizeCoverage) {
+                ctx.fillStyle = learnedWaveHint;
+                ctx.fillRect(x1, midY - Math.max(1, dpr / 2), columnW, Math.max(1, dpr));
+              }
+              continue;
+            }
+
+            const peak = clampNumber(peakEnv[index] * peakNormalizer, 0, 1);
+            const rms = clampNumber(rmsEnv[index] * peakNormalizer, 0, peak);
             const rmsHalf = rms * ampH;
             const peakHalf = peak * ampH;
 
-            ctx.fillStyle = learnedWaveHint;
-            ctx.fillRect(x, midY - Math.max(1, dpr), columnW, Math.max(2, 2 * dpr));
-
             if (rmsHalf > 0) {
               ctx.fillStyle = waveformFill;
-              ctx.fillRect(x, midY - rmsHalf, columnW, rmsHalf * 2);
+              ctx.fillRect(x1, midY - rmsHalf, columnW, rmsHalf * 2);
             }
 
             if (peakHalf > 0) {
               ctx.fillStyle = waveformStroke;
-              ctx.fillRect(x, midY - peakHalf, columnW, Math.max(1, dpr));
+              ctx.fillRect(x1, midY - peakHalf, columnW, Math.max(1, dpr));
               ctx.fillStyle = waveformShadow;
-              ctx.fillRect(x, midY + peakHalf - Math.max(1, dpr), columnW, Math.max(1, dpr));
+              ctx.fillRect(x1, midY + peakHalf - Math.max(1, dpr), columnW, Math.max(1, dpr));
             } else {
               ctx.fillStyle = learnedWaveLine;
-              ctx.fillRect(x, midY - Math.max(1, dpr / 2), columnW, Math.max(1, dpr));
+              ctx.fillRect(x1, midY - Math.max(1, dpr / 2), columnW, Math.max(1, dpr));
+            }
+
+            if (options.showClipMap && clipMap && clipMap[index]) {
+              ctx.fillStyle = 'rgba(200, 40, 40, 0.32)';
+              ctx.fillRect(x1, rect.y, columnW, rect.h);
             }
           }
-        } else {
-          ctx.beginPath();
-          ctx.moveTo(0, midY);
-          for (let i = 0; i < envLen; i++) ctx.lineTo(i * scaleX, midY - rmsEnv[i] * ampH);
-          for (let i = envLen - 1; i >= 0; i--) ctx.lineTo(i * scaleX, midY + rmsEnv[i] * ampH);
-          ctx.closePath();
-          ctx.fillStyle = waveformFill;
-          ctx.fill();
-
-          ctx.beginPath();
-          ctx.moveTo(0, midY);
-          for (let i = 0; i < envLen; i++) ctx.lineTo(i * scaleX, midY - peakEnv[i] * ampH);
-          ctx.strokeStyle = waveformStroke;
-          ctx.lineWidth = 1;
-          ctx.stroke();
-
-          ctx.beginPath();
-          ctx.moveTo(0, midY);
-          for (let i = 0; i < envLen; i++) ctx.lineTo(i * scaleX, midY + peakEnv[i] * ampH);
-          ctx.strokeStyle = waveformShadow;
-          ctx.stroke();
         }
 
-        if (clipMap) {
-          const cmLen = clipMap.length;
-          const cmScaleX = width / cmLen;
-          ctx.fillStyle = 'rgba(200, 40, 40, 0.55)';
-          for (let i = 0; i < cmLen; i++) {
-            if (clipMap[i]) ctx.fillRect(i * cmScaleX, 0, Math.max(1, cmScaleX), waveH);
-          }
-        }
+        drawLoopOverlay(rect, start, end);
+        drawPlayCursor(rect, start, end, options.fillPlayback ?? false);
+        ctx.restore();
+        return coveredColumns;
+      };
 
-        const playX = (currentTime / duration) * width;
-        ctx.fillStyle = playFillWave;
-        ctx.fillRect(0, 0, playX, waveH);
+      ctx.strokeStyle = hyper ? 'rgba(32,52,110,0.92)' : COLORS.border;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(0, layout.view.y - 0.5);
+      ctx.lineTo(width, layout.view.y - 0.5);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(0, layout.loop.y - 0.5);
+      ctx.lineTo(width, layout.loop.y - 0.5);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(0, layout.detail.y - 0.5);
+      ctx.lineTo(width, layout.detail.y - 0.5);
+      ctx.stroke();
 
-        ctx.strokeStyle = playCursor;
+      const viewportStartX = timeToX(viewRange.start, 0, duration, layout.session);
+      const viewportEndX = timeToX(viewRange.end, 0, duration, layout.session);
+      ctx.fillStyle = viewWindowFill;
+      ctx.fillRect(viewportStartX, layout.session.y, Math.max(1, viewportEndX - viewportStartX), layout.session.h);
+      drawTimeGrid(layout.session, 0, duration, true);
+      drawEnvelopeWindow(layout.session, 0, duration, { emphasizeCoverage: true, fillPlayback: true });
+      ctx.strokeStyle = viewWindowStroke;
+      ctx.lineWidth = 1.2 * dpr;
+      ctx.strokeRect(viewportStartX, layout.session.y + 0.5 * dpr, Math.max(1, viewportEndX - viewportStartX), Math.max(1, layout.session.h - dpr));
+
+      ctx.fillStyle = controlFill;
+      ctx.fillRect(layout.view.x, layout.view.y, layout.view.w, layout.view.h);
+      ctx.fillRect(layout.loop.x, layout.loop.y, layout.loop.w, layout.loop.h);
+      drawTimeGrid(layout.view, 0, duration, false);
+      drawTimeGrid(layout.loop, 0, duration, false);
+
+      const viewTrackY = layout.view.y + Math.max(1, Math.round(layout.view.h * 0.28));
+      const viewTrackH = Math.max(2 * dpr, layout.view.h - Math.round(layout.view.h * 0.52));
+      const viewBrushX1 = timeToX(viewRange.start, 0, duration, layout.view);
+      const viewBrushX2 = timeToX(viewRange.end, 0, duration, layout.view);
+      ctx.fillStyle = controlTrack;
+      ctx.fillRect(layout.view.x, viewTrackY, layout.view.w, viewTrackH);
+      ctx.fillStyle = viewWindowFill;
+      ctx.fillRect(viewBrushX1, viewTrackY, Math.max(1, viewBrushX2 - viewBrushX1), viewTrackH);
+      ctx.strokeStyle = viewWindowStroke;
+      ctx.lineWidth = dpr;
+      ctx.strokeRect(viewBrushX1, viewTrackY - 0.5 * dpr, Math.max(1, viewBrushX2 - viewBrushX1), Math.max(1, viewTrackH + dpr));
+      ctx.fillStyle = viewWindowStroke;
+      ctx.fillRect(viewBrushX1 - dpr, layout.view.y + 1 * dpr, 2 * dpr, layout.view.h - 2 * dpr);
+      ctx.fillRect(viewBrushX2 - dpr, layout.view.y + 1 * dpr, 2 * dpr, layout.view.h - 2 * dpr);
+      drawPlayCursor(layout.view, 0, duration, false);
+
+      const loopTrackY = layout.loop.y + Math.max(1, Math.round(layout.loop.h * 0.28));
+      const loopTrackH = Math.max(2 * dpr, layout.loop.h - Math.round(layout.loop.h * 0.52));
+      ctx.fillStyle = controlTrack;
+      ctx.fillRect(layout.loop.x, loopTrackY, layout.loop.w, loopTrackH);
+      if (loopStart !== null && loopEnd !== null) {
+        const loopX1 = timeToX(loopStart, 0, duration, layout.loop);
+        const loopX2 = timeToX(loopEnd, 0, duration, layout.loop);
+        ctx.fillStyle = loopFill;
+        ctx.fillRect(loopX1, loopTrackY, Math.max(1, loopX2 - loopX1), loopTrackH);
+        ctx.strokeStyle = loopStroke;
         ctx.lineWidth = dpr;
-        ctx.beginPath();
-        ctx.moveTo(playX, 0);
-        ctx.lineTo(playX, waveH);
-        ctx.stroke();
-
-        // Loop region overlay
-        const loopStart = audioEngine.loopStart;
-        const loopEnd = audioEngine.loopEnd;
-        if (loopStart !== null && loopEnd !== null) {
-          const lx1 = (loopStart / duration) * width;
-          const lx2 = (loopEnd / duration) * width;
-          ctx.fillStyle = 'rgba(80, 200, 120, 0.10)';
-          ctx.fillRect(lx1, 0, lx2 - lx1, waveH);
-          ctx.strokeStyle = 'rgba(80, 200, 120, 0.60)';
-          ctx.lineWidth = 1.5 * dpr;
-          ctx.beginPath(); ctx.moveTo(lx1, 0); ctx.lineTo(lx1, waveH); ctx.stroke();
-          ctx.beginPath(); ctx.moveTo(lx2, 0); ctx.lineTo(lx2, waveH); ctx.stroke();
-          // Loop label
-          ctx.font = `${7 * dpr}px ${FONTS.mono}`;
-          ctx.fillStyle = 'rgba(80, 200, 120, 0.70)';
-          ctx.textAlign = 'left';
-          ctx.textBaseline = 'top';
-          ctx.fillText('LOOP', lx1 + 3 * dpr, 3 * dpr);
-        }
-
-        if (analysis) {
-          const dr = analysis.crestFactorDb;
-          const drColor =
-            dr >= 12 ? COLORS.statusOk :
-            dr >= 8 ? COLORS.statusWarn :
-            COLORS.statusErr;
-          const clipText = analysis.clipCount > 0 ? `${analysis.clipCount} CLIPS` : 'CLEAN';
-          const clipColor = analysis.clipCount > 0 ? COLORS.statusErr : COLORS.statusOk;
-
-          drawBadge(ctx, `DR ${dr.toFixed(1)} dB`, drColor, width - SPACING.sm * dpr, 4 * dpr, dpr);
-          drawBadge(ctx, clipText, clipColor, width - SPACING.sm * dpr, 19 * dpr, dpr);
-        } else if (isStreamedOverview) {
-          const liveColor = hyper ? CANVAS.hyper.trace : COLORS.borderHighlight;
-          drawBadge(ctx, 'LIVE OVR', liveColor, width - SPACING.sm * dpr, 4 * dpr, dpr);
-          drawBadge(ctx, `${Math.round(learnedRatio * 100)}% LEARNED`, COLORS.textTitle, width - SPACING.sm * dpr, 19 * dpr, dpr);
-        }
-
-        const centroid = centroidRef.current;
-        if (centroid > 0) {
-          ctx.font = `${8 * dpr}px ${FONTS.mono}`;
-          ctx.fillStyle = textColor;
-          ctx.textAlign = 'right';
-          ctx.textBaseline = 'bottom';
-          ctx.fillText(`CENT ${Math.round(centroid)} Hz`, width - SPACING.sm * dpr, waveH - 4 * dpr);
-        }
-      } else {
-        ctx.strokeStyle = gridColor;
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(0, waveH / 2);
-        ctx.lineTo(width, waveH / 2);
-        ctx.stroke();
+        ctx.strokeRect(loopX1, loopTrackY - 0.5 * dpr, Math.max(1, loopX2 - loopX1), Math.max(1, loopTrackH + dpr));
+        ctx.fillStyle = loopStroke;
+        ctx.fillRect(loopX1 - dpr, layout.loop.y + 1 * dpr, 2 * dpr, layout.loop.h - 2 * dpr);
+        ctx.fillRect(loopX2 - dpr, layout.loop.y + 1 * dpr, 2 * dpr, layout.loop.h - 2 * dpr);
       }
+      drawPlayCursor(layout.loop, 0, duration, false);
+
+      drawTimeGrid(layout.detail, viewRange.start, viewRange.end, false);
+      const coveredDetailColumns = drawEnvelopeWindow(layout.detail, viewRange.start, viewRange.end, {
+        emphasizeCoverage: true,
+        showClipMap: !isStreamedOverview,
+        fillPlayback: true,
+      });
 
       ctx.font = `${8 * dpr}px ${FONTS.mono}`;
       ctx.fillStyle = textColor;
       ctx.textAlign = 'left';
       ctx.textBaseline = 'top';
-      ctx.fillText(isStreamedOverview ? 'OVERVIEW / LIVE' : 'OVERVIEW', SPACING.sm * dpr, 4 * dpr);
+      ctx.fillText(isStreamedOverview ? 'SESSION MAP / LIVE' : 'SESSION MAP', SPACING.sm * dpr, layout.session.y + 4 * dpr);
+      ctx.fillText('VIEW WINDOW', SPACING.sm * dpr, layout.view.y + 1 * dpr);
+      ctx.fillText(loopStart !== null && loopEnd !== null ? 'LOOP REGION' : 'LOOP DRAG TO SET', SPACING.sm * dpr, layout.loop.y + 1 * dpr);
+      ctx.fillText(`DETAIL WINDOW ${formatSpan(viewRange.end - viewRange.start)}`, SPACING.sm * dpr, layout.detail.y + 4 * dpr);
+
+      ctx.textAlign = 'left';
+      ctx.fillText(fmtTime(viewRange.start), SPACING.sm * dpr, layout.detail.y + 18 * dpr);
+      ctx.textAlign = 'right';
+      ctx.fillText(fmtTime(viewRange.end), width - SPACING.sm * dpr, layout.detail.y + 18 * dpr);
+
+      if (analysis) {
+        const dr = analysis.crestFactorDb;
+        const drColor =
+          dr >= 12 ? COLORS.statusOk :
+          dr >= 8 ? COLORS.statusWarn :
+          COLORS.statusErr;
+        const clipText = analysis.clipCount > 0 ? `${analysis.clipCount} CLIPS` : 'CLEAN';
+        const clipColor = analysis.clipCount > 0 ? COLORS.statusErr : COLORS.statusOk;
+        drawBadge(ctx, `DR ${dr.toFixed(1)} dB`, drColor, badgeX, layout.session.y + 4 * dpr, dpr);
+        drawBadge(ctx, clipText, clipColor, badgeX, layout.session.y + 19 * dpr, dpr);
+      } else if (isStreamedOverview) {
+        const liveColor = hyper ? CANVAS.hyper.trace : COLORS.borderHighlight;
+        drawBadge(ctx, 'LIVE MAP', liveColor, badgeX, layout.session.y + 4 * dpr, dpr);
+        drawBadge(ctx, `${Math.round(learnedRatio * 100)}% LEARNED`, COLORS.textTitle, badgeX, layout.session.y + 19 * dpr, dpr);
+      }
+
+      drawBadge(ctx, `VIEW ${formatSpan(viewRange.end - viewRange.start)}`, COLORS.textSecondary, badgeX, layout.view.y + 1 * dpr, dpr);
+      if (loopStart !== null && loopEnd !== null) {
+        drawBadge(ctx, `LOOP ${formatSpan(loopEnd - loopStart)}`, loopStroke, badgeX, layout.loop.y + 1 * dpr, dpr);
+      } else {
+        drawBadge(ctx, 'DBL-CLICK CLEAR / DRAG TO SET', COLORS.textDim, badgeX, layout.loop.y + 1 * dpr, dpr);
+      }
+
+      const centroid = centroidRef.current;
+      if (centroid > 0) {
+        ctx.font = `${8 * dpr}px ${FONTS.mono}`;
+        ctx.fillStyle = textColor;
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'bottom';
+        ctx.fillText(`CENT ${Math.round(centroid)} Hz`, width - SPACING.sm * dpr, layout.detail.y + layout.detail.h - 4 * dpr);
+      }
+
+      if (isStreamedOverview && coveredDetailColumns === 0) {
+        ctx.font = `${8 * dpr}px ${FONTS.mono}`;
+        ctx.fillStyle = textColor;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('DETAIL BUILDS AROUND PLAYBACK AND SEEK TARGETS', width / 2, layout.detail.y + layout.detail.h / 2);
+      }
     };
 
     rafRef.current = requestAnimationFrame(draw);
@@ -1116,37 +1568,195 @@ export function WaveformOverviewPanel(): React.ReactElement {
         ref={canvasRef}
         style={canvasStyle}
         onPointerDown={(event) => {
-          isDraggingRef.current = true;
-          isShiftDragRef.current = event.shiftKey;
+          const canvas = canvasRef.current;
+          if (!canvas) return;
+
+          const rect = canvas.getBoundingClientRect();
+          if (rect.width <= 0 || rect.height <= 0) return;
+
+          const x = ((event.clientX - rect.left) / rect.width) * canvas.width;
+          const y = ((event.clientY - rect.top) / rect.height) * canvas.height;
+          const duration = Math.max(0, transportRef.current.duration || audioEngine.duration);
+          if (duration <= 0) return;
+
+          const layout = buildTimelineLayout(canvas.width, canvas.height, Math.min(devicePixelRatio, PANEL_DPR_MAX));
+          const hit = hitTestTimeline(x, y, layout, duration);
+          const currentView = normalizeViewRange(
+            viewRangeRef.current.start,
+            viewRangeRef.current.end || pickDefaultViewSpan(duration),
+            duration,
+            Math.min(MIN_VIEWPORT_SECONDS, duration),
+          );
+
           event.currentTarget.setPointerCapture(event.pointerId);
-          if (event.shiftKey) {
-            const t = fractionFromPointer(event) * audioEngine.duration;
-            loopDragStartRef.current = t;
-          } else {
-            loopDragStartRef.current = null;
-            audioEngine.beginScrub();
-            scrubFromPointer(event);
+
+          switch (hit.region) {
+            case 'session':
+              gestureRef.current = {
+                kind: 'scrub-session',
+                pointerId: event.pointerId,
+                anchorTime: hit.time,
+                anchorX: x,
+                initialView: currentView,
+                initialLoopStart: transportRef.current.loopStart,
+                initialLoopEnd: transportRef.current.loopEnd,
+              };
+              setCanvasCursor('crosshair');
+              audioEngine.beginScrub();
+              audioEngine.scrubTo(hit.time);
+              break;
+            case 'detail':
+              gestureRef.current = {
+                kind: 'scrub-detail',
+                pointerId: event.pointerId,
+                anchorTime: hit.time,
+                anchorX: x,
+                initialView: currentView,
+                initialLoopStart: transportRef.current.loopStart,
+                initialLoopEnd: transportRef.current.loopEnd,
+              };
+              setCanvasCursor('crosshair');
+              audioEngine.beginScrub();
+              audioEngine.scrubTo(hit.time);
+              break;
+            case 'view-start':
+              gestureRef.current = {
+                kind: 'view-resize-start',
+                pointerId: event.pointerId,
+                anchorTime: hit.time,
+                anchorX: x,
+                initialView: currentView,
+                initialLoopStart: transportRef.current.loopStart,
+                initialLoopEnd: transportRef.current.loopEnd,
+              };
+              setCanvasCursor('ew-resize');
+              break;
+            case 'view-end':
+              gestureRef.current = {
+                kind: 'view-resize-end',
+                pointerId: event.pointerId,
+                anchorTime: hit.time,
+                anchorX: x,
+                initialView: currentView,
+                initialLoopStart: transportRef.current.loopStart,
+                initialLoopEnd: transportRef.current.loopEnd,
+              };
+              setCanvasCursor('ew-resize');
+              break;
+            case 'view-body':
+              gestureRef.current = {
+                kind: 'view-pan',
+                pointerId: event.pointerId,
+                anchorTime: hit.time,
+                anchorX: x,
+                initialView: currentView,
+                initialLoopStart: transportRef.current.loopStart,
+                initialLoopEnd: transportRef.current.loopEnd,
+              };
+              setCanvasCursor('grabbing');
+              break;
+            case 'view-track': {
+              const span = currentView.end - currentView.start;
+              const centered = centerViewRange(hit.time, span, duration);
+              setViewRange(centered, { manual: true });
+              gestureRef.current = {
+                kind: 'view-pan',
+                pointerId: event.pointerId,
+                anchorTime: hit.time,
+                anchorX: x,
+                initialView: centered,
+                initialLoopStart: transportRef.current.loopStart,
+                initialLoopEnd: transportRef.current.loopEnd,
+              };
+              setCanvasCursor('grabbing');
+              break;
+            }
+            case 'loop-start':
+              gestureRef.current = {
+                kind: 'loop-resize-start',
+                pointerId: event.pointerId,
+                anchorTime: hit.time,
+                anchorX: x,
+                initialView: currentView,
+                initialLoopStart: transportRef.current.loopStart,
+                initialLoopEnd: transportRef.current.loopEnd,
+              };
+              setCanvasCursor('ew-resize');
+              break;
+            case 'loop-end':
+              gestureRef.current = {
+                kind: 'loop-resize-end',
+                pointerId: event.pointerId,
+                anchorTime: hit.time,
+                anchorX: x,
+                initialView: currentView,
+                initialLoopStart: transportRef.current.loopStart,
+                initialLoopEnd: transportRef.current.loopEnd,
+              };
+              setCanvasCursor('ew-resize');
+              break;
+            case 'loop-body':
+              gestureRef.current = {
+                kind: 'loop-pan',
+                pointerId: event.pointerId,
+                anchorTime: hit.time,
+                anchorX: x,
+                initialView: currentView,
+                initialLoopStart: transportRef.current.loopStart,
+                initialLoopEnd: transportRef.current.loopEnd,
+              };
+              setCanvasCursor('grabbing');
+              break;
+            case 'loop-track':
+              gestureRef.current = {
+                kind: 'loop-create',
+                pointerId: event.pointerId,
+                anchorTime: hit.time,
+                anchorX: x,
+                initialView: currentView,
+                initialLoopStart: transportRef.current.loopStart,
+                initialLoopEnd: transportRef.current.loopEnd,
+              };
+              setCanvasCursor('crosshair');
+              break;
+            default:
+              break;
           }
         }}
         onPointerMove={(event) => {
-          if (!isDraggingRef.current) return;
-          if (isShiftDragRef.current && loopDragStartRef.current !== null) {
-            const t2 = fractionFromPointer(event) * audioEngine.duration;
-            const start = Math.min(loopDragStartRef.current, t2);
-            const end = Math.max(loopDragStartRef.current, t2);
-            if (end - start > 0.1) audioEngine.setLoop(start, end);
-          } else {
-            scrubFromPointer(event);
+          if (gestureRef.current) {
+            updateGestureFromPointer(event);
+            return;
+          }
+          updatePointerCursor(event);
+        }}
+        onPointerUp={(event) => finishPointerGesture(event)}
+        onPointerCancel={() => finishPointerGesture()}
+        onLostPointerCapture={() => finishPointerGesture()}
+        onPointerLeave={() => {
+          if (!gestureRef.current) setCanvasCursor('crosshair');
+        }}
+        onDoubleClick={(event) => {
+          const canvas = canvasRef.current;
+          if (!canvas) return;
+
+          const rect = canvas.getBoundingClientRect();
+          if (rect.width <= 0 || rect.height <= 0) return;
+
+          const x = ((event.clientX - rect.left) / rect.width) * canvas.width;
+          const y = ((event.clientY - rect.top) / rect.height) * canvas.height;
+          const duration = Math.max(0, transportRef.current.duration || audioEngine.duration);
+          if (duration <= 0) return;
+
+          const layout = buildTimelineLayout(canvas.width, canvas.height, Math.min(devicePixelRatio, PANEL_DPR_MAX));
+          const hit = hitTestTimeline(x, y, layout, duration);
+          if (hit.region.startsWith('view-')) {
+            resetViewRange(duration);
+          }
+          if (hit.region.startsWith('loop-')) {
+            audioEngine.clearLoop();
           }
         }}
-        onPointerUp={(event) => {
-          if (!isShiftDragRef.current) {
-            scrubFromPointer(event);
-          }
-          finishPointerGesture();
-        }}
-        onPointerCancel={finishPointerGesture}
-        onLostPointerCapture={finishPointerGesture}
       />
     </div>
   );

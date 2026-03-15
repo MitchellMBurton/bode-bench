@@ -1284,7 +1284,7 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
       if (audioEngine.backendMode === 'streamed') {
         setLoadNotice({
           tone: 'info',
-          message: 'Large media mode active: streamed playback is enabled for stability. Pitch shift comes online live, and the scrub map plus waveform history stream in over time.',
+          message: 'Large media mode active: streamed playback is enabled for stability. Pitch shift comes online live, the session map stays coarse, and the detail window plus waveform history learn as you play and seek.',
         });
       } else {
         setLoadNotice(null);
