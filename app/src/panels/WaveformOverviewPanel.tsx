@@ -197,6 +197,14 @@ function shouldThrottleStreamedScout(transport: TransportState): boolean {
   return Math.abs(transport.playbackRate - 1) > 0.15 || transport.pitchSemitones !== 0;
 }
 
+function hasStreamedCoverageGap(coverage: Uint8Array | null): boolean {
+  if (!coverage || coverage.length === 0) return false;
+  for (let index = 0; index < coverage.length; index++) {
+    if (coverage[index] === 0) return true;
+  }
+  return false;
+}
+
 function computeEnvelopeAndClipMapAsync(
   buffer: AudioBuffer,
   cols: number,
@@ -534,27 +542,32 @@ export function WaveformOverviewPanel(): React.ReactElement {
 
           let sampledPeak = 0;
           let sampledRms = 0;
+          let sampledAny = false;
           for (const sampleTime of buildScoutSampleTimes(target)) {
             await seekMediaElement(probe.element, sampleTime, STREAMED_SCOUT_READY_TIMEOUT_MS);
             if (cancelled) break;
             await waitForMediaReadyState(probe.element, STREAMED_SCOUT_READY_TIMEOUT_MS);
             if (cancelled) break;
 
+            let played = false;
             try {
               await Promise.resolve(probe.element.play());
+              played = true;
               await delay(STREAMED_SCOUT_SAMPLE_WINDOW_MS);
             } catch {
-              await delay(STREAMED_SCOUT_SAMPLE_WINDOW_MS);
+              await delay(STREAMED_SCOUT_ACTIVE_DELAY_MS);
+              continue;
             }
 
             probe.analyser.getFloatTimeDomainData(probe.timeDomain as Float32Array<ArrayBuffer>);
-            probe.element.pause();
+            if (played) probe.element.pause();
             const { peak, rms } = sampleTimeDomainLevels(probe.timeDomain);
             if (peak > sampledPeak) sampledPeak = peak;
             if (rms > sampledRms) sampledRms = rms;
+            sampledAny = true;
           }
 
-          if (!cancelled) {
+          if (!cancelled && sampledAny) {
             mergeStreamedEnvelopeRange(target.colStart, target.colEnd, sampledPeak, sampledRms);
           }
 
@@ -637,13 +650,28 @@ export function WaveformOverviewPanel(): React.ReactElement {
       envelopeColsRef.current = 0;
       envelopeFileIdRef.current = -1;
       initializeStreamedEnvelope(transport.filename, transport.duration, true);
-      startStreamedScout(transport.filename, transport.duration);
+      if (transport.isPlaying && hasStreamedCoverageGap(streamedCoverageRef.current)) {
+        startStreamedScout(transport.filename, transport.duration);
+      }
       return;
     }
 
     cancelStreamedScout();
     resetStreamedEnvelope();
   }), [audioEngine, cancelEnvelopeCompute, cancelStreamedScout, initializeStreamedEnvelope, resetStreamedEnvelope, startStreamedScout]);
+
+  useEffect(() => audioEngine.onTransport((transport) => {
+    if (
+      transport.playbackBackend === 'streamed'
+      && transport.isPlaying
+      && transport.filename
+      && transport.duration > 0
+      && !streamedScoutCancelRef.current
+      && hasStreamedCoverageGap(streamedCoverageRef.current)
+    ) {
+      startStreamedScout(transport.filename, transport.duration);
+    }
+  }), [audioEngine, startStreamedScout]);
 
   useEffect(() => audioEngine.onFileReady((analysis) => {
     cancelStreamedScout();
