@@ -387,17 +387,30 @@ export class AudioEngine {
     return this._pitchSemitones - 12 * Math.log2(inputRate);
   }
 
+  private get streamedPitchScheduleLeadTime(): number {
+    return Math.max(this.stretchLatency, 0.05);
+  }
+
+  private get streamedFormantCompensationEnabled(): boolean {
+    const effectiveSemitones = Math.abs(this.streamedPitchCompensatedSemitones);
+    if (effectiveSemitones <= 0.001) return false;
+    return effectiveSemitones <= 4.5;
+  }
+
   private buildStreamedPitchSchedule(outputTime: number): StretchSchedule {
     return {
       active: true,
       outputTime,
       semitones: this.streamedPitchCompensatedSemitones,
-      formantCompensation: true,
+      formantCompensation: this.streamedFormantCompensationEnabled,
       formantBaseHz: 0,
     };
   }
 
-  private scheduleStreamedPitchUpdate(outputTime = this.ctx?.currentTime ?? 0, label = 'stream-pitch'): void {
+  private scheduleStreamedPitchUpdate(
+    outputTime = (this.ctx?.currentTime ?? 0) + this.streamedPitchScheduleLeadTime,
+    label = 'stream-pitch',
+  ): void {
     if (!this.streamedPitchShiftActive || !this.stretchNode) return;
     this.queueStretchCommand(this.stretchNode.schedule(this.buildStreamedPitchSchedule(outputTime)), label);
   }
@@ -1340,7 +1353,7 @@ export class AudioEngine {
         this.mediaElement.playbackRate = this.scrubPreviewRate;
         this.setMediaElementPitchPreservation(!this.streamedPitchShiftActive);
         if (this.streamedPitchShiftActive) {
-          this.scheduleStreamedPitchUpdate(this.ctx?.currentTime ?? 0, 'stream-scrub');
+          this.scheduleStreamedPitchUpdate(undefined, 'stream-scrub');
         }
       }
       if (this.sourceNode) {
@@ -1377,7 +1390,7 @@ export class AudioEngine {
       this.mediaElement.playbackRate = this.nativeFallbackRate;
       this.setMediaElementPitchPreservation(!this.streamedPitchShiftActive);
       if (this.streamedPitchShiftActive) {
-        this.scheduleStreamedPitchUpdate(this.ctx?.currentTime ?? 0, 'stream-scrub-end');
+        this.scheduleStreamedPitchUpdate(undefined, 'stream-scrub-end');
       }
       if (this.ctx) {
         this.startedAt = this.ctx.currentTime;
@@ -1644,7 +1657,7 @@ export class AudioEngine {
       this.mediaElement.playbackRate = activeRate;
       this.setMediaElementPitchPreservation(!this.streamedPitchShiftActive);
       if (this._isPlaying) {
-        this.scheduleStreamedPitchUpdate(this.ctx?.currentTime ?? 0, 'stream-rate');
+        this.scheduleStreamedPitchUpdate(undefined, 'stream-rate');
       }
     } else if (this.sourceNode) {
       this.sourceNode.playbackRate.value = this.scrubActive ? this.scrubPreviewRate : this.nativeFallbackRate;
@@ -1700,7 +1713,7 @@ export class AudioEngine {
       }
 
       if (this._isPlaying) {
-        this.scheduleStreamedPitchUpdate(this.ctx?.currentTime ?? 0, 'stream-pitch');
+        this.scheduleStreamedPitchUpdate(undefined, 'stream-pitch');
       }
       this.emitTransport();
       return;
