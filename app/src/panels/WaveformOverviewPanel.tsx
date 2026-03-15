@@ -90,7 +90,7 @@ const STREAMED_ENVELOPE_BRIDGE_MAX_BINS = 24;
 const STREAMED_DETAIL_ENVELOPE_MAX_COLS = 32768;
 const STREAMED_DETAIL_SECONDS_PER_COL = 0.5;
 const STREAMED_DETAIL_BRIDGE_MAX_BINS = 96;
-const STREAMED_SCOUT_TARGET_SAMPLES = 96;
+const STREAMED_SCOUT_TARGET_SAMPLES = STREAMED_ENVELOPE_MAX_COLS;
 const STREAMED_SCOUT_READY_TIMEOUT_MS = 1800;
 const STREAMED_SCOUT_SAMPLE_WINDOW_MS = 110;
 const STREAMED_SCOUT_IDLE_DELAY_MS = 24;
@@ -103,10 +103,10 @@ const VIEW_FOLLOW_MARGIN = 0.22;
 const VIEW_FOLLOW_LEAD = 0.35;
 const SESSION_MAP_MIN_PX = 34;
 const SESSION_MAP_MAX_PX = 56;
-const CONTROL_ROW_MIN_PX = 10;
-const CONTROL_ROW_MAX_PX = 14;
+const CONTROL_ROW_MIN_PX = 14;
+const CONTROL_ROW_MAX_PX = 20;
 const TIMELINE_SEPARATOR_PX = 1;
-const HANDLE_HIT_PX = 8;
+const HANDLE_HIT_PX = 14;
 
 const SCRUB_STYLE_OPTIONS: ReadonlyArray<{
   readonly value: ScrubStyle;
@@ -1329,6 +1329,8 @@ export function WaveformOverviewPanel(): React.ReactElement {
       const viewWindowStroke = hyper ? 'rgba(120,210,255,0.9)' : COLORS.borderHighlight;
       const loopFill = 'rgba(80, 200, 120, 0.16)';
       const loopStroke = 'rgba(80, 200, 120, 0.74)';
+      const handleBackFill = hyper ? 'rgba(8,12,20,0.96)' : 'rgba(8, 10, 16, 0.94)';
+      const handleGripFill = hyper ? 'rgba(186,222,255,0.92)' : 'rgba(214, 220, 255, 0.92)';
       const unknownFill = nge ? 'rgba(160,216,64,0.04)' : hyper ? 'rgba(98,232,255,0.04)' : 'rgba(120, 134, 200, 0.05)';
       const unknownLine = nge ? 'rgba(160,216,64,0.12)' : hyper ? 'rgba(98,232,255,0.14)' : 'rgba(130, 142, 212, 0.14)';
       const badgeX = width - SPACING.sm * dpr;
@@ -1440,6 +1442,35 @@ export function WaveformOverviewPanel(): React.ReactElement {
         ctx.fillStyle = playCursor;
         ctx.fillRect(playX - dpr, rect.y, Math.max(2 * dpr, 2), Math.max(2 * dpr, 2));
         ctx.fillRect(playX - dpr, rect.y + rect.h - Math.max(2 * dpr, 2), Math.max(2 * dpr, 2), Math.max(2 * dpr, 2));
+      };
+
+      const drawControlHandle = (
+        rect: TimelineRect,
+        centerX: number,
+        accentFill: string,
+        accentStroke: string,
+      ): void => {
+        const handleW = Math.max(8 * dpr, rect.h * 0.62);
+        const handleH = Math.max(10 * dpr, rect.h - 2 * dpr);
+        const x = clampNumber(centerX - handleW / 2, rect.x + dpr, rect.x + rect.w - handleW - dpr);
+        const y = rect.y + Math.max(dpr, (rect.h - handleH) / 2);
+        const gripCount = 3;
+        const gripGap = Math.max(1.2 * dpr, handleW * 0.16);
+
+        ctx.save();
+        ctx.fillStyle = handleBackFill;
+        ctx.fillRect(x - dpr, y - dpr, handleW + 2 * dpr, handleH + 2 * dpr);
+        ctx.fillStyle = accentFill;
+        ctx.fillRect(x, y, handleW, handleH);
+        ctx.strokeStyle = accentStroke;
+        ctx.lineWidth = dpr;
+        ctx.strokeRect(x + 0.5 * dpr, y + 0.5 * dpr, Math.max(1, handleW - dpr), Math.max(1, handleH - dpr));
+        ctx.fillStyle = handleGripFill;
+        for (let grip = 0; grip < gripCount; grip++) {
+          const lineX = x + handleW / 2 - gripGap + grip * gripGap;
+          ctx.fillRect(lineX - dpr / 2, y + 2 * dpr, Math.max(1, dpr), Math.max(2, handleH - 4 * dpr));
+        }
+        ctx.restore();
       };
 
       const drawLoopOverlay = (rect: TimelineRect, start: number, end: number): void => {
@@ -2168,6 +2199,10 @@ export function WaveformOverviewPanel(): React.ReactElement {
       ctx.fillStyle = controlFill;
       ctx.fillRect(layout.view.x, layout.view.y, layout.view.w, layout.view.h);
       ctx.fillRect(layout.loop.x, layout.loop.y, layout.loop.w, layout.loop.h);
+      ctx.strokeStyle = gridColor;
+      ctx.lineWidth = dpr;
+      ctx.strokeRect(layout.view.x + 0.5 * dpr, layout.view.y + 0.5 * dpr, Math.max(1, layout.view.w - dpr), Math.max(1, layout.view.h - dpr));
+      ctx.strokeRect(layout.loop.x + 0.5 * dpr, layout.loop.y + 0.5 * dpr, Math.max(1, layout.loop.w - dpr), Math.max(1, layout.loop.h - dpr));
       drawTimeGrid(layout.view, 0, duration, false);
       drawTimeGrid(layout.loop, 0, duration, false);
 
@@ -2182,9 +2217,8 @@ export function WaveformOverviewPanel(): React.ReactElement {
       ctx.strokeStyle = viewWindowStroke;
       ctx.lineWidth = dpr;
       ctx.strokeRect(viewBrushX1, viewTrackY - 0.5 * dpr, Math.max(1, viewBrushX2 - viewBrushX1), Math.max(1, viewTrackH + dpr));
-      ctx.fillStyle = viewWindowStroke;
-      ctx.fillRect(viewBrushX1 - dpr, layout.view.y + 1 * dpr, 2 * dpr, layout.view.h - 2 * dpr);
-      ctx.fillRect(viewBrushX2 - dpr, layout.view.y + 1 * dpr, 2 * dpr, layout.view.h - 2 * dpr);
+      drawControlHandle(layout.view, viewBrushX1, viewWindowFill, viewWindowStroke);
+      drawControlHandle(layout.view, viewBrushX2, viewWindowFill, viewWindowStroke);
       drawPlayCursor(layout.view, 0, duration, false);
 
       const loopTrackY = layout.loop.y + Math.max(1, Math.round(layout.loop.h * 0.28));
@@ -2199,9 +2233,8 @@ export function WaveformOverviewPanel(): React.ReactElement {
         ctx.strokeStyle = loopStroke;
         ctx.lineWidth = dpr;
         ctx.strokeRect(loopX1, loopTrackY - 0.5 * dpr, Math.max(1, loopX2 - loopX1), Math.max(1, loopTrackH + dpr));
-        ctx.fillStyle = loopStroke;
-        ctx.fillRect(loopX1 - dpr, layout.loop.y + 1 * dpr, 2 * dpr, layout.loop.h - 2 * dpr);
-        ctx.fillRect(loopX2 - dpr, layout.loop.y + 1 * dpr, 2 * dpr, layout.loop.h - 2 * dpr);
+        drawControlHandle(layout.loop, loopX1, loopFill, loopStroke);
+        drawControlHandle(layout.loop, loopX2, loopFill, loopStroke);
       }
       drawPlayCursor(layout.loop, 0, duration, false);
 

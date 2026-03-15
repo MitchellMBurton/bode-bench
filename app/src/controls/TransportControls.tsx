@@ -1281,12 +1281,12 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
     setIsLoading(true);
     try {
       await audioEngine.load(file);
-      if (audioEngine.backendMode === 'streamed') {
-        setLoadNotice({
-          tone: 'info',
-          message: 'Large media mode active: streamed playback is enabled for stability. Pitch shift comes online live, the session map stays coarse, and the detail waveform plus waveform history learn as you play and seek.',
-        });
-      } else {
+        if (audioEngine.backendMode === 'streamed') {
+          setLoadNotice({
+            tone: 'info',
+            message: 'Large media mode active: streamed playback is enabled for stability. Pitch shift comes online live, the session map fills continuously at low resolution, and the detail waveform plus waveform history learn as you play and seek.',
+          });
+        } else {
         setLoadNotice(null);
       }
       onFileLoaded?.();
