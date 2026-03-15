@@ -46,7 +46,6 @@ type TimelineGestureKind =
   | 'loop-pan'
   | 'loop-resize-start'
   | 'loop-resize-end'
-  | 'detail-loop-pan'
   | 'detail-loop-resize-start'
   | 'detail-loop-resize-end';
 
@@ -71,7 +70,6 @@ type TimelineHitRegion =
   | 'loop-body'
   | 'loop-start'
   | 'loop-end'
-  | 'detail-loop-body'
   | 'detail-loop-start'
   | 'detail-loop-end';
 
@@ -552,6 +550,7 @@ export function WaveformOverviewPanel(): React.ReactElement {
   });
   const analysisRef = useRef<FileAnalysis | null>(null);
   const centroidRef = useRef(0);
+  const liveCurrentTimeRef = useRef(0);
   const rafRef = useRef<number | null>(null);
   const envelopeCancelRef = useRef<(() => void) | null>(null);
   const envelopeRequestIdRef = useRef(0);
@@ -904,6 +903,7 @@ export function WaveformOverviewPanel(): React.ReactElement {
 
   useEffect(() => frameBus.subscribe((frame) => {
     centroidRef.current = frame.spectralCentroid;
+    liveCurrentTimeRef.current = frame.currentTime;
 
     const transport = transportRef.current;
     if (transport.playbackBackend !== 'streamed' || !transport.filename || transport.duration <= 0) {
@@ -966,6 +966,7 @@ export function WaveformOverviewPanel(): React.ReactElement {
 
   useEffect(() => audioEngine.onTransport((transport) => {
     transportRef.current = transport;
+    liveCurrentTimeRef.current = transport.currentTime;
     const nextKey = buildMediaKey(transport.filename, transport.duration);
     const nextLoopKey = transport.loopStart !== null && transport.loopEnd !== null
       ? `${transport.loopStart.toFixed(3)}:${transport.loopEnd.toFixed(3)}`
@@ -1133,7 +1134,6 @@ export function WaveformOverviewPanel(): React.ReactElement {
         const detailHandleTol = Math.max(loopHandleTol, layout.detail.h * 0.08);
         if (Math.abs(x - detailLoopStartX) <= detailHandleTol) return { region: 'detail-loop-start', time: detailTime };
         if (Math.abs(x - detailLoopEndX) <= detailHandleTol) return { region: 'detail-loop-end', time: detailTime };
-        if (x >= detailLoopStartX && x <= detailLoopEndX) return { region: 'detail-loop-body', time: detailTime };
       }
     }
     return { region: 'detail', time: detailTime };
@@ -1167,7 +1167,6 @@ export function WaveformOverviewPanel(): React.ReactElement {
         return;
       case 'view-body':
       case 'loop-body':
-      case 'detail-loop-body':
         setCanvasCursor('grab');
         return;
       case 'view-track':
@@ -1244,13 +1243,6 @@ export function WaveformOverviewPanel(): React.ReactElement {
           audioEngine.setLoop(gesture.initialLoopStart, Math.max(fullTime, gesture.initialLoopStart + MIN_LOOP_SECONDS));
         }
         break;
-      case 'detail-loop-pan': {
-        if (gesture.initialLoopStart === null || gesture.initialLoopEnd === null) break;
-        const span = gesture.initialLoopEnd - gesture.initialLoopStart;
-        const start = clampNumber(gesture.initialLoopStart + (detailTime - gesture.anchorTime), 0, Math.max(0, duration - span));
-        audioEngine.setLoop(start, start + span);
-        break;
-      }
       case 'detail-loop-resize-start':
         if (gesture.initialLoopEnd !== null) {
           audioEngine.setLoop(Math.min(detailTime, gesture.initialLoopEnd - MIN_LOOP_SECONDS), gesture.initialLoopEnd);
@@ -1350,7 +1342,12 @@ export function WaveformOverviewPanel(): React.ReactElement {
       const badgeX = width - SPACING.sm * dpr;
       const transport = transportRef.current;
       const duration = Math.max(0, transport.duration);
-      const currentTime = clampNumber(transport.currentTime, 0, duration || 0);
+      const transportCursorTime = transport.scrubActive ? transport.currentTime : liveCurrentTimeRef.current;
+      const currentTime = clampNumber(
+        Number.isFinite(transportCursorTime) ? transportCursorTime : transport.currentTime,
+        0,
+        duration || 0,
+      );
 
       ctx.clearRect(0, 0, width, height);
       ctx.fillStyle = backgroundFill;
@@ -1433,12 +1430,24 @@ export function WaveformOverviewPanel(): React.ReactElement {
           ctx.fillStyle = playFillWave;
           ctx.fillRect(rect.x, rect.y, playX - rect.x, rect.h);
         }
-        ctx.strokeStyle = playCursor;
-        ctx.lineWidth = dpr;
+
+        ctx.strokeStyle = hyper ? 'rgba(16, 22, 36, 0.92)' : 'rgba(12, 12, 18, 0.92)';
+        ctx.lineWidth = Math.max(2 * dpr, 1.5);
         ctx.beginPath();
         ctx.moveTo(playX, rect.y);
         ctx.lineTo(playX, rect.y + rect.h);
         ctx.stroke();
+
+        ctx.strokeStyle = playCursor;
+        ctx.lineWidth = Math.max(1.5 * dpr, 1);
+        ctx.beginPath();
+        ctx.moveTo(playX, rect.y);
+        ctx.lineTo(playX, rect.y + rect.h);
+        ctx.stroke();
+
+        ctx.fillStyle = playCursor;
+        ctx.fillRect(playX - dpr, rect.y, Math.max(2 * dpr, 2), Math.max(2 * dpr, 2));
+        ctx.fillRect(playX - dpr, rect.y + rect.h - Math.max(2 * dpr, 2), Math.max(2 * dpr, 2), Math.max(2 * dpr, 2));
       };
 
       const drawLoopOverlay = (rect: TimelineRect, start: number, end: number): void => {
@@ -2079,18 +2088,6 @@ export function WaveformOverviewPanel(): React.ReactElement {
                 initialLoopEnd: transportRef.current.loopEnd,
               };
               setCanvasCursor('ew-resize');
-              break;
-            case 'detail-loop-body':
-              gestureRef.current = {
-                kind: 'detail-loop-pan',
-                pointerId: event.pointerId,
-                anchorTime: hit.time,
-                anchorX: x,
-                initialView: currentView,
-                initialLoopStart: transportRef.current.loopStart,
-                initialLoopEnd: transportRef.current.loopEnd,
-              };
-              setCanvasCursor('grabbing');
               break;
             case 'loop-body':
               gestureRef.current = {
