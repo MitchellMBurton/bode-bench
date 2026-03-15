@@ -1350,52 +1350,245 @@ export function WaveformOverviewPanel(): React.ReactElement {
         let coveredColumns = 0;
         if (peakEnv && rmsEnv) {
           const envLen = peakEnv.length;
-          const firstIndex = Math.max(0, Math.floor((start / duration) * envLen) - 1);
-          const lastIndex = Math.min(envLen - 1, Math.ceil((end / duration) * envLen) + 1);
+          const columnCount = Math.max(48, Math.min(720, Math.round(rect.w / Math.max(1.25, 1.15 * dpr))));
+          const peakColumns = new Float32Array(columnCount);
+          const rmsColumns = new Float32Array(columnCount);
+          const coverageColumns = new Float32Array(columnCount);
+          const clipColumns = new Uint8Array(columnCount);
+          const rangeStart = (start / duration) * envLen;
+          const rangeEnd = (end / duration) * envLen;
+          const rangeSpan = Math.max(0.001, rangeEnd - rangeStart);
+          const bridgeGapColumns = coverageMap
+            ? Math.max(1, Math.min(8, Math.round(columnCount / 120)))
+            : 0;
 
-          for (let index = firstIndex; index <= lastIndex; index++) {
-            const time0 = (index / envLen) * duration;
-            const time1 = ((index + 1) / envLen) * duration;
-            if (time1 <= start || time0 >= end) continue;
+          const findCoveredIndex = (from: number, step: -1 | 1, limit: number): number => {
+            let travelled = 0;
+            for (let index = from; index >= 0 && index < columnCount; index += step) {
+              if (coverageColumns[index] > 0) return index;
+              travelled++;
+              if (travelled > limit) break;
+            }
+            return -1;
+          };
 
-            const x1 = timeToX(Math.max(start, time0), start, end, rect);
-            const x2 = timeToX(Math.min(end, time1), start, end, rect);
-            const columnW = Math.max(1, x2 - x1);
-            const covered = !coverageMap || coverageMap[index] !== 0;
-            if (covered) coveredColumns++;
-
-            if (!covered) {
-              if (options.emphasizeCoverage) {
-                ctx.fillStyle = learnedWaveHint;
-                ctx.fillRect(x1, midY - Math.max(1, dpr / 2), columnW, Math.max(1, dpr));
+          const traceEnvelopeHalf = (
+            from: number,
+            to: number,
+            values: Float32Array,
+            direction: 1 | -1,
+          ): void => {
+            let first = true;
+            if (direction > 0) {
+              for (let index = from; index <= to; index++) {
+                const x = rect.x + ((index + 0.5) / columnCount) * rect.w;
+                const y = midY - values[index];
+                if (first) {
+                  ctx.moveTo(x, y);
+                  first = false;
+                  continue;
+                }
+                const prevX = rect.x + (((index - 1) + 0.5) / columnCount) * rect.w;
+                const prevY = midY - values[index - 1];
+                const midX = (prevX + x) / 2;
+                const midYLocal = (prevY + y) / 2;
+                ctx.quadraticCurveTo(prevX, prevY, midX, midYLocal);
               }
+              const endX = rect.x + ((to + 0.5) / columnCount) * rect.w;
+              ctx.lineTo(endX, midY - values[to]);
+              return;
+            }
+
+            for (let index = to; index >= from; index--) {
+              const x = rect.x + ((index + 0.5) / columnCount) * rect.w;
+              const y = midY + values[index];
+              if (first) {
+                ctx.lineTo(x, y);
+                first = false;
+                continue;
+              }
+              const prevX = rect.x + (((index + 1) + 0.5) / columnCount) * rect.w;
+              const prevY = midY + values[index + 1];
+              const midX = (prevX + x) / 2;
+              const midYLocal = (prevY + y) / 2;
+              ctx.quadraticCurveTo(prevX, prevY, midX, midYLocal);
+            }
+            const endX = rect.x + ((from + 0.5) / columnCount) * rect.w;
+            ctx.lineTo(endX, midY + values[from]);
+          };
+
+          const strokeEnvelopeHalf = (
+            from: number,
+            to: number,
+            values: Float32Array,
+            direction: 1 | -1,
+          ): void => {
+            let first = true;
+            if (direction > 0) {
+              for (let index = from; index <= to; index++) {
+                const x = rect.x + ((index + 0.5) / columnCount) * rect.w;
+                const y = midY - values[index];
+                if (first) {
+                  ctx.moveTo(x, y);
+                  first = false;
+                  continue;
+                }
+                const prevX = rect.x + (((index - 1) + 0.5) / columnCount) * rect.w;
+                const prevY = midY - values[index - 1];
+                const midX = (prevX + x) / 2;
+                const midYLocal = (prevY + y) / 2;
+                ctx.quadraticCurveTo(prevX, prevY, midX, midYLocal);
+              }
+              const endX = rect.x + ((to + 0.5) / columnCount) * rect.w;
+              ctx.lineTo(endX, midY - values[to]);
+              return;
+            }
+
+            for (let index = from; index <= to; index++) {
+              const x = rect.x + ((index + 0.5) / columnCount) * rect.w;
+              const y = midY + values[index];
+              if (first) {
+                ctx.moveTo(x, y);
+                first = false;
+                continue;
+              }
+              const prevX = rect.x + (((index - 1) + 0.5) / columnCount) * rect.w;
+              const prevY = midY + values[index - 1];
+              const midX = (prevX + x) / 2;
+              const midYLocal = (prevY + y) / 2;
+              ctx.quadraticCurveTo(prevX, prevY, midX, midYLocal);
+            }
+            const endX = rect.x + ((to + 0.5) / columnCount) * rect.w;
+            ctx.lineTo(endX, midY + values[to]);
+          };
+
+          for (let column = 0; column < columnCount; column++) {
+            const t0 = column / columnCount;
+            const t1 = (column + 1) / columnCount;
+            const envStart = rangeStart + rangeSpan * t0;
+            const envEnd = rangeStart + rangeSpan * t1;
+            const binStart = Math.max(0, Math.floor(envStart));
+            const binEnd = Math.min(envLen - 1, Math.max(binStart, Math.ceil(envEnd)));
+            const totalBins = Math.max(1, binEnd - binStart + 1);
+            let coveredBins = 0;
+            let maxPeak = 0;
+            let maxRms = 0;
+            let clipped = false;
+
+            for (let index = binStart; index <= binEnd; index++) {
+              const covered = !coverageMap || coverageMap[index] !== 0;
+              if (!covered) continue;
+              coveredBins++;
+              maxPeak = Math.max(maxPeak, peakEnv[index]);
+              maxRms = Math.max(maxRms, rmsEnv[index]);
+              if (options.showClipMap && clipMap && clipMap[index]) clipped = true;
+            }
+
+            if (coveredBins > 0) {
+              peakColumns[column] = clampNumber(maxPeak * peakNormalizer, 0, 1);
+              rmsColumns[column] = clampNumber(maxRms * peakNormalizer, 0, peakColumns[column]);
+              coverageColumns[column] = coveredBins / totalBins;
+              clipColumns[column] = clipped ? 1 : 0;
+              coveredColumns++;
+            }
+          }
+
+          if (coverageMap) {
+            for (let column = 0; column < columnCount; column++) {
+              if (coverageColumns[column] > 0) continue;
+
+              const left = findCoveredIndex(column - 1, -1, bridgeGapColumns);
+              const right = findCoveredIndex(column + 1, 1, bridgeGapColumns);
+              if (left < 0 || right < 0) continue;
+
+              const span = right - left;
+              if (span <= 1 || span - 1 > bridgeGapColumns) continue;
+
+              const ratio = (column - left) / span;
+              peakColumns[column] = peakColumns[left] + (peakColumns[right] - peakColumns[left]) * ratio;
+              rmsColumns[column] = rmsColumns[left] + (rmsColumns[right] - rmsColumns[left]) * ratio;
+              coverageColumns[column] = Math.min(coverageColumns[left], coverageColumns[right]) * 0.3;
+            }
+          }
+
+          const peakHalfColumns = new Float32Array(columnCount);
+          const rmsHalfColumns = new Float32Array(columnCount);
+          for (let column = 0; column < columnCount; column++) {
+            const peak = peakColumns[column];
+            const rms = Math.min(peak, rmsColumns[column]);
+            const coverage = coverageColumns[column];
+            if (coverage <= 0) continue;
+            peakHalfColumns[column] = peak * ampH;
+            rmsHalfColumns[column] = Math.max(peakHalfColumns[column] * 0.14, rms * ampH);
+          }
+
+          for (let column = 0; column < columnCount; column++) {
+            if (coverageColumns[column] <= 0 && options.emphasizeCoverage) {
+              const x1 = rect.x + (column / columnCount) * rect.w;
+              const x2 = rect.x + ((column + 1) / columnCount) * rect.w;
+              ctx.fillStyle = learnedWaveHint;
+              ctx.fillRect(x1, midY - Math.max(1, dpr / 2), Math.max(1, x2 - x1), Math.max(1, dpr));
+            }
+          }
+
+          let segmentStart = -1;
+          for (let column = 0; column <= columnCount; column++) {
+            const active = column < columnCount && coverageColumns[column] > 0;
+            if (active && segmentStart < 0) {
+              segmentStart = column;
               continue;
             }
+            if (active || segmentStart < 0) continue;
 
-            const peak = clampNumber(peakEnv[index] * peakNormalizer, 0, 1);
-            const rms = clampNumber(rmsEnv[index] * peakNormalizer, 0, peak);
-            const rmsHalf = rms * ampH;
-            const peakHalf = peak * ampH;
-
-            if (rmsHalf > 0) {
-              ctx.fillStyle = waveformFill;
-              ctx.fillRect(x1, midY - rmsHalf, columnW, rmsHalf * 2);
+            const segmentEnd = column - 1;
+            let coverageSum = 0;
+            let hasClip = false;
+            for (let index = segmentStart; index <= segmentEnd; index++) {
+              coverageSum += coverageColumns[index];
+              if (clipColumns[index]) hasClip = true;
             }
 
-            if (peakHalf > 0) {
-              ctx.fillStyle = waveformStroke;
-              ctx.fillRect(x1, midY - peakHalf, columnW, Math.max(1, dpr));
-              ctx.fillStyle = waveformShadow;
-              ctx.fillRect(x1, midY + peakHalf - Math.max(1, dpr), columnW, Math.max(1, dpr));
-            } else {
+            const averageCoverage = coverageSum / Math.max(1, segmentEnd - segmentStart + 1);
+            const alpha = 0.45 + averageCoverage * 0.45;
+
+            ctx.save();
+            ctx.globalAlpha *= alpha;
+            ctx.fillStyle = waveformFill;
+            ctx.beginPath();
+            traceEnvelopeHalf(segmentStart, segmentEnd, rmsHalfColumns, 1);
+            traceEnvelopeHalf(segmentStart, segmentEnd, rmsHalfColumns, -1);
+            ctx.closePath();
+            ctx.fill();
+
+            ctx.strokeStyle = waveformStroke;
+            ctx.lineWidth = Math.max(1, dpr);
+            ctx.lineJoin = 'round';
+            ctx.lineCap = 'round';
+            ctx.beginPath();
+            strokeEnvelopeHalf(segmentStart, segmentEnd, peakHalfColumns, 1);
+            ctx.stroke();
+
+            ctx.strokeStyle = waveformShadow;
+            ctx.beginPath();
+            strokeEnvelopeHalf(segmentStart, segmentEnd, peakHalfColumns, -1);
+            ctx.stroke();
+            ctx.restore();
+
+            if (options.showClipMap && hasClip) {
+              const x1 = rect.x + (segmentStart / columnCount) * rect.w;
+              const x2 = rect.x + ((segmentEnd + 1) / columnCount) * rect.w;
+              ctx.fillStyle = 'rgba(200, 40, 40, 0.18)';
+              ctx.fillRect(x1, rect.y, Math.max(1, x2 - x1), rect.h);
+            }
+
+            if (averageCoverage <= 0.28) {
+              const x1 = rect.x + (segmentStart / columnCount) * rect.w;
+              const x2 = rect.x + ((segmentEnd + 1) / columnCount) * rect.w;
               ctx.fillStyle = learnedWaveLine;
-              ctx.fillRect(x1, midY - Math.max(1, dpr / 2), columnW, Math.max(1, dpr));
+              ctx.fillRect(x1, midY - Math.max(1, dpr / 2), Math.max(1, x2 - x1), Math.max(1, dpr));
             }
 
-            if (options.showClipMap && clipMap && clipMap[index]) {
-              ctx.fillStyle = 'rgba(200, 40, 40, 0.32)';
-              ctx.fillRect(x1, rect.y, columnW, rect.h);
-            }
+            segmentStart = -1;
           }
         }
 
