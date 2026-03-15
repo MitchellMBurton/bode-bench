@@ -10,6 +10,10 @@ const BASE_SCROLL_PX = CANVAS.timelineScrollPx;
 const PANEL_DPR_MAX = 1.25;
 const LIVE_SAMPLES_PER_PX = 256;
 const LIVE_DISCONTINUITY_FLOOR_S = 0.45;
+const LIVE_GAIN_PEAK_FLOOR = 0.02;
+const LIVE_GAIN_ATTACK = 0.18;
+const LIVE_GAIN_RELEASE = 0.05;
+const LIVE_GAIN_MAX = 14;
 const NGE_BG = '#131a13';
 const NGE_PERSISTENCE_FILL = 'rgba(19,26,19,0.85)';
 const NGE_TRACE = '#a0d840';
@@ -184,6 +188,13 @@ function isLiveHistoryDiscontinuity(currentTime: number, previousTime: number | 
   return Math.abs(actualAdvance - expectedAdvance) > Math.max(LIVE_DISCONTINUITY_FLOOR_S, expectedAdvance * 5);
 }
 
+function nextLiveDisplayGain(previous: number, peak: number): number {
+  const normalizedPeak = Math.max(LIVE_GAIN_PEAK_FLOOR, peak);
+  const target = Math.max(1, Math.min(LIVE_GAIN_MAX, 0.9 / normalizedPeak));
+  const blend = target > previous ? LIVE_GAIN_ATTACK : LIVE_GAIN_RELEASE;
+  return previous + (target - previous) * blend;
+}
+
 export function WaveformScrollPanel(): React.ReactElement {
   const frameBus = useFrameBus();
   const audioEngine = useAudioEngine();
@@ -200,6 +211,7 @@ export function WaveformScrollPanel(): React.ReactElement {
   const lastRafTimeRef = useRef(0);
   const lastCurrentTimeRef = useRef<number | null>(null);
   const lastHistorySourceRef = useRef<'peaks' | 'live' | null>(null);
+  const liveDisplayGainRef = useRef(1);
 
   useEffect(() => {
     return frameBus.subscribe((frame) => {
@@ -214,6 +226,7 @@ export function WaveformScrollPanel(): React.ReactElement {
       scrollCarryRef.current = 0;
       lastCurrentTimeRef.current = null;
       lastHistorySourceRef.current = null;
+      liveDisplayGainRef.current = 1;
       clearWaveformHistory(offscreenRef.current, displayMode.mode);
     });
   }, [audioEngine, displayMode]);
@@ -243,6 +256,7 @@ export function WaveformScrollPanel(): React.ReactElement {
         scrollCarryRef.current = 0;
         lastRafTimeRef.current = 0;
         lastCurrentTimeRef.current = audioEngine.currentTime;
+        liveDisplayGainRef.current = 1;
 
         if (audioEngine.duration > 0 && peaks) {
           rebuildWaveformHistory(offscreen, displayMode.mode, audioEngine, scrollSpeed.value);
@@ -269,6 +283,7 @@ export function WaveformScrollPanel(): React.ReactElement {
       lastHistorySourceRef.current = 'live';
     }
     lastCurrentTimeRef.current = audioEngine.currentTime;
+    liveDisplayGainRef.current = 1;
 
     if (theaterMode) {
       return () => {
@@ -327,6 +342,7 @@ export function WaveformScrollPanel(): React.ReactElement {
         scrollCarryRef.current = 0;
         lastRafTimeRef.current = 0;
         lastCurrentTimeRef.current = audioEngine.currentTime;
+        liveDisplayGainRef.current = 1;
         if (historySource === 'peaks') {
           rebuildWaveformHistory(offscreen, mode, audioEngine, scrollSpeed.value);
         } else {
@@ -340,6 +356,7 @@ export function WaveformScrollPanel(): React.ReactElement {
         scrollCarryRef.current = 0;
         lastRafTimeRef.current = 0;
         lastCurrentTimeRef.current = audioEngine.currentTime;
+        liveDisplayGainRef.current = 1;
         clearWaveformHistory(offscreen, mode);
       }
 
@@ -358,6 +375,7 @@ export function WaveformScrollPanel(): React.ReactElement {
           if (isLiveHistoryDiscontinuity(currentTime, lastCurrentTimeRef.current, expectedAdvance)) {
             clearWaveformHistory(offscreen, mode);
             scrollCarryRef.current = 0;
+            liveDisplayGainRef.current = 1;
           }
 
           scrollCarryRef.current += dtSec * audioEngine.sampleRate * audioEngine.playbackRate * scrollSpeed.value;
@@ -372,7 +390,9 @@ export function WaveformScrollPanel(): React.ReactElement {
             octx.fillStyle = persistenceFill;
             octx.fillRect(width - scrollPx, 0, scrollPx, height);
             audioEngine.getTimeDomainData(TD_BUF);
-            const gain = frame?.displayGain ?? audioEngine.displayGain;
+            const livePeak = frame ? Math.max(frame.peakLeft, frame.peakRight) : LIVE_GAIN_PEAK_FLOOR;
+            liveDisplayGainRef.current = nextLiveDisplayGain(liveDisplayGainRef.current, livePeak);
+            const gain = Math.max(frame?.displayGain ?? audioEngine.displayGain, liveDisplayGainRef.current);
             paintLiveWaveformColumns(octx, width, scrollPx, midY, halfH, gain, traceColor);
           }
         } else {
