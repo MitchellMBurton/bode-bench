@@ -8,6 +8,11 @@ interface EnvelopeData {
   rmsEnv: Float32Array;
   clipMap: Uint8Array;
 }
+interface StreamedScoutTarget {
+  readonly colStart: number;
+  readonly colEnd: number;
+  readonly time: number;
+}
 
 const CLIP_THRESHOLD = 0.9999;
 const PANEL_DPR_MAX = 1.25;
@@ -17,6 +22,12 @@ const ENVELOPE_SLICE_BUDGET_MS = 5;
 const STREAMED_ENVELOPE_MAX_COLS = 2048;
 const STREAMED_ENVELOPE_SECONDS_PER_COL = 4;
 const STREAMED_ENVELOPE_BRIDGE_MAX_BINS = 24;
+const STREAMED_SCOUT_TARGET_SAMPLES = 192;
+const STREAMED_SCOUT_READY_TIMEOUT_MS = 1800;
+const STREAMED_SCOUT_SAMPLE_WINDOW_MS = 110;
+const STREAMED_SCOUT_IDLE_DELAY_MS = 72;
+const STREAMED_SCOUT_ACTIVE_DELAY_MS = 240;
+const STREAMED_SCOUT_STRESS_DELAY_MS = 900;
 const SCRUB_STYLE_OPTIONS: ReadonlyArray<{
   readonly value: ScrubStyle;
   readonly label: string;
@@ -40,6 +51,128 @@ function pickStreamedEnvelopeCols(duration: number): number {
 function buildMediaKey(filename: string | null, duration: number): string | null {
   if (!filename || !Number.isFinite(duration) || duration <= 0) return null;
   return `${filename}:${duration.toFixed(3)}`;
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
+}
+
+function waitForMediaReadyState(element: HTMLMediaElement, timeoutMs: number): Promise<void> {
+  if (element.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+    return Promise.resolve();
+  }
+
+  return new Promise((resolve) => {
+    let settled = false;
+    let timer = 0;
+
+    const cleanup = () => {
+      element.removeEventListener('loadeddata', onReady);
+      element.removeEventListener('canplay', onReady);
+      element.removeEventListener('error', onReady);
+      if (timer) window.clearTimeout(timer);
+    };
+
+    const onReady = () => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve();
+    };
+
+    timer = window.setTimeout(onReady, timeoutMs);
+    element.addEventListener('loadeddata', onReady, { once: true });
+    element.addEventListener('canplay', onReady, { once: true });
+    element.addEventListener('error', onReady, { once: true });
+  });
+}
+
+function seekMediaElement(element: HTMLMediaElement, time: number, timeoutMs: number): Promise<void> {
+  if (!Number.isFinite(time) || time < 0) return Promise.resolve();
+  if (Math.abs(element.currentTime - time) <= 0.025) return Promise.resolve();
+
+  return new Promise((resolve) => {
+    let settled = false;
+    let timer = 0;
+
+    const cleanup = () => {
+      element.removeEventListener('seeked', onDone);
+      element.removeEventListener('error', onDone);
+      if (timer) window.clearTimeout(timer);
+    };
+
+    const onDone = () => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve();
+    };
+
+    timer = window.setTimeout(onDone, timeoutMs);
+    element.addEventListener('seeked', onDone, { once: true });
+    element.addEventListener('error', onDone, { once: true });
+    element.currentTime = time;
+  });
+}
+
+function sampleTimeDomainLevels(data: Float32Array): { peak: number; rms: number } {
+  let peak = 0;
+  let sumSquares = 0;
+
+  for (let index = 0; index < data.length; index++) {
+    const value = data[index];
+    const abs = Math.abs(value);
+    if (abs > peak) peak = abs;
+    sumSquares += value * value;
+  }
+
+  return {
+    peak,
+    rms: data.length > 0 ? Math.sqrt(sumSquares / data.length) : 0,
+  };
+}
+
+function buildMidpointScoutOrder(sampleCount: number): number[] {
+  if (sampleCount <= 0) return [];
+
+  const order: number[] = [];
+  const queue: Array<readonly [number, number]> = [[0, sampleCount - 1]];
+
+  while (queue.length > 0) {
+    const [start, end] = queue.shift()!;
+    const mid = Math.floor((start + end) / 2);
+    order.push(mid);
+
+    if (start <= mid - 1) queue.push([start, mid - 1]);
+    if (mid + 1 <= end) queue.push([mid + 1, end]);
+  }
+
+  return order;
+}
+
+function buildStreamedScoutTargets(cols: number, duration: number): StreamedScoutTarget[] {
+  const targetCount = Math.max(1, Math.min(cols, STREAMED_SCOUT_TARGET_SAMPLES));
+  const slotOrder = buildMidpointScoutOrder(targetCount);
+
+  return slotOrder.map((slot) => {
+    const colStart = Math.floor((slot * cols) / targetCount);
+    const colEnd = Math.min(cols - 1, Math.max(colStart, Math.floor(((slot + 1) * cols) / targetCount) - 1));
+    const timeFraction = ((colStart + colEnd + 1) / 2) / cols;
+
+    return {
+      colStart,
+      colEnd,
+      time: Math.max(0, Math.min(duration, timeFraction * duration)),
+    };
+  });
+}
+
+function shouldThrottleStreamedScout(transport: TransportState): boolean {
+  if (transport.scrubActive) return true;
+  if (!transport.isPlaying) return false;
+  return Math.abs(transport.playbackRate - 1) > 0.15 || transport.pitchSemitones !== 0;
 }
 
 function computeEnvelopeAndClipMapAsync(
@@ -177,6 +310,8 @@ export function WaveformOverviewPanel(): React.ReactElement {
   const streamedFileIdRef = useRef<number | null>(null);
   const streamedLastBinRef = useRef<number | null>(null);
   const streamedEnvelopeKeyRef = useRef<string | null>(null);
+  const streamedScoutCancelRef = useRef<(() => void) | null>(null);
+  const streamedScoutKeyRef = useRef<string | null>(null);
   const transportModeRef = useRef<TransportState['playbackBackend']>('decoded');
   const transportKeyRef = useRef<string | null>(null);
   const transportRef = useRef<TransportState>({
@@ -207,6 +342,39 @@ export function WaveformOverviewPanel(): React.ReactElement {
     if (envelopeCancelRef.current) {
       envelopeCancelRef.current();
       envelopeCancelRef.current = null;
+    }
+  }, []);
+
+  const cancelStreamedScout = useCallback(() => {
+    if (streamedScoutCancelRef.current) {
+      streamedScoutCancelRef.current();
+      streamedScoutCancelRef.current = null;
+    }
+    streamedScoutKeyRef.current = null;
+  }, []);
+
+  const mergeStreamedEnvelopeRange = useCallback((startIndex: number, endIndex: number, peak: number, rms: number) => {
+    const peakEnv = streamedPeakEnvRef.current;
+    const rmsEnv = streamedRmsEnvRef.current;
+    const coverage = streamedCoverageRef.current;
+    if (!peakEnv || !rmsEnv || !coverage || peakEnv.length === 0) return;
+
+    const boundedStart = Math.max(0, Math.min(peakEnv.length - 1, startIndex));
+    const boundedEnd = Math.max(boundedStart, Math.min(peakEnv.length - 1, endIndex));
+    const boundedPeak = Math.max(0, peak);
+    const boundedRms = Math.max(0, Math.min(boundedPeak, rms));
+
+    for (let index = boundedStart; index <= boundedEnd; index++) {
+      peakEnv[index] = Math.max(peakEnv[index], boundedPeak);
+      rmsEnv[index] = Math.max(rmsEnv[index], boundedRms);
+      if (coverage[index] === 0) {
+        coverage[index] = 1;
+        streamedLearnedCountRef.current++;
+      }
+    }
+
+    if (boundedPeak > streamedPeakMaxRef.current) {
+      streamedPeakMaxRef.current = boundedPeak;
     }
   }, []);
 
@@ -284,6 +452,95 @@ export function WaveformOverviewPanel(): React.ReactElement {
     });
   }, [audioEngine, cancelEnvelopeCompute]);
 
+  const startStreamedScout = useCallback((filename: string, duration: number) => {
+    const key = buildMediaKey(filename, duration);
+    if (!key) return;
+
+    if (!initializeStreamedEnvelope(filename, duration)) return;
+    if (streamedScoutKeyRef.current === key && streamedScoutCancelRef.current) return;
+
+    cancelStreamedScout();
+
+    const probe = audioEngine.createStreamedOverviewProbe();
+    if (!probe) return;
+
+    let cancelled = false;
+    const cancel = () => {
+      if (cancelled) return;
+      cancelled = true;
+      probe.dispose();
+      if (streamedScoutCancelRef.current === cancel) {
+        streamedScoutCancelRef.current = null;
+      }
+      if (streamedScoutKeyRef.current === key) {
+        streamedScoutKeyRef.current = null;
+      }
+    };
+
+    streamedScoutKeyRef.current = key;
+    streamedScoutCancelRef.current = cancel;
+
+    const run = async () => {
+      try {
+        await waitForMediaReadyState(probe.element, STREAMED_SCOUT_READY_TIMEOUT_MS);
+        if (cancelled) return;
+
+        const targets = buildStreamedScoutTargets(
+          streamedPeakEnvRef.current?.length ?? pickStreamedEnvelopeCols(duration),
+          duration,
+        );
+
+        for (const target of targets) {
+          if (cancelled) break;
+
+          const coverage = streamedCoverageRef.current;
+          if (!coverage) break;
+
+          let needsSample = false;
+          for (let index = target.colStart; index <= target.colEnd; index++) {
+            if (coverage[index] === 0) {
+              needsSample = true;
+              break;
+            }
+          }
+          if (!needsSample) continue;
+
+          if (shouldThrottleStreamedScout(transportRef.current)) {
+            await delay(STREAMED_SCOUT_STRESS_DELAY_MS);
+            continue;
+          }
+
+          await seekMediaElement(probe.element, target.time, STREAMED_SCOUT_READY_TIMEOUT_MS);
+          if (cancelled) break;
+
+          try {
+            await Promise.resolve(probe.element.play());
+            await delay(STREAMED_SCOUT_SAMPLE_WINDOW_MS);
+          } catch {
+            await delay(STREAMED_SCOUT_SAMPLE_WINDOW_MS);
+          }
+
+          probe.analyser.getFloatTimeDomainData(probe.timeDomain as Float32Array<ArrayBuffer>);
+          probe.element.pause();
+          const { peak, rms } = sampleTimeDomainLevels(probe.timeDomain);
+          if (peak > 0.0001) {
+            mergeStreamedEnvelopeRange(target.colStart, target.colEnd, peak, rms);
+          }
+
+          await delay(transportRef.current.isPlaying ? STREAMED_SCOUT_ACTIVE_DELAY_MS : STREAMED_SCOUT_IDLE_DELAY_MS);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          console.warn('streamed overview scout failed, retained live learning', error);
+        }
+      } finally {
+        cancel();
+      }
+    };
+
+    void run();
+  }, [audioEngine, cancelStreamedScout, initializeStreamedEnvelope, mergeStreamedEnvelopeRange]);
+
   useEffect(() => frameBus.subscribe((frame) => {
     centroidRef.current = frame.spectralCentroid;
 
@@ -325,20 +582,9 @@ export function WaveformOverviewPanel(): React.ReactElement {
       endIndex = Math.max(previousIndex, currentIndex);
     }
 
-    for (let index = startIndex; index <= endIndex; index++) {
-      peakEnv[index] = Math.max(peakEnv[index], framePeak);
-      rmsEnv[index] = Math.max(rmsEnv[index], frameRms);
-      if (coverage[index] === 0) {
-        coverage[index] = 1;
-        streamedLearnedCountRef.current++;
-      }
-    }
-
-    if (framePeak > streamedPeakMaxRef.current) {
-      streamedPeakMaxRef.current = framePeak;
-    }
+    mergeStreamedEnvelopeRange(startIndex, endIndex, framePeak, frameRms);
     streamedLastBinRef.current = currentIndex;
-  }), [frameBus, initializeStreamedEnvelope]);
+  }), [frameBus, initializeStreamedEnvelope, mergeStreamedEnvelopeRange]);
 
   useEffect(() => audioEngine.onTransport((transport) => {
     transportRef.current = transport;
@@ -360,22 +606,26 @@ export function WaveformOverviewPanel(): React.ReactElement {
       envelopeColsRef.current = 0;
       envelopeFileIdRef.current = -1;
       initializeStreamedEnvelope(transport.filename, transport.duration, true);
+      startStreamedScout(transport.filename, transport.duration);
       return;
     }
 
+    cancelStreamedScout();
     resetStreamedEnvelope();
-  }), [audioEngine, cancelEnvelopeCompute, initializeStreamedEnvelope, resetStreamedEnvelope]);
+  }), [audioEngine, cancelEnvelopeCompute, cancelStreamedScout, initializeStreamedEnvelope, resetStreamedEnvelope, startStreamedScout]);
 
   useEffect(() => audioEngine.onFileReady((analysis) => {
+    cancelStreamedScout();
     resetStreamedEnvelope();
     analysisRef.current = analysis;
     const canvas = canvasRef.current;
     const cols = canvas && canvas.width > 0 ? canvas.width : DEFAULT_ENVELOPE_COLS;
     scheduleEnvelopeCompute(cols, true);
-  }), [audioEngine, resetStreamedEnvelope, scheduleEnvelopeCompute]);
+  }), [audioEngine, cancelStreamedScout, resetStreamedEnvelope, scheduleEnvelopeCompute]);
 
   useEffect(() => audioEngine.onReset(() => {
     cancelEnvelopeCompute();
+    cancelStreamedScout();
     peakEnvRef.current = null;
     rmsEnvRef.current = null;
     clipMapRef.current = null;
@@ -384,7 +634,7 @@ export function WaveformOverviewPanel(): React.ReactElement {
     centroidRef.current = 0;
     envelopeColsRef.current = 0;
     envelopeFileIdRef.current = -1;
-  }), [audioEngine, cancelEnvelopeCompute, resetStreamedEnvelope]);
+  }), [audioEngine, cancelEnvelopeCompute, cancelStreamedScout, resetStreamedEnvelope]);
 
   const fractionFromPointer = useCallback((event: React.PointerEvent<HTMLCanvasElement>): number => {
     const canvas = canvasRef.current;
@@ -840,5 +1090,3 @@ const canvasStyle: React.CSSProperties = {
   flex: 1,
   cursor: 'crosshair',
 };
-
-

@@ -46,8 +46,15 @@ const DEFERRED_ANALYSIS_SLICE_MS = 6;
 const DEFERRED_ANALYSIS_SAMPLE_BATCH = 16_384;
 const STREAMED_MEDIA_SAMPLE_RATE = 48_000;
 const STREAMED_MEDIA_CHANNELS = 2;
+const STREAMED_OVERVIEW_PROBE_FFT_SIZE = 2048;
 
 type PlaybackBackend = 'decoded' | 'streamed';
+export interface StreamedOverviewProbe {
+  readonly element: HTMLMediaElement;
+  readonly analyser: AnalyserNode;
+  readonly timeDomain: Float32Array;
+  dispose(): void;
+}
 const SCRUB_STYLE_CONFIG: Record<ScrubStyle, ScrubStyleConfig> = {
   step: {
     delayMs: 28,
@@ -453,7 +460,6 @@ export class AudioEngine {
     element.crossOrigin = 'anonymous';
     if (element instanceof HTMLVideoElement) {
       element.playsInline = true;
-      element.muted = true;
     }
 
     return await new Promise((resolve, reject) => {
@@ -1701,6 +1707,66 @@ export class AudioEngine {
   get waveformBinSamples(): number { return AudioEngine.WAVEFORM_BIN_SAMPLES; }
   get sampleRate(): number { return this.ctx?.sampleRate ?? 44100; }
   get backendMode(): 'decoded' | 'streamed' { return this.playbackBackend; }
+  createStreamedOverviewProbe(): StreamedOverviewProbe | null {
+    if (this.playbackBackend !== 'streamed' || !this.mediaObjectUrl || !this.mediaElement) return null;
+
+    const ctx = this.ensureContext();
+    const element = this.mediaElement instanceof HTMLVideoElement
+      ? document.createElement('video')
+      : new Audio();
+    element.preload = 'auto';
+    element.src = this.mediaObjectUrl;
+    element.crossOrigin = 'anonymous';
+    element.defaultPlaybackRate = 1;
+    element.playbackRate = 1;
+
+    if (element instanceof HTMLVideoElement) {
+      element.playsInline = true;
+      element.muted = true;
+    }
+
+    const source = ctx.createMediaElementSource(element);
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = STREAMED_OVERVIEW_PROBE_FFT_SIZE;
+    analyser.smoothingTimeConstant = 0.08;
+    analyser.minDecibels = CANVAS.dbMin;
+    analyser.maxDecibels = CANVAS.dbMax;
+
+    const sink = ctx.createGain();
+    sink.gain.value = 0;
+
+    source.connect(analyser);
+    analyser.connect(sink);
+    sink.connect(ctx.destination);
+
+    const timeDomain = new Float32Array(analyser.fftSize);
+
+    return {
+      element,
+      analyser,
+      timeDomain,
+      dispose: () => {
+        element.pause();
+        element.removeAttribute('src');
+        element.load();
+        try {
+          source.disconnect();
+        } catch {
+          // Already disconnected.
+        }
+        try {
+          analyser.disconnect();
+        } catch {
+          // Already disconnected.
+        }
+        try {
+          sink.disconnect();
+        } catch {
+          // Already disconnected.
+        }
+      },
+    };
+  }
 
   getTimeDomainData(out: Float32Array): void {
     if (this.analyserL) {
