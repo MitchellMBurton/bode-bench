@@ -83,19 +83,20 @@ const PANEL_DPR_MAX = 1.25;
 const DEFAULT_ENVELOPE_COLS = 1024;
 const ENVELOPE_COL_BUCKET = 64;
 const ENVELOPE_SLICE_BUDGET_MS = 5;
-const STREAMED_ENVELOPE_MAX_COLS = 2048;
-const STREAMED_ENVELOPE_SECONDS_PER_COL = 4;
+const STREAMED_SESSION_MIN_COLS = 256;
+const STREAMED_ENVELOPE_MAX_COLS = 768;
+const STREAMED_ENVELOPE_SECONDS_PER_COL = 12;
 const STREAMED_ENVELOPE_BRIDGE_MAX_BINS = 24;
 const STREAMED_DETAIL_ENVELOPE_MAX_COLS = 32768;
 const STREAMED_DETAIL_SECONDS_PER_COL = 0.5;
 const STREAMED_DETAIL_BRIDGE_MAX_BINS = 96;
-const STREAMED_SCOUT_TARGET_SAMPLES = 24;
+const STREAMED_SCOUT_TARGET_SAMPLES = 96;
 const STREAMED_SCOUT_READY_TIMEOUT_MS = 1800;
 const STREAMED_SCOUT_SAMPLE_WINDOW_MS = 110;
 const STREAMED_SCOUT_IDLE_DELAY_MS = 24;
 const STREAMED_SCOUT_ACTIVE_DELAY_MS = 120;
 const STREAMED_SCOUT_STRESS_DELAY_MS = 900;
-const STREAMED_SCOUT_SAMPLES_PER_TARGET = 3;
+const STREAMED_SCOUT_SAMPLES_PER_TARGET = 1;
 const MIN_VIEWPORT_SECONDS = 3;
 const MIN_LOOP_SECONDS = 0.1;
 const VIEW_FOLLOW_MARGIN = 0.22;
@@ -117,14 +118,14 @@ const SCRUB_STYLE_OPTIONS: ReadonlyArray<{
   { value: 'wheel', label: 'WHEEL', detail: 'jog emphasis' },
 ];
 
-function bucketEnvelopeCols(cols: number): number {
-  const rounded = Math.max(DEFAULT_ENVELOPE_COLS, Math.round(cols / ENVELOPE_COL_BUCKET) * ENVELOPE_COL_BUCKET);
+function bucketEnvelopeCols(cols: number, minCols = DEFAULT_ENVELOPE_COLS): number {
+  const rounded = Math.max(minCols, Math.round(cols / ENVELOPE_COL_BUCKET) * ENVELOPE_COL_BUCKET);
   return Math.max(64, rounded);
 }
 
 function pickStreamedEnvelopeCols(duration: number): number {
-  const target = Math.max(DEFAULT_ENVELOPE_COLS, Math.round(duration / STREAMED_ENVELOPE_SECONDS_PER_COL));
-  return Math.min(STREAMED_ENVELOPE_MAX_COLS, bucketEnvelopeCols(target));
+  const target = Math.max(STREAMED_SESSION_MIN_COLS, Math.round(duration / STREAMED_ENVELOPE_SECONDS_PER_COL));
+  return Math.min(STREAMED_ENVELOPE_MAX_COLS, bucketEnvelopeCols(target, STREAMED_SESSION_MIN_COLS));
 }
 
 function pickStreamedDetailEnvelopeCols(duration: number): number {
@@ -247,29 +248,9 @@ function mergeTimeDomainShapeIntoRange(
   return localPeakMax;
 }
 
-function buildMidpointScoutOrder(sampleCount: number): number[] {
-  if (sampleCount <= 0) return [];
-
-  const order: number[] = [];
-  const queue: Array<readonly [number, number]> = [[0, sampleCount - 1]];
-
-  while (queue.length > 0) {
-    const [start, end] = queue.shift()!;
-    const mid = Math.floor((start + end) / 2);
-    order.push(mid);
-
-    if (start <= mid - 1) queue.push([start, mid - 1]);
-    if (mid + 1 <= end) queue.push([mid + 1, end]);
-  }
-
-  return order;
-}
-
 function buildStreamedScoutTargets(cols: number, duration: number): StreamedScoutTarget[] {
   const targetCount = Math.max(1, Math.min(cols, STREAMED_SCOUT_TARGET_SAMPLES));
-  const slotOrder = buildMidpointScoutOrder(targetCount);
-
-  return slotOrder.map((slot) => {
+  return Array.from({ length: targetCount }, (_, slot) => {
     const colStart = Math.floor((slot * cols) / targetCount);
     const colEnd = Math.min(cols - 1, Math.max(colStart, Math.floor(((slot + 1) * cols) / targetCount) - 1));
     const timeStart = Math.max(0, Math.min(duration, (colStart / cols) * duration));
