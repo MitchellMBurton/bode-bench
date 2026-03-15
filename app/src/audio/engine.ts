@@ -99,6 +99,7 @@ export class AudioEngine {
   private analyserR: AnalyserNode | null = null;
   private masterGain: GainNode | null = null;
   private playGainNode: GainNode | null = null;
+  private streamedPitchInputNode: GainNode | null = null;
   private splitterNode: ChannelSplitterNode | null = null;
   private sourceNode: AudioBufferSourceNode | null = null;
   private mediaElement: HTMLMediaElement | null = null;
@@ -226,6 +227,12 @@ export class AudioEngine {
     this.playGainNode.channelCountMode = 'explicit';
     this.playGainNode.connect(this.masterGain);
 
+    this.streamedPitchInputNode = ctx.createGain();
+    this.streamedPitchInputNode.gain.value = 1;
+    this.streamedPitchInputNode.channelCount = STREAMED_MEDIA_CHANNELS;
+    this.streamedPitchInputNode.channelCountMode = 'explicit';
+    this.streamedPitchInputNode.channelInterpretation = 'speakers';
+
     this.splitterNode = ctx.createChannelSplitter(2);
     this.playGainNode.connect(this.splitterNode);
     this.splitterNode.connect(this.analyserL, 0);
@@ -277,6 +284,13 @@ export class AudioEngine {
 
   private async disposeStretchNode(): Promise<void> {
     const readyNode = this.stretchNode ?? await this.stretchNodeReady?.catch(() => null) ?? null;
+    if (this.streamedPitchInputNode) {
+      try {
+        this.streamedPitchInputNode.disconnect();
+      } catch {
+        // Already disconnected.
+      }
+    }
     if (readyNode) {
       try {
         await readyNode.dropBuffers();
@@ -314,6 +328,9 @@ export class AudioEngine {
     const pending = createStretchNode(ctx, channelCount)
       .then(async (stretchNode) => {
         stretchNode.connect(this.playGainNode!);
+        if (this.streamedPitchInputNode) {
+          this.streamedPitchInputNode.connect(stretchNode);
+        }
         await stretchNode.configure({ preset: 'default' });
         await stretchNode.setUpdateInterval(0.1, () => {
           this.stretchLastProgressAt = this.ctx?.currentTime ?? 0;
@@ -351,8 +368,8 @@ export class AudioEngine {
     }
 
     if (throughStretch) {
-      if (this.stretchNode) {
-        this.mediaSourceNode.connect(this.stretchNode);
+      if (this.stretchNode && this.streamedPitchInputNode) {
+        this.mediaSourceNode.connect(this.streamedPitchInputNode);
       }
       return;
     }
