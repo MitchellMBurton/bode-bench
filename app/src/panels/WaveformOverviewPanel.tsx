@@ -45,7 +45,10 @@ type TimelineGestureKind =
   | 'loop-create'
   | 'loop-pan'
   | 'loop-resize-start'
-  | 'loop-resize-end';
+  | 'loop-resize-end'
+  | 'detail-loop-pan'
+  | 'detail-loop-resize-start'
+  | 'detail-loop-resize-end';
 
 interface TimelineGesture {
   readonly kind: TimelineGestureKind;
@@ -67,7 +70,10 @@ type TimelineHitRegion =
   | 'loop-track'
   | 'loop-body'
   | 'loop-start'
-  | 'loop-end';
+  | 'loop-end'
+  | 'detail-loop-body'
+  | 'detail-loop-start'
+  | 'detail-loop-end';
 
 interface TimelineHit {
   readonly region: TimelineHitRegion;
@@ -82,6 +88,9 @@ const ENVELOPE_SLICE_BUDGET_MS = 5;
 const STREAMED_ENVELOPE_MAX_COLS = 2048;
 const STREAMED_ENVELOPE_SECONDS_PER_COL = 4;
 const STREAMED_ENVELOPE_BRIDGE_MAX_BINS = 24;
+const STREAMED_DETAIL_ENVELOPE_MAX_COLS = 32768;
+const STREAMED_DETAIL_SECONDS_PER_COL = 0.5;
+const STREAMED_DETAIL_BRIDGE_MAX_BINS = 96;
 const STREAMED_SCOUT_TARGET_SAMPLES = 24;
 const STREAMED_SCOUT_READY_TIMEOUT_MS = 1800;
 const STREAMED_SCOUT_SAMPLE_WINDOW_MS = 110;
@@ -118,6 +127,11 @@ function bucketEnvelopeCols(cols: number): number {
 function pickStreamedEnvelopeCols(duration: number): number {
   const target = Math.max(DEFAULT_ENVELOPE_COLS, Math.round(duration / STREAMED_ENVELOPE_SECONDS_PER_COL));
   return Math.min(STREAMED_ENVELOPE_MAX_COLS, bucketEnvelopeCols(target));
+}
+
+function pickStreamedDetailEnvelopeCols(duration: number): number {
+  const target = Math.max(DEFAULT_ENVELOPE_COLS, Math.round(duration / STREAMED_DETAIL_SECONDS_PER_COL));
+  return Math.min(STREAMED_DETAIL_ENVELOPE_MAX_COLS, bucketEnvelopeCols(target));
 }
 
 function buildMediaKey(filename: string | null, duration: number): string | null {
@@ -511,8 +525,13 @@ export function WaveformOverviewPanel(): React.ReactElement {
   const streamedCoverageRef = useRef<Uint8Array | null>(null);
   const streamedPeakMaxRef = useRef(0);
   const streamedLearnedCountRef = useRef(0);
+  const streamedDetailPeakEnvRef = useRef<Float32Array | null>(null);
+  const streamedDetailRmsEnvRef = useRef<Float32Array | null>(null);
+  const streamedDetailCoverageRef = useRef<Uint8Array | null>(null);
+  const streamedDetailPeakMaxRef = useRef(0);
   const streamedFileIdRef = useRef<number | null>(null);
   const streamedLastBinRef = useRef<number | null>(null);
+  const streamedDetailLastBinRef = useRef<number | null>(null);
   const streamedEnvelopeKeyRef = useRef<string | null>(null);
   const streamedScoutCancelRef = useRef<(() => void) | null>(null);
   const streamedScoutKeyRef = useRef<string | null>(null);
@@ -542,6 +561,7 @@ export function WaveformOverviewPanel(): React.ReactElement {
   const viewRangeRef = useRef<ViewRange>({ start: 0, end: 0 });
   const viewFollowRef = useRef(true);
   const viewKeyRef = useRef<string | null>(null);
+  const loopKeyRef = useRef<string | null>(null);
 
   const cancelEnvelopeCompute = useCallback(() => {
     if (envelopeCancelRef.current) {
@@ -558,51 +578,82 @@ export function WaveformOverviewPanel(): React.ReactElement {
     streamedScoutKeyRef.current = null;
   }, []);
 
-  const mergeStreamedEnvelopeRange = useCallback((startIndex: number, endIndex: number, peak: number, rms: number) => {
-    const peakEnv = streamedPeakEnvRef.current;
-    const rmsEnv = streamedRmsEnvRef.current;
-    const coverage = streamedCoverageRef.current;
-    if (!peakEnv || !rmsEnv || !coverage || peakEnv.length === 0) return;
-
-    const boundedStart = Math.max(0, Math.min(peakEnv.length - 1, startIndex));
-    const boundedEnd = Math.max(boundedStart, Math.min(peakEnv.length - 1, endIndex));
+  const mergeStreamedEnvelopeRange = useCallback((timeStart: number, timeEnd: number, peak: number, rms: number) => {
+    const duration = Math.max(0.001, transportRef.current.duration);
     const boundedPeak = Math.max(0, peak);
     const boundedRms = Math.max(0, Math.min(boundedPeak, rms));
+    const apply = (
+      peakEnv: Float32Array | null,
+      rmsEnv: Float32Array | null,
+      coverage: Uint8Array | null,
+      peakMaxRef: React.MutableRefObject<number>,
+      trackLearnedCount: boolean,
+    ) => {
+      if (!peakEnv || !rmsEnv || !coverage || peakEnv.length === 0) return;
+      const startIndex = Math.max(0, Math.min(peakEnv.length - 1, Math.floor((Math.max(0, Math.min(duration, timeStart)) / duration) * peakEnv.length)));
+      const endIndex = Math.max(
+        startIndex,
+        Math.min(
+          peakEnv.length - 1,
+          Math.ceil((Math.max(0, Math.min(duration, timeEnd)) / duration) * peakEnv.length) - 1,
+        ),
+      );
 
-    for (let index = boundedStart; index <= boundedEnd; index++) {
-      peakEnv[index] = Math.max(peakEnv[index], boundedPeak);
-      rmsEnv[index] = Math.max(rmsEnv[index], boundedRms);
-      if (coverage[index] === 0) {
-        coverage[index] = 1;
-        streamedLearnedCountRef.current++;
+      for (let index = startIndex; index <= endIndex; index++) {
+        peakEnv[index] = Math.max(peakEnv[index], boundedPeak);
+        rmsEnv[index] = Math.max(rmsEnv[index], boundedRms);
+        if (coverage[index] === 0) {
+          coverage[index] = 1;
+          if (trackLearnedCount) streamedLearnedCountRef.current++;
+        }
       }
-    }
 
-    if (boundedPeak > streamedPeakMaxRef.current) {
-      streamedPeakMaxRef.current = boundedPeak;
-    }
+      if (boundedPeak > peakMaxRef.current) {
+        peakMaxRef.current = boundedPeak;
+      }
+    };
+
+    apply(streamedPeakEnvRef.current, streamedRmsEnvRef.current, streamedCoverageRef.current, streamedPeakMaxRef, true);
   }, []);
 
-  const mergeStreamedEnvelopeShape = useCallback((startIndex: number, endIndex: number, timeDomain: Float32Array) => {
-    const peakEnv = streamedPeakEnvRef.current;
-    const rmsEnv = streamedRmsEnvRef.current;
-    const coverage = streamedCoverageRef.current;
-    if (!peakEnv || !rmsEnv || !coverage || peakEnv.length === 0) return;
+  const mergeStreamedEnvelopeShape = useCallback((timeStart: number, timeEnd: number, timeDomain: Float32Array) => {
+    const duration = Math.max(0.001, transportRef.current.duration);
+    const apply = (
+      peakEnv: Float32Array | null,
+      rmsEnv: Float32Array | null,
+      coverage: Uint8Array | null,
+      peakMaxRef: React.MutableRefObject<number>,
+      trackLearnedCount: boolean,
+    ) => {
+      if (!peakEnv || !rmsEnv || !coverage || peakEnv.length === 0) return;
+      const startIndex = Math.max(0, Math.min(peakEnv.length - 1, Math.floor((Math.max(0, Math.min(duration, timeStart)) / duration) * peakEnv.length)));
+      const endIndex = Math.max(
+        startIndex,
+        Math.min(
+          peakEnv.length - 1,
+          Math.ceil((Math.max(0, Math.min(duration, timeEnd)) / duration) * peakEnv.length) - 1,
+        ),
+      );
+      const previousLearnedCount = trackLearnedCount ? streamedLearnedCountRef.current : 0;
+      const localPeakMax = mergeTimeDomainShapeIntoRange(peakEnv, rmsEnv, coverage, startIndex, endIndex, timeDomain);
 
-    const previousLearnedCount = streamedLearnedCountRef.current;
-    const localPeakMax = mergeTimeDomainShapeIntoRange(peakEnv, rmsEnv, coverage, startIndex, endIndex, timeDomain);
+      if (trackLearnedCount) {
+        let learnedCount = 0;
+        for (let index = 0; index < coverage.length; index++) {
+          if (coverage[index] !== 0) learnedCount++;
+        }
+        if (learnedCount !== previousLearnedCount) {
+          streamedLearnedCountRef.current = learnedCount;
+        }
+      }
 
-    let learnedCount = 0;
-    for (let index = 0; index < coverage.length; index++) {
-      if (coverage[index] !== 0) learnedCount++;
-    }
-    if (learnedCount !== previousLearnedCount) {
-      streamedLearnedCountRef.current = learnedCount;
-    }
+      if (localPeakMax > peakMaxRef.current) {
+        peakMaxRef.current = localPeakMax;
+      }
+    };
 
-    if (localPeakMax > streamedPeakMaxRef.current) {
-      streamedPeakMaxRef.current = localPeakMax;
-    }
+    apply(streamedPeakEnvRef.current, streamedRmsEnvRef.current, streamedCoverageRef.current, streamedPeakMaxRef, true);
+    apply(streamedDetailPeakEnvRef.current, streamedDetailRmsEnvRef.current, streamedDetailCoverageRef.current, streamedDetailPeakMaxRef, false);
   }, []);
 
   const resetStreamedEnvelope = useCallback(() => {
@@ -611,8 +662,13 @@ export function WaveformOverviewPanel(): React.ReactElement {
     streamedCoverageRef.current = null;
     streamedPeakMaxRef.current = 0;
     streamedLearnedCountRef.current = 0;
+    streamedDetailPeakEnvRef.current = null;
+    streamedDetailRmsEnvRef.current = null;
+    streamedDetailCoverageRef.current = null;
+    streamedDetailPeakMaxRef.current = 0;
     streamedFileIdRef.current = null;
     streamedLastBinRef.current = null;
+    streamedDetailLastBinRef.current = null;
     streamedEnvelopeKeyRef.current = null;
   }, []);
 
@@ -633,13 +689,19 @@ export function WaveformOverviewPanel(): React.ReactElement {
     }
 
     const cols = pickStreamedEnvelopeCols(duration);
+    const detailCols = pickStreamedDetailEnvelopeCols(duration);
     streamedPeakEnvRef.current = new Float32Array(cols);
     streamedRmsEnvRef.current = new Float32Array(cols);
     streamedCoverageRef.current = new Uint8Array(cols);
     streamedPeakMaxRef.current = 0;
     streamedLearnedCountRef.current = 0;
+    streamedDetailPeakEnvRef.current = new Float32Array(detailCols);
+    streamedDetailRmsEnvRef.current = new Float32Array(detailCols);
+    streamedDetailCoverageRef.current = new Uint8Array(detailCols);
+    streamedDetailPeakMaxRef.current = 0;
     streamedFileIdRef.current = null;
     streamedLastBinRef.current = null;
+    streamedDetailLastBinRef.current = null;
     streamedEnvelopeKeyRef.current = key;
     return true;
   }, [resetStreamedEnvelope]);
@@ -770,9 +832,9 @@ export function WaveformOverviewPanel(): React.ReactElement {
               localRmsSum += value * value;
             }
             const localRms = probe.timeDomain.length > 0 ? Math.sqrt(localRmsSum / probe.timeDomain.length) : 0;
-            const segmentStart = target.colStart + Math.floor(((target.colEnd - target.colStart + 1) * sampleIndex) / sampleTimes.length);
-            const segmentEnd = target.colStart + Math.floor(((target.colEnd - target.colStart + 1) * (sampleIndex + 1)) / sampleTimes.length) - 1;
-            mergeStreamedEnvelopeShape(segmentStart, Math.max(segmentStart, segmentEnd), probe.timeDomain);
+            const segmentTimeStart = target.timeStart + ((target.timeEnd - target.timeStart) * sampleIndex) / sampleTimes.length;
+            const segmentTimeEnd = target.timeStart + ((target.timeEnd - target.timeStart) * (sampleIndex + 1)) / sampleTimes.length;
+            mergeStreamedEnvelopeShape(segmentTimeStart, Math.max(segmentTimeStart, segmentTimeEnd), probe.timeDomain);
             if (localPeak > sampledPeak) sampledPeak = localPeak;
             sampledRmsSum += localRms;
             sampledCount++;
@@ -781,13 +843,13 @@ export function WaveformOverviewPanel(): React.ReactElement {
 
           if (!cancelled && sampledAny) {
             mergeStreamedEnvelopeRange(
-              target.colStart,
-              target.colEnd,
+              target.timeStart,
+              target.timeEnd,
               sampledPeak,
               sampledCount > 0 ? sampledRmsSum / sampledCount : 0,
             );
           } else if (!cancelled && !sampledAny) {
-            mergeStreamedEnvelopeRange(target.colStart, target.colEnd, 0, 0);
+            mergeStreamedEnvelopeRange(target.timeStart, target.timeEnd, 0, 0);
           }
 
           await delay(transportRef.current.isPlaying ? STREAMED_SCOUT_ACTIVE_DELAY_MS : STREAMED_SCOUT_IDLE_DELAY_MS);
@@ -859,37 +921,58 @@ export function WaveformOverviewPanel(): React.ReactElement {
 
     streamedFileIdRef.current = frame.fileId;
 
-    const peakEnv = streamedPeakEnvRef.current;
-    const rmsEnv = streamedRmsEnvRef.current;
-    const coverage = streamedCoverageRef.current;
-    if (!peakEnv || !rmsEnv || !coverage || peakEnv.length === 0) return;
-
     const duration = Math.max(0.001, transport.duration);
-    const cols = peakEnv.length;
+    const sessionCols = streamedPeakEnvRef.current?.length ?? 0;
+    const detailCols = streamedDetailPeakEnvRef.current?.length ?? 0;
+    if (sessionCols <= 0 || detailCols <= 0) return;
+
     const currentIndex = Math.max(
       0,
-      Math.min(cols - 1, Math.round((Math.max(0, Math.min(duration, frame.currentTime)) / duration) * (cols - 1))),
+      Math.min(sessionCols - 1, Math.round((Math.max(0, Math.min(duration, frame.currentTime)) / duration) * (sessionCols - 1))),
+    );
+    const currentDetailIndex = Math.max(
+      0,
+      Math.min(detailCols - 1, Math.round((Math.max(0, Math.min(duration, frame.currentTime)) / duration) * (detailCols - 1))),
     );
     const framePeak = Math.max(frame.peakLeft, frame.peakRight);
     const frameRms = Math.max(frame.rmsLeft, frame.rmsRight);
     const previousIndex = streamedLastBinRef.current;
+    const previousDetailIndex = streamedDetailLastBinRef.current;
     let startIndex = currentIndex;
     let endIndex = currentIndex;
+    let startDetailIndex = currentDetailIndex;
+    let endDetailIndex = currentDetailIndex;
 
     if (previousIndex !== null && Math.abs(currentIndex - previousIndex) <= STREAMED_ENVELOPE_BRIDGE_MAX_BINS) {
       startIndex = Math.min(previousIndex, currentIndex);
       endIndex = Math.max(previousIndex, currentIndex);
     }
+    if (previousDetailIndex !== null && Math.abs(currentDetailIndex - previousDetailIndex) <= STREAMED_DETAIL_BRIDGE_MAX_BINS) {
+      startDetailIndex = Math.min(previousDetailIndex, currentDetailIndex);
+      endDetailIndex = Math.max(previousDetailIndex, currentDetailIndex);
+    }
 
-    mergeStreamedEnvelopeRange(startIndex, endIndex, framePeak, frameRms);
+    const startTime = (startIndex / Math.max(1, sessionCols - 1)) * duration;
+    const endTime = ((endIndex + 1) / sessionCols) * duration;
+    mergeStreamedEnvelopeRange(startTime, endTime, framePeak, frameRms);
+    mergeStreamedEnvelopeShape(
+      (startDetailIndex / Math.max(1, detailCols - 1)) * duration,
+      ((endDetailIndex + 1) / detailCols) * duration,
+      frame.timeDomain,
+    );
     streamedLastBinRef.current = currentIndex;
-  }), [frameBus, initializeStreamedEnvelope, mergeStreamedEnvelopeRange]);
+    streamedDetailLastBinRef.current = currentDetailIndex;
+  }), [frameBus, initializeStreamedEnvelope, mergeStreamedEnvelopeRange, mergeStreamedEnvelopeShape]);
 
   useEffect(() => audioEngine.onTransport((transport) => {
     transportRef.current = transport;
     const nextKey = buildMediaKey(transport.filename, transport.duration);
+    const nextLoopKey = transport.loopStart !== null && transport.loopEnd !== null
+      ? `${transport.loopStart.toFixed(3)}:${transport.loopEnd.toFixed(3)}`
+      : null;
     const modeChanged = transport.playbackBackend !== transportModeRef.current;
     const keyChanged = nextKey !== transportKeyRef.current;
+    const loopChanged = nextLoopKey !== loopKeyRef.current;
 
     if (keyChanged) {
       viewKeyRef.current = nextKey;
@@ -905,9 +988,23 @@ export function WaveformOverviewPanel(): React.ReactElement {
         transport.duration,
         Math.min(MIN_VIEWPORT_SECONDS, transport.duration),
       );
+      const loopActive = transport.loopStart !== null && transport.loopEnd !== null && transport.loopEnd > transport.loopStart;
+      const viewSpan = nextRange.end - nextRange.start;
+      if (loopActive) {
+        const loopStart = transport.loopStart!;
+        const loopEnd = transport.loopEnd!;
+        const loopSpan = loopEnd - loopStart;
+        const loopFullyVisible = nextRange.start <= loopStart && nextRange.end >= loopEnd;
 
-      if (viewFollowRef.current && nextRange.end > nextRange.start && nextRange.end < transport.duration + 0.001) {
-        const viewSpan = nextRange.end - nextRange.start;
+        if (loopChanged || !loopFullyVisible) {
+          const focusSpan = Math.max(viewSpan, Math.min(transport.duration, loopSpan * 1.8));
+          nextRange = centerViewRange((loopStart + loopEnd) / 2, focusSpan, transport.duration);
+        }
+
+        viewFollowRef.current = false;
+      }
+
+      if (!loopActive && viewFollowRef.current && nextRange.end > nextRange.start && nextRange.end < transport.duration + 0.001) {
         const margin = viewSpan * VIEW_FOLLOW_MARGIN;
         if (
           transport.currentTime < nextRange.start + margin
@@ -927,6 +1024,7 @@ export function WaveformOverviewPanel(): React.ReactElement {
       viewRangeRef.current = { start: 0, end: 0 };
     }
 
+    loopKeyRef.current = nextLoopKey;
     if (!modeChanged && !keyChanged) return;
 
     transportModeRef.current = transport.playbackBackend;
@@ -1026,6 +1124,18 @@ export function WaveformOverviewPanel(): React.ReactElement {
       }
       return { region: 'loop-track', time: sessionTime };
     }
+    if (loopStart !== null && loopEnd !== null && y >= layout.detail.y && y <= layout.detail.y + layout.detail.h) {
+      const overlapStart = Math.max(viewRange.start, loopStart);
+      const overlapEnd = Math.min(viewRange.end, loopEnd);
+      if (overlapEnd > overlapStart) {
+        const detailLoopStartX = timeToX(overlapStart, viewRange.start, viewRange.end, layout.detail);
+        const detailLoopEndX = timeToX(overlapEnd, viewRange.start, viewRange.end, layout.detail);
+        const detailHandleTol = Math.max(loopHandleTol, layout.detail.h * 0.08);
+        if (Math.abs(x - detailLoopStartX) <= detailHandleTol) return { region: 'detail-loop-start', time: detailTime };
+        if (Math.abs(x - detailLoopEndX) <= detailHandleTol) return { region: 'detail-loop-end', time: detailTime };
+        if (x >= detailLoopStartX && x <= detailLoopEndX) return { region: 'detail-loop-body', time: detailTime };
+      }
+    }
     return { region: 'detail', time: detailTime };
   }, []);
 
@@ -1051,10 +1161,13 @@ export function WaveformOverviewPanel(): React.ReactElement {
       case 'view-end':
       case 'loop-start':
       case 'loop-end':
+      case 'detail-loop-start':
+      case 'detail-loop-end':
         setCanvasCursor('ew-resize');
         return;
       case 'view-body':
       case 'loop-body':
+      case 'detail-loop-body':
         setCanvasCursor('grab');
         return;
       case 'view-track':
@@ -1129,6 +1242,23 @@ export function WaveformOverviewPanel(): React.ReactElement {
       case 'loop-resize-end':
         if (gesture.initialLoopStart !== null) {
           audioEngine.setLoop(gesture.initialLoopStart, Math.max(fullTime, gesture.initialLoopStart + MIN_LOOP_SECONDS));
+        }
+        break;
+      case 'detail-loop-pan': {
+        if (gesture.initialLoopStart === null || gesture.initialLoopEnd === null) break;
+        const span = gesture.initialLoopEnd - gesture.initialLoopStart;
+        const start = clampNumber(gesture.initialLoopStart + (detailTime - gesture.anchorTime), 0, Math.max(0, duration - span));
+        audioEngine.setLoop(start, start + span);
+        break;
+      }
+      case 'detail-loop-resize-start':
+        if (gesture.initialLoopEnd !== null) {
+          audioEngine.setLoop(Math.min(detailTime, gesture.initialLoopEnd - MIN_LOOP_SECONDS), gesture.initialLoopEnd);
+        }
+        break;
+      case 'detail-loop-resize-end':
+        if (gesture.initialLoopStart !== null) {
+          audioEngine.setLoop(gesture.initialLoopStart, Math.max(detailTime, gesture.initialLoopStart + MIN_LOOP_SECONDS));
         }
         break;
       default:
@@ -1231,16 +1361,22 @@ export function WaveformOverviewPanel(): React.ReactElement {
       const decodedClipMap = clipMapRef.current;
       const analysis = analysisRef.current;
       const isStreamedOverview = transport.playbackBackend === 'streamed';
-      const peakEnv = isStreamedOverview ? streamedPeakEnvRef.current : decodedPeakEnv;
-      const rmsEnv = isStreamedOverview ? streamedRmsEnvRef.current : decodedRmsEnv;
-      const clipMap = isStreamedOverview ? null : decodedClipMap;
-      const coverageMap = isStreamedOverview ? streamedCoverageRef.current : null;
-      const learnedRatio = coverageMap && coverageMap.length > 0
-        ? streamedLearnedCountRef.current / coverageMap.length
+      const sessionPeakEnv = isStreamedOverview ? streamedPeakEnvRef.current : decodedPeakEnv;
+      const sessionRmsEnv = isStreamedOverview ? streamedRmsEnvRef.current : decodedRmsEnv;
+      const sessionClipMap = isStreamedOverview ? null : decodedClipMap;
+      const sessionCoverageMap = isStreamedOverview ? streamedCoverageRef.current : null;
+      const detailPeakEnv = isStreamedOverview ? (streamedDetailPeakEnvRef.current ?? streamedPeakEnvRef.current) : decodedPeakEnv;
+      const detailRmsEnv = isStreamedOverview ? (streamedDetailRmsEnvRef.current ?? streamedRmsEnvRef.current) : decodedRmsEnv;
+      const detailCoverageMap = isStreamedOverview ? (streamedDetailCoverageRef.current ?? streamedCoverageRef.current) : null;
+      const learnedRatio = sessionCoverageMap && sessionCoverageMap.length > 0
+        ? streamedLearnedCountRef.current / sessionCoverageMap.length
         : 0;
-      const peakNormalizer = isStreamedOverview && streamedPeakMaxRef.current > 0
+      const sessionPeakNormalizer = isStreamedOverview && streamedPeakMaxRef.current > 0
         ? 1 / streamedPeakMaxRef.current
         : 1;
+      const detailPeakNormalizer = isStreamedOverview && streamedDetailPeakMaxRef.current > 0
+        ? 1 / streamedDetailPeakMaxRef.current
+        : sessionPeakNormalizer;
 
       if (duration <= 0) {
         ctx.strokeStyle = gridColor;
@@ -1331,6 +1467,13 @@ export function WaveformOverviewPanel(): React.ReactElement {
         start: number,
         end: number,
         options: { readonly emphasizeCoverage?: boolean; readonly showClipMap?: boolean; readonly fillPlayback?: boolean },
+        source: {
+          readonly peakEnv: Float32Array | null;
+          readonly rmsEnv: Float32Array | null;
+          readonly clipMap: Uint8Array | null;
+          readonly coverageMap: Uint8Array | null;
+          readonly peakNormalizer: number;
+        },
       ): number => {
         ctx.save();
         ctx.beginPath();
@@ -1348,6 +1491,7 @@ export function WaveformOverviewPanel(): React.ReactElement {
         ctx.fillRect(rect.x, midY - Math.max(1, dpr / 2), rect.w, Math.max(1, dpr));
 
         let coveredColumns = 0;
+        const { peakEnv, rmsEnv, clipMap, coverageMap, peakNormalizer } = source;
         if (peakEnv && rmsEnv) {
           const envLen = peakEnv.length;
           const columnCount = Math.max(48, Math.min(720, Math.round(rect.w / Math.max(1.25, 1.15 * dpr))));
@@ -1618,7 +1762,19 @@ export function WaveformOverviewPanel(): React.ReactElement {
       ctx.fillStyle = viewWindowFill;
       ctx.fillRect(viewportStartX, layout.session.y, Math.max(1, viewportEndX - viewportStartX), layout.session.h);
       drawTimeGrid(layout.session, 0, duration, true);
-      drawEnvelopeWindow(layout.session, 0, duration, { emphasizeCoverage: true, fillPlayback: true });
+      drawEnvelopeWindow(
+        layout.session,
+        0,
+        duration,
+        { emphasizeCoverage: true, fillPlayback: true },
+        {
+          peakEnv: sessionPeakEnv,
+          rmsEnv: sessionRmsEnv,
+          clipMap: sessionClipMap,
+          coverageMap: sessionCoverageMap,
+          peakNormalizer: sessionPeakNormalizer,
+        },
+      );
       ctx.strokeStyle = viewWindowStroke;
       ctx.lineWidth = 1.2 * dpr;
       ctx.strokeRect(viewportStartX, layout.session.y + 0.5 * dpr, Math.max(1, viewportEndX - viewportStartX), Math.max(1, layout.session.h - dpr));
@@ -1664,11 +1820,23 @@ export function WaveformOverviewPanel(): React.ReactElement {
       drawPlayCursor(layout.loop, 0, duration, false);
 
       drawTimeGrid(layout.detail, viewRange.start, viewRange.end, false);
-      const coveredDetailColumns = drawEnvelopeWindow(layout.detail, viewRange.start, viewRange.end, {
-        emphasizeCoverage: true,
-        showClipMap: !isStreamedOverview,
-        fillPlayback: true,
-      });
+      const coveredDetailColumns = drawEnvelopeWindow(
+        layout.detail,
+        viewRange.start,
+        viewRange.end,
+        {
+          emphasizeCoverage: true,
+          showClipMap: !isStreamedOverview,
+          fillPlayback: true,
+        },
+        {
+          peakEnv: detailPeakEnv,
+          rmsEnv: detailRmsEnv,
+          clipMap: decodedClipMap,
+          coverageMap: detailCoverageMap,
+          peakNormalizer: detailPeakNormalizer,
+        },
+      );
 
       ctx.font = `${8 * dpr}px ${FONTS.mono}`;
       ctx.fillStyle = textColor;
@@ -1888,6 +2056,42 @@ export function WaveformOverviewPanel(): React.ReactElement {
               };
               setCanvasCursor('ew-resize');
               break;
+            case 'detail-loop-start':
+              gestureRef.current = {
+                kind: 'detail-loop-resize-start',
+                pointerId: event.pointerId,
+                anchorTime: hit.time,
+                anchorX: x,
+                initialView: currentView,
+                initialLoopStart: transportRef.current.loopStart,
+                initialLoopEnd: transportRef.current.loopEnd,
+              };
+              setCanvasCursor('ew-resize');
+              break;
+            case 'detail-loop-end':
+              gestureRef.current = {
+                kind: 'detail-loop-resize-end',
+                pointerId: event.pointerId,
+                anchorTime: hit.time,
+                anchorX: x,
+                initialView: currentView,
+                initialLoopStart: transportRef.current.loopStart,
+                initialLoopEnd: transportRef.current.loopEnd,
+              };
+              setCanvasCursor('ew-resize');
+              break;
+            case 'detail-loop-body':
+              gestureRef.current = {
+                kind: 'detail-loop-pan',
+                pointerId: event.pointerId,
+                anchorTime: hit.time,
+                anchorX: x,
+                initialView: currentView,
+                initialLoopStart: transportRef.current.loopStart,
+                initialLoopEnd: transportRef.current.loopEnd,
+              };
+              setCanvasCursor('grabbing');
+              break;
             case 'loop-body':
               gestureRef.current = {
                 kind: 'loop-pan',
@@ -1946,7 +2150,7 @@ export function WaveformOverviewPanel(): React.ReactElement {
           if (hit.region.startsWith('view-')) {
             resetViewRange(duration);
           }
-          if (hit.region.startsWith('loop-')) {
+          if (hit.region.startsWith('loop-') || hit.region.startsWith('detail-loop-')) {
             audioEngine.clearLoop();
           }
         }}
