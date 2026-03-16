@@ -120,6 +120,8 @@ export class AudioEngine {
   private offsetAt = 0;
   private _isPlaying = false;
   private rafId: number | null = null;
+  private intervalId: ReturnType<typeof setInterval> | null = null;
+  private onVisibilityChange: (() => void) | null = null;
   private _volume = 1;
   private _playbackRate = 1;
   private _pitchSemitones = 0;
@@ -1542,9 +1544,38 @@ export class AudioEngine {
   }
 
   private startRaf(): void {
-    if (this.rafId !== null) return;
-
+    if (this.rafId !== null || this.intervalId !== null) return;
     this.lastAnalysisAt = 0;
+    this.attachVisibilityHandler();
+    this.resumeLoop();
+  }
+
+  private resumeLoop(): void {
+    if (document.hidden) {
+      // Background: use setInterval so the loop keeps running while unfocused.
+      // Watchdog is skipped — AudioContext may be suspended and stretchLastProgressAt
+      // won't update, so checking it would produce false positives on resume.
+      if (this.intervalId === null) {
+        this.intervalId = setInterval(() => {
+          const now = performance.now();
+          if (this.lastAnalysisAt !== 0 && now - this.lastAnalysisAt < ANALYSIS_FRAME_MS) return;
+          this.lastAnalysisAt = now;
+          this.extractFrame();
+          if (this.scrubActive) return;
+          if (this._isPlaying && this._loopStart !== null && this._loopEnd !== null && this.currentTime >= this._loopEnd) {
+            this.seek(this._loopStart);
+            return;
+          }
+          if (this._isPlaying && this._loopStart === null && this.currentTime >= this.duration) {
+            this.stopPlayback(true, 'ended');
+            this.emitTransport();
+          }
+        }, ANALYSIS_FRAME_MS);
+      }
+      return;
+    }
+
+    // Foreground: use RAF for smooth panel rendering.
     const loop = () => {
       const now = performance.now();
       if (this.lastAnalysisAt === 0 || now - this.lastAnalysisAt >= ANALYSIS_FRAME_MS) {
@@ -1584,10 +1615,46 @@ export class AudioEngine {
     this.rafId = requestAnimationFrame(loop);
   }
 
+  private attachVisibilityHandler(): void {
+    if (this.onVisibilityChange !== null) return;
+    this.onVisibilityChange = () => {
+      const loopRunning = this.rafId !== null || this.intervalId !== null;
+      if (!loopRunning) return;
+
+      if (document.hidden) {
+        // Switch from RAF to interval
+        if (this.rafId !== null) {
+          cancelAnimationFrame(this.rafId);
+          this.rafId = null;
+        }
+        this.resumeLoop();
+      } else {
+        // Switch from interval back to RAF; also resume AudioContext if suspended
+        if (this.ctx?.state === 'suspended') {
+          this.ctx.resume().catch(() => {});
+        }
+        if (this.intervalId !== null) {
+          clearInterval(this.intervalId);
+          this.intervalId = null;
+        }
+        this.resumeLoop();
+      }
+    };
+    document.addEventListener('visibilitychange', this.onVisibilityChange);
+  }
+
   private stopRaf(): void {
     if (this.rafId !== null) {
       cancelAnimationFrame(this.rafId);
       this.rafId = null;
+    }
+    if (this.intervalId !== null) {
+      clearInterval(this.intervalId);
+      this.intervalId = null;
+    }
+    if (this.onVisibilityChange !== null) {
+      document.removeEventListener('visibilitychange', this.onVisibilityChange);
+      this.onVisibilityChange = null;
     }
     this.lastAnalysisAt = 0;
   }
