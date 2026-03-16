@@ -312,16 +312,13 @@ export function PitchTrackerPanel(): React.ReactElement {
         const barX = W * 0.5 - barW * 0.5;
         const barY = H - (SPACING.xs + 9) * dpr;
 
-        // Background zones
+        // Background zones — low opacity to stay subtle at small panel heights
         const zoneW = barW / 2; // half = 50 cents
-        // Red zone (full bar background)
-        ctx.fillStyle = nge ? 'rgba(80,40,10,0.5)' : 'rgba(80,20,20,0.5)';
+        ctx.fillStyle = nge ? 'rgba(80,40,10,0.22)' : 'rgba(70,18,18,0.22)';
         ctx.fillRect(barX, barY, barW, barH2);
-        // Yellow zone (±25 ct)
-        ctx.fillStyle = nge ? 'rgba(100,100,10,0.5)' : 'rgba(100,80,10,0.5)';
+        ctx.fillStyle = nge ? 'rgba(90,90,10,0.22)' : 'rgba(90,70,10,0.22)';
         ctx.fillRect(barX + zoneW * 0.5, barY, zoneW, barH2);
-        // Green zone (±10 ct)
-        ctx.fillStyle = nge ? 'rgba(30,80,10,0.55)' : 'rgba(20,80,30,0.55)';
+        ctx.fillStyle = nge ? 'rgba(20,70,10,0.25)' : 'rgba(14,70,28,0.25)';
         ctx.fillRect(barX + zoneW * 0.8, barY, zoneW * 0.4, barH2);
 
         // Centre tick

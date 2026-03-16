@@ -257,14 +257,29 @@ export function LoudnessMeterPanel(): React.ReactElement {
       ctx.fillStyle = hyper ? 'rgba(32,52,110,0.92)' : COLORS.border;
       ctx.fillRect(0, 0, W, 1);
 
+      // ── Delivery zone bands (key visual differentiator from plain RMS) ───
+      // Red band: above -14 LUFS (over all streaming targets)
+      const yTop    = padV;
+      const y14     = lufsToY(-14, H, padV);
+      const y23     = lufsToY(-23, H, padV);
+      const yBot    = H - padV;
+      ctx.fillStyle = nge ? 'rgba(120,40,10,0.10)' : hyper ? 'rgba(180,40,40,0.10)' : 'rgba(100,18,18,0.14)';
+      ctx.fillRect(0, yTop, W, y14 - yTop);
+      // Green band: -14 to -23 LUFS (streaming–broadcast safe zone)
+      ctx.fillStyle = nge ? 'rgba(40,100,10,0.10)' : hyper ? 'rgba(20,80,60,0.10)' : 'rgba(14,60,24,0.12)';
+      ctx.fillRect(0, y14, W, y23 - y14);
+      // Below -23: no tint (below all delivery targets, subdued)
+      ctx.fillStyle = nge ? 'rgba(10,30,5,0.08)' : hyper ? 'rgba(8,12,30,0.08)' : 'rgba(8,10,16,0.10)';
+      ctx.fillRect(0, y23, W, yBot - y23);
+
       // ── Reference lines ──────────────────────────────────────────────────
       ctx.setLineDash([3 * dpr, 4 * dpr]);
       for (const [lufs, label] of REF_LINES) {
         const y = Math.round(lufsToY(lufs, H, padV)) + 0.5;
         const isTarget = lufs === -14;
         ctx.strokeStyle = isTarget
-          ? (hyper ? 'rgba(88,124,255,0.65)' : nge ? 'rgba(100,200,40,0.55)' : 'rgba(50,50,72,1)')
-          : (hyper ? 'rgba(28,42,88,0.85)' : nge ? 'rgba(40,80,20,0.45)' : 'rgba(32,32,48,1)');
+          ? (hyper ? 'rgba(88,124,255,0.65)' : nge ? 'rgba(100,200,40,0.55)' : 'rgba(60,60,90,1)')
+          : (hyper ? 'rgba(28,42,88,0.85)' : nge ? 'rgba(40,80,20,0.45)' : 'rgba(38,38,56,1)');
         ctx.lineWidth = 1;
         ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
         ctx.font = `${6.5 * dpr}px ${FONTS.mono}`;
@@ -293,15 +308,15 @@ export function LoudnessMeterPanel(): React.ReactElement {
         }
 
         if (points.length > 1) {
-          // Filled area
+          // Filled area — teal palette to distinguish from amber RMS panel
           ctx.beginPath();
           ctx.moveTo(points[0][0], baseY);
           for (const [x, y] of points) ctx.lineTo(x, y);
           ctx.lineTo(points[points.length - 1][0], baseY);
           ctx.closePath();
           const fillGrad = ctx.createLinearGradient(0, padV, 0, H);
-          fillGrad.addColorStop(0, nge ? 'rgba(160,216,64,0.26)' : hyper ? 'rgba(98,232,255,0.26)' : 'rgba(200,146,42,0.30)');
-          fillGrad.addColorStop(1, nge ? 'rgba(96,192,32,0.04)' : hyper ? 'rgba(255,92,188,0.06)' : 'rgba(200,146,42,0.04)');
+          fillGrad.addColorStop(0, nge ? 'rgba(160,216,64,0.26)' : hyper ? 'rgba(98,232,255,0.26)' : 'rgba(60,180,160,0.26)');
+          fillGrad.addColorStop(1, nge ? 'rgba(96,192,32,0.04)' : hyper ? 'rgba(255,92,188,0.06)' : 'rgba(40,140,120,0.04)');
           ctx.fillStyle = fillGrad;
           ctx.fill();
 
@@ -309,7 +324,7 @@ export function LoudnessMeterPanel(): React.ReactElement {
           ctx.beginPath();
           ctx.moveTo(points[0][0], points[0][1]);
           for (let i = 1; i < points.length; i++) ctx.lineTo(points[i][0], points[i][1]);
-          ctx.strokeStyle = nge ? 'rgba(160,216,64,0.80)' : hyper ? 'rgba(98,232,255,0.86)' : 'rgba(200,146,42,0.78)';
+          ctx.strokeStyle = nge ? 'rgba(160,216,64,0.80)' : hyper ? 'rgba(98,232,255,0.86)' : 'rgba(72,200,175,0.82)';
           ctx.lineWidth = 1.5 * dpr;
           ctx.lineJoin = 'round';
           ctx.stroke();
@@ -318,7 +333,7 @@ export function LoudnessMeterPanel(): React.ReactElement {
           const last = points[points.length - 1];
           ctx.beginPath();
           ctx.arc(last[0], last[1], 2.5 * dpr, 0, Math.PI * 2);
-          ctx.fillStyle = traceColor;
+          ctx.fillStyle = nge ? traceColor : hyper ? traceColor : 'rgba(90,215,190,1)';
           ctx.fill();
         }
       } else if (history.length === 0) {
@@ -333,11 +348,18 @@ export function LoudnessMeterPanel(): React.ReactElement {
       const intHas = intHasRef.current;
       if (intHas && intLufs > LUFS_BOT) {
         const intY = Math.round(lufsToY(intLufs, H, padV)) + 0.5;
-        ctx.strokeStyle = nge ? 'rgba(160,216,64,0.30)' : hyper ? 'rgba(98,232,255,0.30)' : 'rgba(200,175,100,0.30)';
-        ctx.lineWidth = 1;
-        ctx.setLineDash([6 * dpr, 4 * dpr]);
+        const intLineColor = nge ? 'rgba(160,216,64,0.55)' : hyper ? 'rgba(98,232,255,0.55)' : 'rgba(90,215,190,0.55)';
+        ctx.strokeStyle = intLineColor;
+        ctx.lineWidth = 1.5 * dpr;
+        ctx.setLineDash([8 * dpr, 3 * dpr]);
         ctx.beginPath(); ctx.moveTo(0, intY); ctx.lineTo(W, intY); ctx.stroke();
         ctx.setLineDash([]);
+        // "INT" badge at left edge
+        ctx.font = `${6 * dpr}px ${FONTS.mono}`;
+        ctx.fillStyle = intLineColor;
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'bottom';
+        ctx.fillText('INT', SPACING.xs * dpr, intY - 1 * dpr);
       }
 
       // ── Numeric readouts — top left ──────────────────────────────────────
