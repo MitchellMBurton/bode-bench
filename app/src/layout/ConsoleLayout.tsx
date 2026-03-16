@@ -24,9 +24,9 @@ const CHROME_H = SPACING.chromeHeaderH;
 const GLOBAL_H = SPACING.globalHeaderH;
 const TOOLBAR_H = 26; // px — single-line layout toolbar
 const LEFT_COLUMN_DEFAULT = [24, 76] as const;
-const RUNTIME_TRAY_DEFAULT_H = 286;
+const RUNTIME_TRAY_DEFAULT_H = 340;
 const RUNTIME_TRAY_MIN_H = 210;
-const RUNTIME_TRAY_MAX_H = 420;
+const RUNTIME_TRAY_MAX_H = 560;
 const RUNTIME_TRAY_HANDLE_H = 18;
 const RUNTIME_TRAY_STORAGE_KEY = 'console:runtime-tray-height';
 
@@ -65,7 +65,7 @@ function clampValue(value: number, min: number, max: number): number {
 
 function getRuntimeTrayMaxHeight(): number {
   if (typeof window === 'undefined') return RUNTIME_TRAY_MAX_H;
-  return clampValue(Math.round(window.innerHeight * 0.46), RUNTIME_TRAY_MIN_H, RUNTIME_TRAY_MAX_H);
+  return clampValue(Math.round(window.innerHeight * 0.52), RUNTIME_TRAY_MIN_H, RUNTIME_TRAY_MAX_H);
 }
 
 function getDefaultRuntimeTrayHeight(): number {

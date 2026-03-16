@@ -1395,9 +1395,8 @@ const perfBodyStyle: React.CSSProperties = {
   display: 'grid',
   gridTemplateColumns: 'minmax(280px, 0.92fr) minmax(360px, 1.08fr)',
   gap: SPACING.sm,
-  minHeight: 0,
-  flex: 1,
-  overflow: 'hidden',
+  flexShrink: 0,
+  minHeight: 180,
 };
 
 const perfPanelStyle: React.CSSProperties = {
