@@ -251,9 +251,27 @@ function mergeTimeDomainShapeIntoRange(
   return localPeakMax;
 }
 
+function buildBisectionSlots(count: number): number[] {
+  // Bisection / level-order order: scan middle first, then quarters, eighths…
+  // After N probes the whole timeline has evenly-spaced coverage rather than
+  // only covering the first N/total fraction of the file (sequential order).
+  const slots: number[] = [];
+  const queue: Array<[number, number]> = [[0, count - 1]];
+  while (queue.length > 0 && slots.length < count) {
+    const [lo, hi] = queue.shift()!;
+    const mid = lo + Math.floor((hi - lo) / 2);
+    slots.push(mid);
+    if (lo < mid) queue.push([lo, mid - 1]);
+    if (mid < hi) queue.push([mid + 1, hi]);
+  }
+  return slots;
+}
+
 function buildStreamedScoutTargets(cols: number, duration: number, timeline: TimelineProfile): StreamedScoutTarget[] {
   const targetCount = Math.max(1, Math.min(cols, timeline.scoutTargetSamples));
-  return Array.from({ length: targetCount }, (_, slot) => {
+  const slots = buildBisectionSlots(targetCount);
+
+  return slots.map((slot) => {
     const colStart = Math.floor((slot * cols) / targetCount);
     const colEnd = Math.min(cols - 1, Math.max(colStart, Math.floor(((slot + 1) * cols) / targetCount) - 1));
     const timeStart = Math.max(0, Math.min(duration, (colStart / cols) * duration));
@@ -1593,15 +1611,27 @@ export function WaveformOverviewPanel(): React.ReactElement {
             if (coveredBins <= 0) continue;
             const avgPeak = sumPeak / coveredBins;
             const avgRms = sumRms / coveredBins;
-            peakColumns[column] = clampNumber((avgPeak * 0.62 + maxPeak * 0.38) * peakNormalizer, 0, 1);
-            rmsColumns[column] = clampNumber(avgRms * peakNormalizer, 0, peakColumns[column]);
+            // Apply soft power-curve compression so cinema audio's wide dynamic
+            // range (−24 LUFS dialog against 0 dBFS action peaks) stays visible.
+            // Raw linear 0.03 (dialog) → 0.24 display height; 1.0 → 1.0.
+            const rawPeak = clampNumber((avgPeak * 0.62 + maxPeak * 0.38) * peakNormalizer, 0, 1);
+            const rawRms  = clampNumber(avgRms * peakNormalizer, 0, rawPeak);
+            peakColumns[column] = Math.pow(rawPeak, 0.45);
+            rmsColumns[column]  = Math.min(
+              peakColumns[column],
+              Math.pow(rawRms, 0.45),
+            );
             coverageColumns[column] = coveredBins / totalBins;
             confidenceColumns[column] = maxConfidence > 0 ? maxConfidence : 2;
             coveredColumns++;
           }
 
           if (coverageMap) {
-            const bridgeGapColumns = Math.max(1, Math.min(10, Math.round(columnCount / 64)));
+            // Allow bridging across large gaps so bisection-order scouts give a
+            // plausible full-timeline waveform even before every region is sampled.
+            // Linear interpolation between known endpoints; rendered at reduced
+            // confidence opacity so the user can see it is estimated.
+            const bridgeGapColumns = Math.floor(columnCount / 2);
             const findCoveredIndex = (from: number, step: 1 | -1, limit: number): number => {
               let travelled = 0;
               for (let index = from; index >= 0 && index < columnCount; index += step) {
