@@ -2,7 +2,7 @@
 // App root - wires layout, panels, controls, and score loader.
 // ============================================================
 
-import { useState, useEffect, useSyncExternalStore } from 'react';
+import { useState, useEffect, useRef, useSyncExternalStore } from 'react';
 import { ConsoleLayout } from './layout/ConsoleLayout';
 import { SplitPane } from './layout/SplitPane';
 import { TransportControls } from './controls/TransportControls';
@@ -20,8 +20,11 @@ import { FrequencyBandsPanel } from './panels/FrequencyBandsPanel';
 import { PitchTrackerPanel } from './panels/PitchTrackerPanel';
 import { HarmonicLadderPanel } from './panels/HarmonicLadderPanel';
 import { LoudnessHistoryPanel } from './panels/LoudnessHistoryPanel';
+import { LoudnessMeterPanel } from './panels/LoudnessMeterPanel';
+import { GoniometerPanel } from './panels/GoniometerPanel';
 import { useAudioEngine, useDiagnosticsLog, useDisplayMode, usePerformanceDiagnosticsStore, usePerformanceProfile, useTheaterMode } from './core/session';
 import type { VisualMode } from './audio/displayMode';
+import type { Marker } from './types';
 import type { PerformanceDiagnosticsSnapshot } from './diagnostics/logStore';
 import { CANVAS, COLORS, FONTS, SPACING } from './theme';
 
@@ -85,6 +88,8 @@ export default function App(): React.ReactElement {
   const [grayscale, setGrayscale] = useState(false);
   const [visualMode, setVisualMode] = useState<VisualMode>('default');
   const [layoutResetToken, setLayoutResetToken] = useState(0);
+  const [markers, setMarkers] = useState<Marker[]>([]);
+  const markerCountRef = useRef(0);
 
   useEffect(() => {
     return audioEngine.onTransport((state) => {
@@ -92,6 +97,12 @@ export default function App(): React.ReactElement {
       performanceDiagnostics.noteTransport(state);
     });
   }, [audioEngine, performanceDiagnostics]);
+
+  // Clear markers when a new file is loaded
+  useEffect(() => audioEngine.onReset(() => {
+    setMarkers([]);
+    markerCountRef.current = 0;
+  }), [audioEngine]);
 
   useEffect(() => {
     let rafId = 0;
@@ -162,6 +173,18 @@ export default function App(): React.ReactElement {
         case 'Escape':
           e.preventDefault();
           audioEngine.clearLoop();
+          break;
+        case 'KeyM':
+          e.preventDefault();
+          if (audioEngine.duration > 0) {
+            const t = audioEngine.currentTime;
+            markerCountRef.current += 1;
+            const id = markerCountRef.current;
+            const label = `M${id}`;
+            const newMarker: Marker = { id, time: t, label };
+            setMarkers((prev) => [...prev, newMarker]);
+            diagnosticsLog.push(`marker ${label} @ ${formatTransportTime(t)}`, 'info', 'transport');
+          }
           break;
       }
     };
@@ -260,7 +283,7 @@ export default function App(): React.ReactElement {
                 persistKey="console:top-right-stack"
               >
                 {[
-                  <WaveformOverviewPanel key="overview" />,
+                  <WaveformOverviewPanel key="overview" markers={markers} />,
                   <WaveformScrollPanel key="wave-scroll" />,
                   <PitchTrackerPanel key="pitch" />,
                   <OscilloscopePanel key="osc" />,
@@ -273,8 +296,8 @@ export default function App(): React.ReactElement {
         }}
         bottomLeft={{
           category: 'SUPPORT INSTRUMENTATION',
-          title: 'LEVELS / BANDS / PARTIALS',
-          help: 'SUPPORT INSTRUMENTATION\n\nLEVELS — Stereo peak (bright) and RMS (dim) bars in dBFS. Peak hold decays slowly. Colour zones: green (< −12 dB), yellow (−12 to −3 dB), red (> −3 dB).\n\nFREQ BANDS — Six-band energy display.\n  Sub: 20–80 Hz (subwoofer weight)\n  Lo-Mid: 80–240 Hz (warmth, mud)\n  Mid: 240–900 Hz (body, presence)\n  Hi-Mid: 900–2800 Hz (articulation, harshness)\n  Presence: 2800–8000 Hz (clarity, sibilance)\n  Air: 8–20 kHz (sheen, breath)\n\nHARMONICS — First 10 partials of detected fundamental. Normalised relative to strongest partial (40 dB dynamic window). Fundamental at left; overtones descend in brightness.',
+          title: 'LEVELS / GONIOMT / BANDS / PARTIALS',
+          help: 'SUPPORT INSTRUMENTATION\n\nLEVELS — Stereo peak (bright) and RMS (dim) bars in dBFS. Peak hold decays slowly. Colour zones: green (< −12 dB), yellow (−12 to −3 dB), red (> −3 dB).\n\nGONIOMETER — Stereo phase display (M/S Lissajous).\n  Vertical axis = Mid (L+R): strong signal = tall shape\n  Horizontal axis = Side (L−R): wide shape = wide stereo\n  Mono: collapses to vertical line. Out-of-phase: horizontal line.\n  Phase correlation bar: +1 = identical (mono), 0 = uncorrelated, −1 = cancelling.\n  Green (> +0.5) is safe for mono. Red (< 0) will cancel in mono.\n\nFREQ BANDS — Six-band energy display.\n  Sub: 20–80 Hz (subwoofer weight)\n  Lo-Mid: 80–240 Hz (warmth, mud)\n  Mid: 240–900 Hz (body, presence)\n  Hi-Mid: 900–2800 Hz (articulation, harshness)\n  Presence: 2800–8000 Hz (clarity, sibilance)\n  Air: 8–20 kHz (sheen, breath)\n\nHARMONICS — First 10 partials of detected fundamental. Normalised relative to strongest partial (40 dB dynamic window). Fundamental at left; overtones descend in brightness.',
           content: (
             <TheaterPanelShell
               active={theaterMode}
@@ -283,13 +306,14 @@ export default function App(): React.ReactElement {
             >
               <SplitPane
                 direction="column"
-                initialSizes={[30, 30, 40]}
-                minSizePx={[72, 72, 56]}
+                initialSizes={[20, 30, 22, 28]}
+                minSizePx={[56, 80, 60, 56]}
                 resetToken={layoutResetToken}
                 persistKey="console:bottom-left-stack"
               >
                 {[
                   <LevelsPanel key="levels" />,
+                  <GoniometerPanel key="gonio" />,
                   <FrequencyBandsPanel key="bands" />,
                   <HarmonicLadderPanel key="ladder" />,
                 ]}
@@ -299,8 +323,8 @@ export default function App(): React.ReactElement {
         }}
         bottomRight={{
           category: 'SPECTRAL ANATOMY',
-          title: 'LOUDNESS / SPECTROGRAM',
-          help: 'SPECTRAL ANATOMY\n\nRMS LEVEL — Short-term loudness history. Scrolls in sync with the spectrogram. Reference lines at −6, −18, −36 dBFS. Hover to read level at any point in history.\n\nSPECTROGRAM — Time–frequency representation.\n  Horizontal: time flows left → right (newest at right edge)\n  Vertical: frequency 20 Hz (bottom) → 20 kHz (top), log scale\n  Brightness: amplitude (dark = quiet, bright = loud), range −96 to 0 dBFS\n\nWhat to look for:\n  Horizontal lines → sustained tones or resonances\n  Vertical streaks → transients and attacks\n  Evenly-spaced horizontal lines → harmonic series\n  Diffuse colour field → broadband noise\n\nHover to read exact frequency and level at the cursor.',
+          title: 'LOUDNESS / LUFS / SPECTROGRAM',
+          help: 'SPECTRAL ANATOMY\n\nRMS LEVEL — Short-term loudness history. Scrolls in sync with the spectrogram. Reference lines at −6, −18, −36 dBFS. Hover to read level at any point in history.\n\nLUFS — EBU R128 / ITU-R BS.1770 loudness meter.\n  M (momentary): 400 ms K-weighted average — most responsive\n  ST (short-term): 3 s average — best for mixing decisions\n  INT (integrated): from start of playback, gated — delivery spec\n  TP (true peak): peak hold since load — streaming limit is −1 dBTP\n  Reference lines: −14 LUFS (streaming), −16 (Apple), −23 EBU R128, −24 cinema\n\nSPECTROGRAM — Time–frequency representation.\n  Horizontal: time flows left → right (newest at right edge)\n  Vertical: frequency 20 Hz (bottom) → 20 kHz (top), log scale\n  Brightness: amplitude (dark = quiet, bright = loud), range −96 to 0 dBFS\n\nWhat to look for:\n  Horizontal lines → sustained tones or resonances\n  Vertical streaks → transients and attacks\n  Evenly-spaced horizontal lines → harmonic series\n  Diffuse colour field → broadband noise\n\nHover to read exact frequency and level at the cursor.',
           content: (
             <TheaterPanelShell
               active={theaterMode}
@@ -309,13 +333,14 @@ export default function App(): React.ReactElement {
             >
               <SplitPane
                 direction="column"
-                initialSizes={[18, 82]}
-                minSizePx={[48, 96]}
+                initialSizes={[12, 14, 74]}
+                minSizePx={[48, 64, 96]}
                 resetToken={layoutResetToken}
                 persistKey="console:bottom-right-stack"
               >
                 {[
                   <LoudnessHistoryPanel key="loudness" />,
+                  <LoudnessMeterPanel key="lufs" />,
                   <SpectrogramPanel key="spectrogram" />,
                 ]}
               </SplitPane>

@@ -32,6 +32,18 @@ const F0_MAX = 900;
 const LOG_MIN = Math.log2(F0_MIN);
 const LOG_MAX = Math.log2(F0_MAX);
 
+// Interval names by semitone distance (0–12)
+const INTERVAL_NAMES = ['P1', 'm2', 'M2', 'm3', 'M3', 'P4', 'TT', 'P5', 'm6', 'M6', 'm7', 'M7', '8va'];
+
+function getIntervalLabel(fromMidi: number, toMidi: number): string {
+  const diff = toMidi - fromMidi;
+  const semitones = ((diff % 12) + 12) % 12;
+  const dir = diff > 0 ? '↑' : diff < 0 ? '↓' : '';
+  return `${dir} ${INTERVAL_NAMES[semitones]}`;
+}
+
+const STABLE_FRAMES_NEEDED = 3; // frames before a note is considered stable
+
 function f0ToY(f0: number, H: number, padV: number): number {
   const t = (Math.log2(Math.max(F0_MIN, Math.min(F0_MAX, f0))) - LOG_MIN) / (LOG_MAX - LOG_MIN);
   return padV + (H - padV * 2) * (1 - t);
@@ -64,6 +76,12 @@ export function PitchTrackerPanel(): React.ReactElement {
   const hoverReadoutRef = useRef<HTMLDivElement>(null);
   const drawDimRef = useRef({ H: 0, padV: 0 });
 
+  // Interval tracking
+  const lastStableMidiRef = useRef<number | null>(null); // MIDI of last confirmed stable note
+  const currentRunMidiRef = useRef<number | null>(null); // MIDI of current run (rounded)
+  const stableRunCountRef = useRef(0);
+  const intervalLabelRef = useRef<string | null>(null);
+
   const handlePitchMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
     const readout = hoverReadoutRef.current;
     const canvas = canvasRef.current;
@@ -89,11 +107,39 @@ export function PitchTrackerPanel(): React.ReactElement {
     if (frame.fileId !== lastFileIdRef.current) {
       lastFileIdRef.current = frame.fileId;
       historyRef.current = [];
+      lastStableMidiRef.current = null;
+      currentRunMidiRef.current = null;
+      stableRunCountRef.current = 0;
+      intervalLabelRef.current = null;
     }
     historyRef.current.push({ f0: frame.f0Hz, confidence: frame.f0Confidence });
     if (historyRef.current.length > HISTORY_MAX) historyRef.current.shift();
     currentRef.current = frame;
     lastDataTimeRef.current = performance.now();
+
+    // Interval tracking: detect when a stable note begins
+    if (frame.f0Hz !== null && frame.f0Confidence > 0.55) {
+      const midi = Math.round(69 + 12 * Math.log2(frame.f0Hz / 440));
+      if (currentRunMidiRef.current === midi) {
+        stableRunCountRef.current++;
+        if (stableRunCountRef.current === STABLE_FRAMES_NEEDED) {
+          // This note has become stable
+          const prev = lastStableMidiRef.current;
+          if (prev !== null && prev !== midi) {
+            intervalLabelRef.current = getIntervalLabel(prev, midi);
+          } else {
+            intervalLabelRef.current = null;
+          }
+          lastStableMidiRef.current = midi;
+        }
+      } else {
+        currentRunMidiRef.current = midi;
+        stableRunCountRef.current = 1;
+      }
+    } else {
+      currentRunMidiRef.current = null;
+      stableRunCountRef.current = 0;
+    }
   }), [frameBus]);
 
   useEffect(() => audioEngine.onReset(() => {
@@ -101,6 +147,10 @@ export function PitchTrackerPanel(): React.ReactElement {
     currentRef.current = null;
     lastFileIdRef.current = -1;
     lastDataTimeRef.current = performance.now();
+    lastStableMidiRef.current = null;
+    currentRunMidiRef.current = null;
+    stableRunCountRef.current = 0;
+    intervalLabelRef.current = null;
   }), [audioEngine]);
 
   useEffect(() => {
@@ -244,6 +294,49 @@ export function PitchTrackerPanel(): React.ReactElement {
         ctx.font = `${7.5 * dpr}px ${FONTS.mono}`;
         ctx.fillStyle = labelColor;
         ctx.fillText(tuning, SPACING.sm * dpr, (SPACING.xs + 23) * dpr);
+
+        // Interval from previous stable note
+        const intervalLabel = intervalLabelRef.current;
+        if (intervalLabel) {
+          ctx.font = `${7 * dpr}px ${FONTS.mono}`;
+          ctx.fillStyle = nge ? 'rgba(160,216,64,0.55)' : hyper ? 'rgba(98,232,255,0.55)' : 'rgba(200,175,100,0.55)';
+          ctx.fillText(intervalLabel, SPACING.sm * dpr, (SPACING.xs + 35) * dpr);
+        }
+
+        // ── Tuning bar ──────────────────────────────────────────────────
+        // Draw at bottom of panel, above the F0 TRACK label
+        const midi = 69 + 12 * Math.log2(cur.f0Hz / 440);
+        const cents = Math.round((midi - Math.round(midi)) * 100);
+        const barW = Math.min(W * 0.55, 80 * dpr);
+        const barH2 = 4 * dpr;
+        const barX = W * 0.5 - barW * 0.5;
+        const barY = H - (SPACING.xs + 9) * dpr;
+
+        // Background zones
+        const zoneW = barW / 2; // half = 50 cents
+        // Red zone (full bar background)
+        ctx.fillStyle = nge ? 'rgba(80,40,10,0.5)' : 'rgba(80,20,20,0.5)';
+        ctx.fillRect(barX, barY, barW, barH2);
+        // Yellow zone (±25 ct)
+        ctx.fillStyle = nge ? 'rgba(100,100,10,0.5)' : 'rgba(100,80,10,0.5)';
+        ctx.fillRect(barX + zoneW * 0.5, barY, zoneW, barH2);
+        // Green zone (±10 ct)
+        ctx.fillStyle = nge ? 'rgba(30,80,10,0.55)' : 'rgba(20,80,30,0.55)';
+        ctx.fillRect(barX + zoneW * 0.8, barY, zoneW * 0.4, barH2);
+
+        // Centre tick
+        ctx.fillStyle = labelColor;
+        ctx.fillRect(barX + zoneW - 0.5 * dpr, barY - 1 * dpr, 1 * dpr, barH2 + 2 * dpr);
+
+        // Needle — clamp to ±50 ct
+        const needleX = barX + zoneW + (Math.max(-50, Math.min(50, cents)) / 50) * zoneW;
+        const needleColor = Math.abs(cents) <= 10
+          ? (nge ? '#a0d840' : 'rgba(60,200,80,0.95)')
+          : Math.abs(cents) <= 25
+            ? (nge ? '#d0c040' : 'rgba(200,170,40,0.95)')
+            : COLORS.statusErr;
+        ctx.fillStyle = needleColor;
+        ctx.fillRect(Math.round(needleX) - dpr * 0.5, barY - 1 * dpr, dpr * 1.5, barH2 + 2 * dpr);
       } else {
         ctx.font = `${8 * dpr}px ${FONTS.mono}`;
         ctx.fillStyle = labelColor;

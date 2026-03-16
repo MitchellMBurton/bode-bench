@@ -1744,6 +1744,7 @@ export class AudioEngine {
     const frame: AudioFrame = {
       currentTime: this.currentTime,
       timeDomain: new Float32Array(tdL),
+      timeDomainRight: new Float32Array(tdR),
       frequencyDb: new Float32Array(this.frequencyData),
       frequencyDbRight: new Float32Array(this.frequencyDataR),
       peakLeft: Math.min(peakL, 1),

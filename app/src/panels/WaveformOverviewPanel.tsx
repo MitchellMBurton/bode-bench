@@ -3,7 +3,7 @@ import { useAudioEngine, useDisplayMode, useFrameBus, usePerformanceProfile, use
 import type { TimelineProfile } from '../runtime/performanceProfile';
 import { CANVAS, COLORS, FONTS, SPACING } from '../theme';
 import { shouldSkipFrame } from '../utils/rafGuard';
-import type { FileAnalysis, ScrubStyle, TransportState } from '../types';
+import type { FileAnalysis, Marker, ScrubStyle, TransportState } from '../types';
 
 interface EnvelopeData {
   peakEnv: Float32Array;
@@ -509,13 +509,19 @@ function drawBadge(
   ctx.fillText(text, rightX - padX, topY + padY);
 }
 
-export function WaveformOverviewPanel(): React.ReactElement {
+interface WaveformOverviewPanelProps {
+  markers?: Marker[];
+}
+
+export function WaveformOverviewPanel({ markers = [] }: WaveformOverviewPanelProps): React.ReactElement {
   const frameBus = useFrameBus();
   const audioEngine = useAudioEngine();
   const displayMode = useDisplayMode();
   const performanceProfile = usePerformanceProfile();
   const theaterMode = useTheaterMode();
   const [scrubStyle, setScrubStyle] = useState<ScrubStyle>(() => audioEngine.scrubStyle);
+  const markersRef = useRef<Marker[]>(markers);
+  markersRef.current = markers;
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const peakEnvRef = useRef<Float32Array | null>(null);
   const rmsEnvRef = useRef<Float32Array | null>(null);
@@ -1543,6 +1549,44 @@ export function WaveformOverviewPanel(): React.ReactElement {
         ctx.stroke();
       };
 
+      const drawMarkers = (rect: TimelineRect, start: number, end: number): void => {
+        const mks = markersRef.current;
+        if (!mks.length) return;
+        const markerColor = nge ? 'rgba(200,240,80,0.82)' : hyper ? 'rgba(255,200,80,0.88)' : 'rgba(220,190,80,0.88)';
+        const markerBg = 'rgba(6,6,10,0.72)';
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(rect.x, rect.y, rect.w, rect.h);
+        ctx.clip();
+        for (const mk of mks) {
+          if (mk.time < start - 0.001 || mk.time > end + 0.001) continue;
+          const mx = Math.round(timeToX(mk.time, start, end, rect)) + 0.5;
+          ctx.strokeStyle = markerColor;
+          ctx.lineWidth = 1.5 * dpr;
+          ctx.setLineDash([3 * dpr, 2 * dpr]);
+          ctx.beginPath();
+          ctx.moveTo(mx, rect.y);
+          ctx.lineTo(mx, rect.y + rect.h);
+          ctx.stroke();
+          ctx.setLineDash([]);
+          // Label badge
+          ctx.font = `${6.5 * dpr}px ${FONTS.mono}`;
+          const tw = ctx.measureText(mk.label).width;
+          const bPad = 2 * dpr;
+          const bW = tw + bPad * 2;
+          const bH = 8.5 * dpr;
+          const bX = Math.min(mx + 1.5 * dpr, rect.x + rect.w - bW - 1 * dpr);
+          const bY = rect.y + 1.5 * dpr;
+          ctx.fillStyle = markerBg;
+          ctx.fillRect(bX, bY, bW, bH);
+          ctx.fillStyle = markerColor;
+          ctx.textAlign = 'left';
+          ctx.textBaseline = 'top';
+          ctx.fillText(mk.label, bX + bPad, bY + 1 * dpr);
+        }
+        ctx.restore();
+      };
+
       const drawStreamedSessionMap = (
         rect: TimelineRect,
         start: number,
@@ -1859,6 +1903,7 @@ export function WaveformOverviewPanel(): React.ReactElement {
         }
 
         drawLoopOverlay(rect, start, end);
+        drawMarkers(rect, start, end);
         drawPlayCursor(rect, start, end, true);
         ctx.restore();
         return coveredColumns;
@@ -2212,6 +2257,7 @@ export function WaveformOverviewPanel(): React.ReactElement {
         }
 
         drawLoopOverlay(rect, start, end);
+        drawMarkers(rect, start, end);
         drawPlayCursor(rect, start, end, options.fillPlayback ?? false);
         ctx.restore();
         return coveredColumns;

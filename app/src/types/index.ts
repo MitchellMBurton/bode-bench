@@ -14,6 +14,8 @@ export interface AudioFrame {
   readonly currentTime: number;
   /** Time-domain waveform samples, normalised –1 to +1. Length = fftSize */
   readonly timeDomain: Float32Array;
+  /** Right-channel time-domain waveform samples, normalised –1 to +1. Length = fftSize */
+  readonly timeDomainRight: Float32Array;
   /** Frequency-domain magnitude in dB. Length = fftSize / 2 */
   readonly frequencyDb: Float32Array;
   /** Right channel frequency-domain magnitude in dB. Length = fftSize / 2 */
@@ -105,6 +107,20 @@ export interface TransportState {
   readonly loopStart: number | null;
   /** Loop region end time in seconds, or null if no loop is set. */
   readonly loopEnd: number | null;
+}
+
+// ----------------------------------------------------------
+// Markers
+// ----------------------------------------------------------
+
+/** A user-placed timeline marker, set via the M key during playback. */
+export interface Marker {
+  /** Unique sequential id, e.g. 1, 2, 3 */
+  readonly id: number;
+  /** Position in seconds from file start */
+  readonly time: number;
+  /** Short label, e.g. "M1", "M2" */
+  readonly label: string;
 }
 
 // ----------------------------------------------------------
