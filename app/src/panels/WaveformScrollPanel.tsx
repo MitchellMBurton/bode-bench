@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { useAudioEngine, useDisplayMode, useFrameBus, useScrollSpeed, useTheaterMode } from '../core/session';
 import type { VisualMode } from '../audio/displayMode';
 import { COLORS, FONTS, CANVAS, SPACING } from '../theme';
@@ -204,7 +204,27 @@ export function WaveformScrollPanel(): React.ReactElement {
   const scrollSpeed = useScrollSpeed();
   const theaterMode = useTheaterMode();
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const hoverReadoutRef = useRef<HTMLDivElement>(null);
   const offscreenRef = useRef<HTMLCanvasElement | null>(null);
+
+  const handleWaveScrollMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+    const readout = hoverReadoutRef.current;
+    const canvas = canvasRef.current;
+    if (!readout || !canvas) return;
+    const H = canvas.offsetHeight;
+    if (H === 0) return;
+    const amp = 1 - 2 * (e.nativeEvent.offsetY / H);
+    const absAmp = Math.abs(amp);
+    const db = absAmp > 0.0001 ? (20 * Math.log10(absAmp)).toFixed(1) : '< −80';
+    const sign = amp >= 0 ? '+' : '−';
+    readout.style.display = 'block';
+    readout.textContent = `${sign}${absAmp.toFixed(3)}   ${db} dBFS`;
+  }, []);
+
+  const handleWaveScrollMouseLeave = useCallback(() => {
+    const readout = hoverReadoutRef.current;
+    if (readout) readout.style.display = 'none';
+  }, []);
   const frameRef = useRef<AudioFrame | null>(null);
   const rafRef = useRef<number | null>(null);
   const lastFileIdRef = useRef(-1);
@@ -475,7 +495,13 @@ export function WaveformScrollPanel(): React.ReactElement {
 
   return (
     <div style={panelStyle}>
-      <canvas ref={canvasRef} style={canvasStyle} />
+      <canvas
+        ref={canvasRef}
+        style={canvasStyle}
+        onMouseMove={handleWaveScrollMouseMove}
+        onMouseLeave={handleWaveScrollMouseLeave}
+      />
+      <div ref={hoverReadoutRef} className="panel-hover-readout" />
     </div>
   );
 }

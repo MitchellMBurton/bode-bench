@@ -1,7 +1,7 @@
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { useAudioEngine, useDisplayMode, useFrameBus, useTheaterMode } from '../core/session';
 import { CANVAS, COLORS, FONTS, SPACING } from '../theme';
-import { freqToX, hexToRgba } from '../utils/canvas';
+import { formatHz, freqToX, hexToRgba } from '../utils/canvas';
 import { shouldSkipFrame } from '../utils/rafGuard';
 import type { AudioFrame } from '../types';
 
@@ -101,6 +101,41 @@ export function FrequencyResponsePanel(): React.ReactElement {
   const smoothRightRef = useRef<Float32Array | null>(null);
   const targetLeftRef = useRef<Float32Array | null>(null);
   const targetRightRef = useRef<Float32Array | null>(null);
+  const hoverReadoutRef = useRef<HTMLDivElement>(null);
+  // Layout values written each draw frame, read by hover handler
+  const drawLayoutRef = useRef({ padX: 0, padY: 0, drawW: 1, drawH: 1, topDb: 0, bottomDb: -54 });
+
+  const handleFreqMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+    const readout = hoverReadoutRef.current;
+    const canvas = canvasRef.current;
+    if (!readout || !canvas) return;
+
+    const { padX, padY, drawW, drawH, topDb, bottomDb } = drawLayoutRef.current;
+    if (drawW <= 0 || drawH <= 0) return;
+
+    const scaleX = canvas.width / canvas.offsetWidth;
+    const scaleY = canvas.height / canvas.offsetHeight;
+    const devX = e.nativeEvent.offsetX * scaleX;
+    const devY = e.nativeEvent.offsetY * scaleY;
+
+    if (devX < padX || devX > padX + drawW || devY < padY || devY > padY + drawH) {
+      readout.style.display = 'none';
+      return;
+    }
+
+    const fraction = (devX - padX) / drawW;
+    const hz = MIN_HZ * Math.pow(MAX_HZ / MIN_HZ, fraction);
+    const dbFraction = (devY - padY) / drawH;
+    const db = topDb - dbFraction * (topDb - bottomDb);
+
+    readout.style.display = 'block';
+    readout.textContent = `${formatHz(hz)}   ${db >= 0 ? '+' : ''}${db.toFixed(1)} dB`;
+  }, []);
+
+  const handleFreqMouseLeave = useCallback(() => {
+    const readout = hoverReadoutRef.current;
+    if (readout) readout.style.display = 'none';
+  }, []);
 
   useEffect(() => {
     return frameBus.subscribe((frame) => {
@@ -233,6 +268,7 @@ export function FrequencyResponsePanel(): React.ReactElement {
 
       const topDb = Math.min(0, hottestDb + 6);
       const bottomDb = topDb - DISPLAY_DB_SPAN;
+      drawLayoutRef.current = { padX, padY, drawW, drawH, topDb, bottomDb };
       const averageY = new Float32Array(pointCount);
       const leftY = new Float32Array(pointCount);
       const rightY = new Float32Array(pointCount);
@@ -276,6 +312,17 @@ export function FrequencyResponsePanel(): React.ReactElement {
         ctx.textAlign = tick === MIN_HZ ? 'left' : tick === MAX_HZ ? 'right' : 'center';
         ctx.textBaseline = 'top';
         ctx.fillText(formatFreqLabel(tick), x, padY + drawH + 4 * dpr);
+      }
+
+      // Band boundary Hz labels — dim vertical markers at each band edge
+      ctx.font = `${7 * dpr}px ${FONTS.mono}`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'bottom';
+      ctx.fillStyle = hyper ? 'rgba(88,124,255,0.28)' : nge ? 'rgba(120,200,40,0.28)' : 'rgba(160,140,80,0.28)';
+      for (let i = 1; i < CANVAS.frequencyBands.length; i++) {
+        const boundHz = CANVAS.frequencyBands[i].lowHz;
+        const bx = padX + freqToX(boundHz, drawW, MIN_HZ, MAX_HZ);
+        ctx.fillText(formatFreqLabel(boundHz), bx, padY - 2 * dpr);
       }
 
       const ribbonGradient = ctx.createLinearGradient(padX, padY, padX, padY + drawH);
@@ -412,12 +459,19 @@ export function FrequencyResponsePanel(): React.ReactElement {
 
   return (
     <div style={panelStyle}>
-      <canvas ref={canvasRef} style={canvasStyle} />
+      <canvas
+        ref={canvasRef}
+        style={canvasStyle}
+        onMouseMove={handleFreqMouseMove}
+        onMouseLeave={handleFreqMouseLeave}
+      />
+      <div ref={hoverReadoutRef} className="panel-hover-readout" />
     </div>
   );
 }
 
 const panelStyle: React.CSSProperties = {
+  position: 'relative',
   width: '100%',
   height: '100%',
   background: COLORS.bg2,

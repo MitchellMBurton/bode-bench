@@ -5,7 +5,7 @@
 // scroll speed at CANVAS.timelineScrollPx × scrollSpeed.value.
 // ============================================================
 
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { useAudioEngine, useDisplayMode, useFrameBus, useScrollSpeed, useTheaterMode } from '../core/session';
 import { COLORS, FONTS, SPACING, CANVAS } from '../theme';
 import { shouldSkipFrame } from '../utils/rafGuard';
@@ -44,6 +44,28 @@ export function LoudnessHistoryPanel(): React.ReactElement {
   const theaterMode = useTheaterMode();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const historyRef = useRef<number[]>([]);
+  const hoverReadoutRef = useRef<HTMLDivElement>(null);
+  const drawDimRef = useRef({ H: 0, padV: 0 });
+
+  const handleLoudMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+    const readout = hoverReadoutRef.current;
+    const canvas = canvasRef.current;
+    if (!readout || !canvas) return;
+    const { H, padV } = drawDimRef.current;
+    if (H === 0) return;
+    const scaleY = H / canvas.offsetHeight;
+    const devY = e.nativeEvent.offsetY * scaleY;
+    if (devY < padV || devY > H - padV) { readout.style.display = 'none'; return; }
+    const t = (devY - padV) / (H - padV * 2);
+    const db = DB_MAX + t * (DB_MIN - DB_MAX);
+    readout.style.display = 'block';
+    readout.textContent = `${db.toFixed(1)} dBFS`;
+  }, []);
+
+  const handleLoudMouseLeave = useCallback(() => {
+    const readout = hoverReadoutRef.current;
+    if (readout) readout.style.display = 'none';
+  }, []);
   const currentRef = useRef<AudioFrame | null>(null);
   const lastFileIdRef = useRef(-1);
   const rafRef = useRef<number | null>(null);
@@ -98,6 +120,7 @@ export function LoudnessHistoryPanel(): React.ReactElement {
       const nge = displayMode.nge;
       const hyper = displayMode.hyper;
       const padV = PAD_V_PX * dpr;
+      drawDimRef.current = { H, padV };
       const baseY = H - padV;
       const traceColor = nge ? NGE_TRACE : hyper ? HYPER_TRACE : COLORS.waveform;
       const labelColor = nge ? NGE_LABEL : hyper ? HYPER_LABEL : COLORS.textDim;
@@ -210,12 +233,19 @@ export function LoudnessHistoryPanel(): React.ReactElement {
 
   return (
     <div style={panelStyle}>
-      <canvas ref={canvasRef} style={canvasStyle} />
+      <canvas
+        ref={canvasRef}
+        style={canvasStyle}
+        onMouseMove={handleLoudMouseMove}
+        onMouseLeave={handleLoudMouseLeave}
+      />
+      <div ref={hoverReadoutRef} className="panel-hover-readout" />
     </div>
   );
 }
 
 const panelStyle: React.CSSProperties = {
+  position: 'relative',
   width: '100%',
   height: '100%',
   background: COLORS.bg1,

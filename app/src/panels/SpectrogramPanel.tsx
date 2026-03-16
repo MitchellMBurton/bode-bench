@@ -1,8 +1,8 @@
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { useAudioEngine, useDisplayMode, useFrameBus, useScrollSpeed, useTheaterMode } from '../core/session';
 import type { VisualMode } from '../audio/displayMode';
 import { COLORS, FONTS, CANVAS, SPACING } from '../theme';
-import { hexToRgb, spectroColor } from '../utils/canvas';
+import { formatHz, hexToRgb, spectroColor } from '../utils/canvas';
 import { shouldSkipFrame } from '../utils/rafGuard';
 import type { AudioFrame } from '../types';
 
@@ -186,6 +186,51 @@ export function SpectrogramPanel(): React.ReactElement {
   const lastFrameRef = useRef<AudioFrame | null>(null);
   const scrollCarryRef = useRef(0);
   const lastModeRef = useRef<VisualMode>(displayMode.mode);
+  const hoverReadoutRef = useRef<HTMLDivElement>(null);
+
+  const handleSpectroMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+    const readout = hoverReadoutRef.current;
+    const canvas = canvasRef.current;
+    const history = historyRef.current;
+    if (!readout || !canvas) return;
+
+    const { axisW, spectroW, spectroH, padY, W, H } = dimRef.current;
+    if (spectroW <= 0 || spectroH <= 0) return;
+
+    // Convert CSS-pixel offset to device pixels
+    const scaleX = W / canvas.offsetWidth;
+    const scaleY = H / canvas.offsetHeight;
+    const devX = e.nativeEvent.offsetX * scaleX;
+    const devY = e.nativeEvent.offsetY * scaleY;
+
+    if (devX < axisW || devY < padY || devY > padY + spectroH) {
+      readout.style.display = 'none';
+      return;
+    }
+
+    const tY = 1 - (devY - padY) / spectroH;
+    const hz = 20 * Math.pow(1000, tY);
+
+    let line = formatHz(hz);
+
+    if (history) {
+      const col = Math.max(0, Math.min(spectroW - 1, Math.floor(devX - axisW)));
+      const row = Math.max(0, Math.min(spectroH - 1, Math.floor(devY - padY)));
+      const level = history[row * spectroW + col];
+      if (level >= 0) {
+        const db = CANVAS.dbMin + (level / (HISTORY_LEVELS - 1)) * (CANVAS.dbMax - CANVAS.dbMin);
+        line += `   ${db.toFixed(1)} dB`;
+      }
+    }
+
+    readout.style.display = 'block';
+    readout.textContent = line;
+  }, []);
+
+  const handleSpectroMouseLeave = useCallback(() => {
+    const readout = hoverReadoutRef.current;
+    if (readout) readout.style.display = 'none';
+  }, []);
 
   useEffect(() => {
     return frameBus.subscribe((frame) => {
@@ -402,12 +447,19 @@ export function SpectrogramPanel(): React.ReactElement {
 
   return (
     <div style={panelStyle}>
-      <canvas ref={canvasRef} style={canvasStyle} />
+      <canvas
+        ref={canvasRef}
+        style={canvasStyle}
+        onMouseMove={handleSpectroMouseMove}
+        onMouseLeave={handleSpectroMouseLeave}
+      />
+      <div ref={hoverReadoutRef} className="panel-hover-readout" />
     </div>
   );
 }
 
 const panelStyle: React.CSSProperties = {
+  position: 'relative',
   width: '100%',
   height: '100%',
   background: SPECTRO_BG,

@@ -12,7 +12,7 @@ import type { VisualMode } from '../audio/displayMode';
 
 const PANEL_DPR_MAX = 1.25;
 
-// sub → body → wood → bow → air → shimmer (low register to high)
+// sub → lo-mid → mid → hi-mid → presence → air (low to high)
 const BAND_COLORS_DEFAULT = CANVAS.bandColors;
 const BAND_COLORS_NGE = ['#0d2a0a', '#0f4a0e', '#1a6a18', '#2a8a20', '#50aa20', '#80d028'] as const;
 const BAND_COLORS_HYPER = ['#0c1460', '#0a2272', '#0a3888', '#0c529a', '#1068a8', '#1888b8'] as const;

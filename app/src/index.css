@@ -44,6 +44,26 @@ input[type="range"] {
   background: transparent;
 }
 
+/* Panel hover measurement readout — positioned inside panel wrapper */
+.panel-hover-readout {
+  display: none;
+  position: absolute;
+  top: 24px;
+  left: 8px;
+  padding: 2px 6px;
+  background: rgba(6, 6, 10, 0.82);
+  border: 1px solid rgba(160, 140, 80, 0.18);
+  border-radius: 2px;
+  font-family: "JetBrains Mono", "Fira Mono", monospace;
+  font-size: 10px;
+  line-height: 1.5;
+  color: rgba(200, 185, 120, 0.9);
+  letter-spacing: 0.04em;
+  pointer-events: none;
+  white-space: pre;
+  z-index: 10;
+}
+
 @keyframes nge-scanlines {
   from {
     background-position: 0 0;

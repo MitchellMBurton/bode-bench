@@ -100,6 +100,19 @@ export function freqToX(hz: number, width: number, minHz = 20, maxHz = 20000): n
   return ((Math.log10(hz) - logMin) / (logMax - logMin)) * width;
 }
 
+/** Inverse of freqToX — map an x-position back to frequency (Hz), log scale. */
+export function xToFreq(x: number, width: number, minHz = 20, maxHz = 20000): number {
+  const logMin = Math.log10(minHz);
+  const logMax = Math.log10(maxHz);
+  return Math.pow(10, logMin + (x / width) * (logMax - logMin));
+}
+
+/** Format a frequency value as a human-readable string (e.g. "261 Hz", "4.32 kHz"). */
+export function formatHz(hz: number): string {
+  if (hz >= 1000) return `${(hz / 1000).toFixed(hz >= 10000 ? 1 : 2)} kHz`;
+  return `${Math.round(hz)} Hz`;
+}
+
 /** Map an FFT bin index to frequency (Hz). */
 export function binToHz(bin: number, fftSize: number, sampleRate: number): number {
   return (bin * sampleRate) / fftSize;

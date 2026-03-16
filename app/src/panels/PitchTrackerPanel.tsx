@@ -5,7 +5,7 @@
 // Scroll speed matches CANVAS.timelineScrollPx × scrollSpeed.value
 // ============================================================
 
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { useAudioEngine, useDisplayMode, useFrameBus, useScrollSpeed, useTheaterMode } from '../core/session';
 import { COLORS, FONTS, SPACING, CANVAS } from '../theme';
 import { shouldSkipFrame } from '../utils/rafGuard';
@@ -61,6 +61,29 @@ export function PitchTrackerPanel(): React.ReactElement {
   const lastFileIdRef = useRef(-1);
   const rafRef = useRef<number | null>(null);
   const lastDataTimeRef = useRef(0);
+  const hoverReadoutRef = useRef<HTMLDivElement>(null);
+  const drawDimRef = useRef({ H: 0, padV: 0 });
+
+  const handlePitchMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+    const readout = hoverReadoutRef.current;
+    const canvas = canvasRef.current;
+    if (!readout || !canvas) return;
+    const { H, padV } = drawDimRef.current;
+    if (H === 0) return;
+    const scaleY = H / canvas.offsetHeight;
+    const devY = e.nativeEvent.offsetY * scaleY;
+    if (devY < padV || devY > H - padV) { readout.style.display = 'none'; return; }
+    const t = 1 - (devY - padV) / (H - padV * 2);
+    const hz = Math.pow(2, LOG_MIN + t * (LOG_MAX - LOG_MIN));
+    const { name, tuning } = f0ToLabel(hz);
+    readout.style.display = 'block';
+    readout.textContent = `${name}  ${Math.round(hz)} Hz  ${tuning}`;
+  }, []);
+
+  const handlePitchMouseLeave = useCallback(() => {
+    const readout = hoverReadoutRef.current;
+    if (readout) readout.style.display = 'none';
+  }, []);
 
   useEffect(() => frameBus.subscribe((frame) => {
     if (frame.fileId !== lastFileIdRef.current) {
@@ -110,6 +133,7 @@ export function PitchTrackerPanel(): React.ReactElement {
       const nge = displayMode.nge;
       const hyper = displayMode.hyper;
       const padV = PAD_V_PX * dpr;
+      drawDimRef.current = { H, padV };
       const traceColor = nge ? NGE_TRACE : hyper ? HYPER_TRACE : COLORS.waveform;
       const traceStroke = nge ? NGE_TRACE_SOFT : hyper ? HYPER_TRACE_SOFT : 'rgba(200,146,42,0.80)';
       const glowColor = nge ? NGE_GLOW : hyper ? HYPER_GLOW : 'rgba(200,146,42,0.30)';
@@ -240,12 +264,19 @@ export function PitchTrackerPanel(): React.ReactElement {
 
   return (
     <div style={panelStyle}>
-      <canvas ref={canvasRef} style={canvasStyle} />
+      <canvas
+        ref={canvasRef}
+        style={canvasStyle}
+        onMouseMove={handlePitchMouseMove}
+        onMouseLeave={handlePitchMouseLeave}
+      />
+      <div ref={hoverReadoutRef} className="panel-hover-readout" />
     </div>
   );
 }
 
 const panelStyle: React.CSSProperties = {
+  position: 'relative',
   width: '100%',
   height: '100%',
   background: COLORS.bg1,

@@ -163,13 +163,13 @@ export const CANVAS = {
     ],
   },
 
-  // Cello-meaningful frequency bands
+  // Frequency bands — standard audio engineering terminology
   frequencyBands: [
     { label: 'Sub', range: '20-80 Hz', centerHz: 40, lowHz: 20, highHz: 80 },
-    { label: 'Body', range: '80-240 Hz', centerHz: 150, lowHz: 80, highHz: 240 },
-    { label: 'Wood', range: '240-900 Hz', centerHz: 500, lowHz: 240, highHz: 900 },
-    { label: 'Bow', range: '900-2800 Hz', centerHz: 1800, lowHz: 900, highHz: 2800 },
-    { label: 'Air', range: '2.8-8k Hz', centerHz: 4000, lowHz: 2800, highHz: 8000 },
-    { label: 'Shimmer', range: '8-20k Hz', centerHz: 12000, lowHz: 8000, highHz: 20000 },
+    { label: 'Lo-Mid', range: '80-240 Hz', centerHz: 150, lowHz: 80, highHz: 240 },
+    { label: 'Mid', range: '240-900 Hz', centerHz: 500, lowHz: 240, highHz: 900 },
+    { label: 'Hi-Mid', range: '900-2800 Hz', centerHz: 1800, lowHz: 900, highHz: 2800 },
+    { label: 'Presence', range: '2.8-8k Hz', centerHz: 4000, lowHz: 2800, highHz: 8000 },
+    { label: 'Air', range: '8-20k Hz', centerHz: 12000, lowHz: 8000, highHz: 20000 },
   ],
 } as const;
