@@ -16,6 +16,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { VisualMode } from '../audio/displayMode';
 import { LayoutInteractionProvider } from './LayoutInteraction';
+import { PanelHelp } from './PanelHelp';
 import { SplitPane } from './SplitPane';
 import { COLORS, FONTS, SPACING, CANVAS } from '../theme';
 
@@ -34,6 +35,7 @@ interface PanelDef {
   category: string;
   title: string;
   stat?: string;
+  help?: string;
   content: React.ReactNode;
 }
 
@@ -91,7 +93,7 @@ interface ChromePanelProps extends PanelDef {
   visualMode?: VisualMode;
 }
 
-function ChromePanel({ category, title, stat, content, visualMode }: ChromePanelProps): React.ReactElement {
+function ChromePanel({ category, title, stat, help, content, visualMode }: ChromePanelProps): React.ReactElement {
   const nge = visualMode === 'nge';
   const hyper = visualMode === 'hyper';
   const chromeBorder = nge
@@ -123,6 +125,7 @@ function ChromePanel({ category, title, stat, content, visualMode }: ChromePanel
           <span style={chromeTitleStyle}>{title}</span>
         </div>
         {stat && <span style={{ ...chromeStatStyle, color: chromeStat }}>{stat}</span>}
+        {help && <PanelHelp text={help} visualMode={visualMode} />}
       </div>
       <div style={chromeContentStyle}>
         {content}

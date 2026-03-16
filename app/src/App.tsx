@@ -226,6 +226,7 @@ export default function App(): React.ReactElement {
         topLeft={{
           category: 'SUITE CONSOLE',
           title: panelTitle,
+          help: 'SESSION CONTROLS\n\nLoad a file via drag-drop or the file button. All analysis runs locally — no network required.\n\nVOL: output volume. RATE: playback speed (preserves pitch when pitch mode is on). PITCH: enable real-time pitch shifting on decoded files (< 384 MB).\n\nGREYSCALE: monochrome overlay. NGE: phosphor-green palette. HYPER: cyan/indigo palette.\n\nDiagnostics log captures every transport event and file analysis result.',
           content: (
             <div style={controlPanelStyle}>
               <MetadataDisplay filename={filename} />
@@ -244,6 +245,7 @@ export default function App(): React.ReactElement {
         topRight={{
           category: 'LIVE DIAGNOSTIC',
           title: 'OVERVIEW / WAVEFORM / PITCH / OSC / RESPONSE',
+          help: 'LIVE DIAGNOSTIC SURFACES\n\nOVERVIEW — Full-file waveform envelope. Drag the view window to zoom; drag loop handles to set loop region. Session map fills in progressively for large files.\n\nWAVEFORM — Scrolling amplitude tape. Hover to read ±amplitude and dBFS at any height.\n\nF0 TRACK — Pitch history (60–900 Hz, log scale). Newest data scrolls from right. Hover to read note name and cents deviation.\n\nOSCILLOSCOPE — Triggered waveform cycle. Shows signal morphology at playback rate.\n\nFREQ RESPONSE — Smoothed L/R frequency curves (20 Hz–20 kHz). Hover for exact Hz + dB. Dim labels above show band boundaries.',
           content: (
             <TheaterPanelShell
               active={theaterMode}
@@ -272,6 +274,7 @@ export default function App(): React.ReactElement {
         bottomLeft={{
           category: 'SUPPORT INSTRUMENTATION',
           title: 'LEVELS / BANDS / PARTIALS',
+          help: 'SUPPORT INSTRUMENTATION\n\nLEVELS — Stereo peak (bright) and RMS (dim) bars in dBFS. Peak hold decays slowly. Colour zones: green (< −12 dB), yellow (−12 to −3 dB), red (> −3 dB).\n\nFREQ BANDS — Six-band energy display.\n  Sub: 20–80 Hz (subwoofer weight)\n  Lo-Mid: 80–240 Hz (warmth, mud)\n  Mid: 240–900 Hz (body, presence)\n  Hi-Mid: 900–2800 Hz (articulation, harshness)\n  Presence: 2800–8000 Hz (clarity, sibilance)\n  Air: 8–20 kHz (sheen, breath)\n\nHARMONICS — First 10 partials of detected fundamental. Normalised relative to strongest partial (40 dB dynamic window). Fundamental at left; overtones descend in brightness.',
           content: (
             <TheaterPanelShell
               active={theaterMode}
@@ -297,6 +300,7 @@ export default function App(): React.ReactElement {
         bottomRight={{
           category: 'SPECTRAL ANATOMY',
           title: 'LOUDNESS / SPECTROGRAM',
+          help: 'SPECTRAL ANATOMY\n\nRMS LEVEL — Short-term loudness history. Scrolls in sync with the spectrogram. Reference lines at −6, −18, −36 dBFS. Hover to read level at any point in history.\n\nSPECTROGRAM — Time–frequency representation.\n  Horizontal: time flows left → right (newest at right edge)\n  Vertical: frequency 20 Hz (bottom) → 20 kHz (top), log scale\n  Brightness: amplitude (dark = quiet, bright = loud), range −96 to 0 dBFS\n\nWhat to look for:\n  Horizontal lines → sustained tones or resonances\n  Vertical streaks → transients and attacks\n  Evenly-spaced horizontal lines → harmonic series\n  Diffuse colour field → broadband noise\n\nHover to read exact frequency and level at the cursor.',
           content: (
             <TheaterPanelShell
               active={theaterMode}
