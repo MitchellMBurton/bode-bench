@@ -932,7 +932,7 @@ function PerformanceTracePanel({
   events: readonly PerformanceEvent[];
 }): React.ReactElement {
   const width = 1280;
-  const height = 238;
+  const height = 256;
   const leftRailWidth = 178;
   const rightRailWidth = 108;
   const plotLeft = leftRailWidth + 12;
@@ -940,8 +940,8 @@ function PerformanceTracePanel({
   const headerTop = 12;
   const eventBandHeight = 22;
   const plotTop = headerTop + eventBandHeight + 14;
-  const laneHeight = 28;
-  const laneGap = 10;
+  const laneHeight = 36;
+  const laneGap = 8;
   const plotWidth = width - plotLeft - plotRight;
   const latest = samples[samples.length - 1] ?? null;
   const spanLabel = formatTraceSpan(samples);
@@ -1099,12 +1099,11 @@ function PerformanceTracePanel({
       <div
         style={{
           border: `1px solid ${COLORS.border}`,
-          background: 'linear-gradient(180deg, rgba(9, 11, 17, 0.96), rgba(13, 16, 24, 0.98))',
+          background: COLORS.bg2,
           padding: `${SPACING.xs}px ${SPACING.xs}px ${SPACING.sm}px`,
-          boxShadow: 'inset 0 1px 0 rgba(120, 134, 188, 0.05)',
         }}
       >
-        <svg viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" style={{ display: 'block', width: '100%', height: 208 }}>
+        <svg viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" style={{ display: 'block', width: '100%', height: 236 }}>
           <defs>
             <linearGradient id="perfTraceSweepModern" x1="0" y1="0" x2="1" y2="0">
               <stop offset="0%" stopColor="rgba(80, 96, 192, 0)" />
@@ -1204,11 +1203,11 @@ function PerformanceTracePanel({
                 {areaPath ? <path d={areaPath} fill={lane.fill} /> : null}
                 <path d={linePath} fill="none" stroke={lane.glow} strokeWidth={4.6} strokeLinecap="round" strokeLinejoin="round" />
                 <path d={linePath} fill="none" stroke={lane.color} strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" />
-                <text x={26} y={top + 11} fill={COLORS.textTitle} fontFamily={FONTS.mono} fontSize={10.2} letterSpacing="1.15">{lane.code}</text>
-                <text x={26} y={top + 22} fill={COLORS.textCategory} fontFamily={FONTS.mono} fontSize={8} letterSpacing="0.7">{lane.subtitle}</text>
-                <text x={leftRailWidth - 4} y={top + 11} fill={COLORS.textDim} fontFamily={FONTS.mono} fontSize={8.2} textAnchor="end" letterSpacing="0.6">{lane.scale}</text>
-                <text x={width - 24} y={top + 11} fill={COLORS.textTitle} fontFamily={FONTS.mono} fontSize={10.4} textAnchor="end" letterSpacing="0.5">{lane.detail}</text>
-                <text x={width - 24} y={top + 22} fill={lane.statusColor} fontFamily={FONTS.mono} fontSize={8} textAnchor="end" letterSpacing="0.8">{lane.status}</text>
+                <text x={26} y={top + 14} fill={COLORS.textTitle} fontFamily={FONTS.mono} fontSize={10.2} letterSpacing="1.15">{lane.code}</text>
+                <text x={26} y={top + 26} fill={COLORS.textCategory} fontFamily={FONTS.mono} fontSize={8} letterSpacing="0.7">{lane.subtitle}</text>
+                <text x={leftRailWidth - 4} y={top + 14} fill={COLORS.textDim} fontFamily={FONTS.mono} fontSize={8.2} textAnchor="end" letterSpacing="0.6">{lane.scale}</text>
+                <text x={width - 24} y={top + 14} fill={COLORS.textTitle} fontFamily={FONTS.mono} fontSize={10.4} textAnchor="end" letterSpacing="0.5">{lane.detail}</text>
+                <text x={width - 24} y={top + 26} fill={lane.statusColor} fontFamily={FONTS.mono} fontSize={8} textAnchor="end" letterSpacing="0.8">{lane.status}</text>
                 {lane.centered ? (
                   <text x={plotLeft - 8} y={baseline + 3} fill={COLORS.textDim} fontFamily={FONTS.mono} fontSize={8.2} textAnchor="end">0</text>
                 ) : null}
