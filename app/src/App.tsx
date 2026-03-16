@@ -333,7 +333,7 @@ export default function App(): React.ReactElement {
             >
               <SplitPane
                 direction="column"
-                initialSizes={[12, 14, 74]}
+                initialSizes={[10, 18, 72]}
                 minSizePx={[48, 64, 96]}
                 resetToken={layoutResetToken}
                 persistKey="console:bottom-right-stack"

@@ -29,10 +29,13 @@ const RLB_A2 = 0.99007225036603;
 
 // ── Measurement constants ─────────────────────────────────────────────────────
 const LUFS_FLOOR = -60;
-const MOMENTARY_FRAMES = 8;   // 400 ms at 20 fps
-const SHORT_TERM_FRAMES = 60; // 3 s at 20 fps
-const TP_WARN_DB = -1.0;      // True-Peak warning threshold (dBTP)
-const GATE_THRESHOLD = -70;   // Absolute gate for integrated loudness (LUFS)
+const MOMENTARY_FRAMES = 8;     // 400 ms at 20 fps
+const SHORT_TERM_FRAMES = 60;   // 3 s at 20 fps
+const TP_WARN_DB = -1.0;        // True-Peak warning threshold (dBTP)
+const ABS_GATE_LUFS = -70;      // EBU R128 absolute gate
+const REL_GATE_LU = 10;         // EBU R128 relative gate offset (LU below preliminary)
+const MAX_STORED_FRAMES = 7200; // 6 min at 20 fps — for two-pass integrated gating
+const INT_RECOMPUTE_EVERY = 20; // recompute gated integrated once per second
 
 // Streaming delivery reference lines: [lufs, short label, long label]
 const REF_LINES: [number, string, string][] = [
@@ -99,15 +102,49 @@ export function LoudnessMeterPanel(): React.ReactElement {
   const kMsPtr = useRef(0);  // next write position
   const kMsLen = useRef(0);  // valid entries (0–SHORT_TERM_FRAMES)
 
-  // Integrated loudness accumulation (absolute gate only)
-  const intSumRef = useRef(0);
-  const intCntRef = useRef(0);
+  // All K-weighted mean-squares — stored for two-pass EBU R128 gating
+  const allMsRef = useRef<Float32Array>(new Float32Array(MAX_STORED_FRAMES));
+  const allMsCountRef = useRef(0);
+  const recomputeCounterRef = useRef(0);
+
+  // Cached gated integrated LUFS (updated once per second via two-pass gate)
+  const intLufsCachedRef = useRef(LUFS_FLOOR);
+  const intHasRef = useRef(false); // true once we have ≥ 1s of above-gate material
 
   // True Peak hold
   const tpHoldRef = useRef(LUFS_FLOOR);
 
   const lastFileIdRef = useRef(-1);
   const currentRef = useRef<AudioFrame | null>(null);
+
+  // ── Two-pass EBU R128 integrated loudness ─────────────────────────────────
+  function recomputeIntegrated() {
+    const ms = allMsRef.current;
+    const n = allMsCountRef.current;
+    if (n === 0) { intLufsCachedRef.current = LUFS_FLOOR; intHasRef.current = false; return; }
+
+    // Pass 1: absolute gate − sum frames > −70 LUFS
+    let absSum = 0, absCnt = 0;
+    for (let i = 0; i < n; i++) {
+      if (msToLufs(ms[i]) > ABS_GATE_LUFS) { absSum += ms[i]; absCnt++; }
+    }
+    if (absCnt === 0) { intLufsCachedRef.current = LUFS_FLOOR; intHasRef.current = false; return; }
+
+    // Preliminary integrated LUFS from absolute-gated frames
+    const prelimLufs = msToLufs(absSum / absCnt);
+    const relThreshold = prelimLufs - REL_GATE_LU;
+
+    // Pass 2: relative gate − frames also > (preliminary − 10 LU)
+    let relSum = 0, relCnt = 0;
+    for (let i = 0; i < n; i++) {
+      const l = msToLufs(ms[i]);
+      if (l > ABS_GATE_LUFS && l > relThreshold) { relSum += ms[i]; relCnt++; }
+    }
+    if (relCnt === 0) { intLufsCachedRef.current = LUFS_FLOOR; intHasRef.current = false; return; }
+
+    intLufsCachedRef.current = msToLufs(relSum / relCnt);
+    intHasRef.current = true;
+  }
 
   // ── Reset helper ─────────────────────────────────────────────────────────
   function resetState() {
@@ -116,8 +153,11 @@ export function LoudnessMeterPanel(): React.ReactElement {
     kMsBuf.current.fill(0);
     kMsPtr.current = 0;
     kMsLen.current = 0;
-    intSumRef.current = 0;
-    intCntRef.current = 0;
+    allMsRef.current = new Float32Array(MAX_STORED_FRAMES);
+    allMsCountRef.current = 0;
+    recomputeCounterRef.current = 0;
+    intLufsCachedRef.current = LUFS_FLOOR;
+    intHasRef.current = false;
     tpHoldRef.current = LUFS_FLOOR;
     currentRef.current = null;
     lastFileIdRef.current = -1;
@@ -135,19 +175,27 @@ export function LoudnessMeterPanel(): React.ReactElement {
     const msR = kWeightMs(frame.timeDomainRight, biquadR.current);
     const frameMs = (msL + msR) * 0.5;
 
+    // Short-term circular buffer
     const ptr = kMsPtr.current % SHORT_TERM_FRAMES;
     kMsBuf.current[ptr] = frameMs;
     kMsPtr.current++;
     kMsLen.current = Math.min(kMsLen.current + 1, SHORT_TERM_FRAMES);
 
-    // Integrated loudness — absolute gate at −70 LUFS
-    const frameLufs = msToLufs(frameMs);
-    if (frameLufs > GATE_THRESHOLD) {
-      intSumRef.current += frameMs;
-      intCntRef.current++;
+    // Store for two-pass integrated gating (cap at MAX_STORED_FRAMES)
+    const idx = allMsCountRef.current;
+    if (idx < MAX_STORED_FRAMES) {
+      allMsRef.current[idx] = frameMs;
+      allMsCountRef.current = idx + 1;
     }
 
-    // True peak from per-frame peak amplitude (approximation of inter-sample peak)
+    // Recompute integrated loudness once per second
+    recomputeCounterRef.current++;
+    if (recomputeCounterRef.current >= INT_RECOMPUTE_EVERY) {
+      recomputeCounterRef.current = 0;
+      recomputeIntegrated();
+    }
+
+    // True peak from per-frame peak amplitude
     const peakLin = Math.max(frame.peakLeft, frame.peakRight);
     if (peakLin > 0) {
       const peakDb = 20 * Math.log10(peakLin);
@@ -218,9 +266,8 @@ export function LoudnessMeterPanel(): React.ReactElement {
         stMs += buf[((ptr - 1 - i) % SHORT_TERM_FRAMES + SHORT_TERM_FRAMES) % SHORT_TERM_FRAMES];
       }
       const shortTermLufs = stN > 0 ? msToLufs(stMs / stN) : LUFS_FLOOR;
-      const intLufs = intCntRef.current > 0
-        ? msToLufs(intSumRef.current / intCntRef.current)
-        : LUFS_FLOOR;
+      const intLufs = intLufsCachedRef.current;
+      const intHas = intHasRef.current;
       const truePeak = tpHoldRef.current;
       const hasSignal = len > 0 && momentaryLufs > LUFS_FLOOR + 6;
 
@@ -238,6 +285,8 @@ export function LoudnessMeterPanel(): React.ReactElement {
       if (barW <= 4 || barH <= 4) return;
 
       // ── Reference lines ─────────────────────────────────────────────────
+      // Only draw long labels when the bar is wide enough to fit them legibly
+      const showLongLabels = barW > 120 * dpr;
       ctx.setLineDash([3 * dpr, 4 * dpr]);
       for (const [lufs, shortLabel, longLabel] of REF_LINES) {
         const y = Math.round(padT + lufsToY(lufs, barH)) + 0.5;
@@ -253,8 +302,10 @@ export function LoudnessMeterPanel(): React.ReactElement {
         ctx.textAlign = 'left';
         ctx.textBaseline = 'bottom';
         ctx.fillText(shortLabel, barX + 2 * dpr, y - 1 * dpr);
-        ctx.textAlign = 'right';
-        ctx.fillText(longLabel, W - padR, y - 1 * dpr);
+        if (showLongLabels) {
+          ctx.textAlign = 'right';
+          ctx.fillText(longLabel, W - padR, y - 1 * dpr);
+        }
       }
       ctx.setLineDash([]);
 
@@ -335,10 +386,14 @@ export function LoudnessMeterPanel(): React.ReactElement {
 
       ctx.font = `${7.5 * dpr}px ${FONTS.mono}`;
 
-      // INT
-      const intHas = intCntRef.current > 0;
+      // INT — clamp display to LUFS_FLOOR, show '< −60' for values that would go below
+      const intDisplayStr = !intHas
+        ? '---.-'
+        : intLufs < LUFS_FLOOR
+          ? `<${LUFS_FLOOR}`
+          : intLufs.toFixed(1);
       ctx.fillStyle = intHas ? textColor : labelColor;
-      ctx.fillText(`INT ${intHas ? intLufs.toFixed(1) : '---.-'}`, topLx, topY);
+      ctx.fillText(`INT ${intDisplayStr}`, topLx, topY);
       topY += 11 * dpr;
 
       // ST
