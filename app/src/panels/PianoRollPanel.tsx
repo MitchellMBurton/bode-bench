@@ -7,6 +7,7 @@
 import { useEffect, useRef } from 'react';
 import { useAudioEngine } from '../core/session';
 import { COLORS, FONTS, SPACING } from '../theme';
+import { shouldSkipFrame } from '../utils/rafGuard';
 import type { NoteEvent } from '../types';
 
 interface Props {
@@ -68,6 +69,7 @@ export function PianoRollPanel({ noteEvents }: Props): React.ReactElement {
 
     const draw = () => {
       rafRef.current = requestAnimationFrame(draw);
+      if (shouldSkipFrame()) return;
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
 

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAudioEngine, useDisplayMode, useFrameBus, usePerformanceProfile, useTheaterMode } from '../core/session';
 import type { TimelineProfile } from '../runtime/performanceProfile';
 import { CANVAS, COLORS, FONTS, SPACING } from '../theme';
+import { shouldSkipFrame } from '../utils/rafGuard';
 import type { FileAnalysis, ScrubStyle, TransportState } from '../types';
 
 interface EnvelopeData {
@@ -1333,6 +1334,7 @@ export function WaveformOverviewPanel(): React.ReactElement {
 
     const draw = () => {
       rafRef.current = requestAnimationFrame(draw);
+      if (shouldSkipFrame()) return;
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
 

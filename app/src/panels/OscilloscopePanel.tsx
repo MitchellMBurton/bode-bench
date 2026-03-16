@@ -11,6 +11,7 @@
 import { useEffect, useRef } from 'react';
 import { useAudioEngine, useDisplayMode, useTheaterMode } from '../core/session';
 import { COLORS, FONTS, CANVAS, SPACING } from '../theme';
+import { shouldSkipFrame } from '../utils/rafGuard';
 
 const PAD = SPACING.panelPad;
 const TRIGGER_THRESHOLD = CANVAS.oscTriggerThreshold;
@@ -60,6 +61,7 @@ export function OscilloscopePanel(): React.ReactElement {
 
     const draw = () => {
       rafRef.current = requestAnimationFrame(draw);
+      if (shouldSkipFrame()) return;
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
 

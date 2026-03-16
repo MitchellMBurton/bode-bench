@@ -15,6 +15,7 @@ import { useAudioEngine, useDisplayMode, useFrameBus, useScrollSpeed, useTheater
 import type { VisualMode } from '../audio/displayMode';
 import { COLORS, FONTS, CANVAS, SPACING } from '../theme';
 import { hexToRgb, remapMonochromeCanvas } from '../utils/canvas';
+import { shouldSkipFrame } from '../utils/rafGuard';
 import type { AudioFrame } from '../types';
 
 const PAD = SPACING.panelPad;
@@ -167,6 +168,7 @@ export function OscilloscopeScrollPanel(): React.ReactElement {
 
     const draw = () => {
       rafRef.current = requestAnimationFrame(draw);
+      if (shouldSkipFrame()) return;
       const ctx = canvas.getContext('2d');
       const octx = offscreen.getContext('2d');
       if (!ctx || !octx) return;

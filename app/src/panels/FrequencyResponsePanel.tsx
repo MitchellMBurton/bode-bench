@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { useAudioEngine, useDisplayMode, useFrameBus, useTheaterMode } from '../core/session';
 import { CANVAS, COLORS, FONTS, SPACING } from '../theme';
 import { freqToX, hexToRgba } from '../utils/canvas';
+import { shouldSkipFrame } from '../utils/rafGuard';
 import type { AudioFrame } from '../types';
 
 const PAD = SPACING.panelPad;
@@ -140,6 +141,7 @@ export function FrequencyResponsePanel(): React.ReactElement {
 
     const draw = () => {
       rafRef.current = requestAnimationFrame(draw);
+      if (shouldSkipFrame()) return;
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
 

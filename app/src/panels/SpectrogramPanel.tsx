@@ -3,6 +3,7 @@ import { useAudioEngine, useDisplayMode, useFrameBus, useScrollSpeed, useTheater
 import type { VisualMode } from '../audio/displayMode';
 import { COLORS, FONTS, CANVAS, SPACING } from '../theme';
 import { hexToRgb, spectroColor } from '../utils/canvas';
+import { shouldSkipFrame } from '../utils/rafGuard';
 import type { AudioFrame } from '../types';
 
 const FREQ_AXIS_W = CANVAS.spectroFreqAxisWidth;
@@ -268,6 +269,7 @@ export function SpectrogramPanel(): React.ReactElement {
 
     const draw = () => {
       rafRef.current = requestAnimationFrame(draw);
+      if (shouldSkipFrame()) return;
       const frame = frameRef.current;
       const ctx = canvas.getContext('2d');
       const offscreen = offscreenRef.current;

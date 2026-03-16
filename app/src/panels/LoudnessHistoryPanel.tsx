@@ -8,6 +8,7 @@
 import { useEffect, useRef } from 'react';
 import { useAudioEngine, useDisplayMode, useFrameBus, useScrollSpeed, useTheaterMode } from '../core/session';
 import { COLORS, FONTS, SPACING, CANVAS } from '../theme';
+import { shouldSkipFrame } from '../utils/rafGuard';
 import type { AudioFrame } from '../types';
 
 const PANEL_DPR_MAX = 1.5;
@@ -87,6 +88,7 @@ export function LoudnessHistoryPanel(): React.ReactElement {
 
     const draw = () => {
       rafRef.current = requestAnimationFrame(draw);
+      if (shouldSkipFrame()) return;
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
 
