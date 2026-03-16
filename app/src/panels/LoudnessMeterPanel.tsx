@@ -1,26 +1,32 @@
 // ============================================================
 // LoudnessMeterPanel — ITU-R BS.1770 / EBU R128 loudness.
-// Momentary (400ms), Short-term (3s), Integrated LUFS, True Peak.
-// K-weighting two-stage biquad filter; coefficients for 48 kHz
-// (error < 0.2 dB at 44.1 kHz — acceptable for an analysis tool).
+// Scrolling momentary LUFS history (newest at right), matching
+// the scroll rate of the spectrogram and RMS panels.
+// Reference lines at −14/−16/−23/−24 LUFS.
+// Integrated LUFS computed via two-pass EBU R128 gating.
 // ============================================================
 
 import { useEffect, useRef } from 'react';
-import { useAudioEngine, useDisplayMode, useFrameBus } from '../core/session';
+import { useAudioEngine, useDisplayMode, useFrameBus, useScrollSpeed } from '../core/session';
 import { COLORS, FONTS, SPACING, CANVAS } from '../theme';
 import { shouldSkipFrame } from '../utils/rafGuard';
 import type { AudioFrame } from '../types';
 
 const PANEL_DPR_MAX = 1.5;
+const HISTORY_MAX = 1200;
+const BASE_PX_PER_FRAME = CANVAS.timelineScrollPx;
+const MS_PER_DATA_FRAME = 1000 / 20;
+
+// Y-axis display range — covers all delivery targets with headroom
+const LUFS_TOP = 0;
+const LUFS_BOT = -48;
 
 // ── K-weighting biquad coefficients (ITU-R BS.1770-4 @ 48 kHz) ──────────────
-// Stage 1: high-shelf pre-filter (~1682 Hz, +4 dB)
 const PRE_B0 = 1.53512485958697;
 const PRE_B1 = -2.69169618940638;
 const PRE_B2 = 1.19839281085285;
 const PRE_A1 = -1.69065929318241;
 const PRE_A2 = 0.73248077421585;
-// Stage 2: RLB high-pass (~38 Hz)
 const RLB_B0 = 1.0;
 const RLB_B1 = -2.0;
 const RLB_B2 = 1.0;
@@ -31,40 +37,37 @@ const RLB_A2 = 0.99007225036603;
 const LUFS_FLOOR = -60;
 const MOMENTARY_FRAMES = 8;     // 400 ms at 20 fps
 const SHORT_TERM_FRAMES = 60;   // 3 s at 20 fps
-const TP_WARN_DB = -1.0;        // True-Peak warning threshold (dBTP)
-const ABS_GATE_LUFS = -70;      // EBU R128 absolute gate
-const REL_GATE_LU = 10;         // EBU R128 relative gate offset (LU below preliminary)
-const MAX_STORED_FRAMES = 7200; // 6 min at 20 fps — for two-pass integrated gating
-const INT_RECOMPUTE_EVERY = 20; // recompute gated integrated once per second
+const TP_WARN_DB = -1.0;
+const ABS_GATE_LUFS = -70;
+const REL_GATE_LU = 10;
+const MAX_STORED_FRAMES = 7200; // 6 min at 20 fps
+const INT_RECOMPUTE_EVERY = 20; // once per second
 
-// Streaming delivery reference lines: [lufs, short label, long label]
-const REF_LINES: [number, string, string][] = [
-  [-14, '-14', 'STREAM'],
-  [-16, '-16', 'APPLE'],
-  [-23, '-23', 'EBU R128'],
-  [-24, '-24', 'CINEMA'],
+// Reference lines: [lufs, label]
+const REF_LINES: [number, string][] = [
+  [-14, '-14 STREAM'],
+  [-16, '-16 APPLE'],
+  [-23, '-23 EBU'],
+  [-24, '-24 CIN'],
 ];
 
 // ── Biquad state ──────────────────────────────────────────────────────────────
 interface BiquadState {
-  px1: number; px2: number; py1: number; py2: number; // pre-filter
-  rx1: number; rx2: number; ry1: number; ry2: number; // RLB
+  px1: number; px2: number; py1: number; py2: number;
+  rx1: number; rx2: number; ry1: number; ry2: number;
 }
 
 function makeBiquad(): BiquadState {
   return { px1: 0, px2: 0, py1: 0, py2: 0, rx1: 0, rx2: 0, ry1: 0, ry2: 0 };
 }
 
-/** Apply K-weighting to samples, return mean square. Mutates state. */
 function kWeightMs(samples: Float32Array, s: BiquadState): number {
   let sum = 0;
   let { px1, px2, py1, py2, rx1, rx2, ry1, ry2 } = s;
   for (let i = 0; i < samples.length; i++) {
     let x = samples[i];
-    // Stage 1
     const y1 = PRE_B0 * x + PRE_B1 * px1 + PRE_B2 * px2 - PRE_A1 * py1 - PRE_A2 * py2;
     px2 = px1; px1 = x; py2 = py1; py1 = y1; x = y1;
-    // Stage 2
     const y2 = RLB_B0 * x + RLB_B1 * rx1 + RLB_B2 * rx2 - RLB_A1 * ry1 - RLB_A2 * ry2;
     rx2 = rx1; rx1 = x; ry2 = ry1; ry1 = y2;
     sum += y2 * y2;
@@ -74,15 +77,13 @@ function kWeightMs(samples: Float32Array, s: BiquadState): number {
   return samples.length > 0 ? sum / samples.length : 0;
 }
 
-/** Mean square → LUFS (BS.1770 formula: −0.691 + 10·log10(ms)) */
 function msToLufs(ms: number): number {
   return ms > 0 ? -0.691 + 10 * Math.log10(ms) : LUFS_FLOOR;
 }
 
-/** LUFS value → Y pixel inside bar (0 = top/loudest, barH = floor/silent) */
-function lufsToY(lufs: number, barH: number): number {
-  const t = Math.max(0, Math.min(1, (lufs - 0) / (LUFS_FLOOR - 0)));
-  return t * barH;
+function lufsToY(lufs: number, H: number, padV: number): number {
+  const t = (Math.max(LUFS_BOT, Math.min(LUFS_TOP, lufs)) - LUFS_TOP) / (LUFS_BOT - LUFS_TOP);
+  return padV + (H - padV * 2) * t;
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -90,26 +91,29 @@ export function LoudnessMeterPanel(): React.ReactElement {
   const frameBus = useFrameBus();
   const audioEngine = useAudioEngine();
   const displayMode = useDisplayMode();
+  const scrollSpeed = useScrollSpeed();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rafRef = useRef<number | null>(null);
 
-  // K-weighting filter state (persists between frames for IIR continuity)
+  // K-weighting filter state
   const biquadL = useRef<BiquadState>(makeBiquad());
   const biquadR = useRef<BiquadState>(makeBiquad());
 
-  // Circular buffer of K-weighted mean-square per analysis frame
+  // Short-term buffer for momentary/ST computation
   const kMsBuf = useRef<Float32Array>(new Float32Array(SHORT_TERM_FRAMES));
-  const kMsPtr = useRef(0);  // next write position
-  const kMsLen = useRef(0);  // valid entries (0–SHORT_TERM_FRAMES)
+  const kMsPtr = useRef(0);
+  const kMsLen = useRef(0);
 
-  // All K-weighted mean-squares — stored for two-pass EBU R128 gating
+  // Scrolling momentary LUFS history (display)
+  const historyRef = useRef<number[]>([]);
+  const lastDataTimeRef = useRef(0);
+
+  // All frames for two-pass integrated gating
   const allMsRef = useRef<Float32Array>(new Float32Array(MAX_STORED_FRAMES));
   const allMsCountRef = useRef(0);
   const recomputeCounterRef = useRef(0);
-
-  // Cached gated integrated LUFS (updated once per second via two-pass gate)
   const intLufsCachedRef = useRef(LUFS_FLOOR);
-  const intHasRef = useRef(false); // true once we have ≥ 1s of above-gate material
+  const intHasRef = useRef(false);
 
   // True Peak hold
   const tpHoldRef = useRef(LUFS_FLOOR);
@@ -117,42 +121,35 @@ export function LoudnessMeterPanel(): React.ReactElement {
   const lastFileIdRef = useRef(-1);
   const currentRef = useRef<AudioFrame | null>(null);
 
-  // ── Two-pass EBU R128 integrated loudness ─────────────────────────────────
+  // ── Two-pass EBU R128 integrated ─────────────────────────────────────────
   function recomputeIntegrated() {
     const ms = allMsRef.current;
     const n = allMsCountRef.current;
     if (n === 0) { intLufsCachedRef.current = LUFS_FLOOR; intHasRef.current = false; return; }
-
-    // Pass 1: absolute gate − sum frames > −70 LUFS
     let absSum = 0, absCnt = 0;
     for (let i = 0; i < n; i++) {
       if (msToLufs(ms[i]) > ABS_GATE_LUFS) { absSum += ms[i]; absCnt++; }
     }
     if (absCnt === 0) { intLufsCachedRef.current = LUFS_FLOOR; intHasRef.current = false; return; }
-
-    // Preliminary integrated LUFS from absolute-gated frames
-    const prelimLufs = msToLufs(absSum / absCnt);
-    const relThreshold = prelimLufs - REL_GATE_LU;
-
-    // Pass 2: relative gate − frames also > (preliminary − 10 LU)
+    const relThreshold = msToLufs(absSum / absCnt) - REL_GATE_LU;
     let relSum = 0, relCnt = 0;
     for (let i = 0; i < n; i++) {
       const l = msToLufs(ms[i]);
       if (l > ABS_GATE_LUFS && l > relThreshold) { relSum += ms[i]; relCnt++; }
     }
     if (relCnt === 0) { intLufsCachedRef.current = LUFS_FLOOR; intHasRef.current = false; return; }
-
     intLufsCachedRef.current = msToLufs(relSum / relCnt);
     intHasRef.current = true;
   }
 
-  // ── Reset helper ─────────────────────────────────────────────────────────
+  // ── Reset ─────────────────────────────────────────────────────────────────
   function resetState() {
     biquadL.current = makeBiquad();
     biquadR.current = makeBiquad();
     kMsBuf.current.fill(0);
     kMsPtr.current = 0;
     kMsLen.current = 0;
+    historyRef.current = [];
     allMsRef.current = new Float32Array(MAX_STORED_FRAMES);
     allMsCountRef.current = 0;
     recomputeCounterRef.current = 0;
@@ -161,6 +158,7 @@ export function LoudnessMeterPanel(): React.ReactElement {
     tpHoldRef.current = LUFS_FLOOR;
     currentRef.current = null;
     lastFileIdRef.current = -1;
+    lastDataTimeRef.current = performance.now();
   }
 
   // ── Frame subscription ────────────────────────────────────────────────────
@@ -181,21 +179,30 @@ export function LoudnessMeterPanel(): React.ReactElement {
     kMsPtr.current++;
     kMsLen.current = Math.min(kMsLen.current + 1, SHORT_TERM_FRAMES);
 
-    // Store for two-pass integrated gating (cap at MAX_STORED_FRAMES)
+    // Momentary LUFS for scroll history
+    let momMs = 0;
+    const momN = Math.min(kMsLen.current, MOMENTARY_FRAMES);
+    for (let i = 0; i < momN; i++) {
+      momMs += kMsBuf.current[((kMsPtr.current - 1 - i) % SHORT_TERM_FRAMES + SHORT_TERM_FRAMES) % SHORT_TERM_FRAMES];
+    }
+    const momentaryLufs = momN > 0 ? msToLufs(momMs / momN) : LUFS_FLOOR;
+    historyRef.current.push(momentaryLufs);
+    if (historyRef.current.length > HISTORY_MAX) historyRef.current.shift();
+
+    // Store for two-pass gating
     const idx = allMsCountRef.current;
     if (idx < MAX_STORED_FRAMES) {
       allMsRef.current[idx] = frameMs;
       allMsCountRef.current = idx + 1;
     }
 
-    // Recompute integrated loudness once per second
     recomputeCounterRef.current++;
     if (recomputeCounterRef.current >= INT_RECOMPUTE_EVERY) {
       recomputeCounterRef.current = 0;
       recomputeIntegrated();
     }
 
-    // True peak from per-frame peak amplitude
+    // True peak
     const peakLin = Math.max(frame.peakLeft, frame.peakRight);
     if (peakLin > 0) {
       const peakDb = 20 * Math.log10(peakLin);
@@ -203,6 +210,7 @@ export function LoudnessMeterPanel(): React.ReactElement {
     }
 
     currentRef.current = frame;
+    lastDataTimeRef.current = performance.now();
   }), [frameBus]);
 
   useEffect(() => audioEngine.onReset(resetState), [audioEngine]);
@@ -238,6 +246,7 @@ export function LoudnessMeterPanel(): React.ReactElement {
       const dpr = Math.min(devicePixelRatio, PANEL_DPR_MAX);
       const nge = displayMode.nge;
       const hyper = displayMode.hyper;
+      const padV = 6 * dpr;
 
       const traceColor = nge ? '#a0d840' : hyper ? CANVAS.hyper.trace : COLORS.waveform;
       const labelColor = nge ? 'rgba(140,210,40,0.5)' : hyper ? CANVAS.hyper.label : COLORS.textDim;
@@ -248,169 +257,131 @@ export function LoudnessMeterPanel(): React.ReactElement {
       ctx.fillStyle = hyper ? 'rgba(32,52,110,0.92)' : COLORS.border;
       ctx.fillRect(0, 0, W, 1);
 
-      // ── Compute current LUFS ────────────────────────────────────────────
-      const buf = kMsBuf.current;
-      const ptr = kMsPtr.current;
-      const len = kMsLen.current;
-
-      let momMs = 0;
-      const momN = Math.min(len, MOMENTARY_FRAMES);
-      for (let i = 0; i < momN; i++) {
-        momMs += buf[((ptr - 1 - i) % SHORT_TERM_FRAMES + SHORT_TERM_FRAMES) % SHORT_TERM_FRAMES];
-      }
-      const momentaryLufs = momN > 0 ? msToLufs(momMs / momN) : LUFS_FLOOR;
-
-      let stMs = 0;
-      const stN = Math.min(len, SHORT_TERM_FRAMES);
-      for (let i = 0; i < stN; i++) {
-        stMs += buf[((ptr - 1 - i) % SHORT_TERM_FRAMES + SHORT_TERM_FRAMES) % SHORT_TERM_FRAMES];
-      }
-      const shortTermLufs = stN > 0 ? msToLufs(stMs / stN) : LUFS_FLOOR;
-      const intLufs = intLufsCachedRef.current;
-      const intHas = intHasRef.current;
-      const truePeak = tpHoldRef.current;
-      const hasSignal = len > 0 && momentaryLufs > LUFS_FLOOR + 6;
-
-      // ── Layout ──────────────────────────────────────────────────────────
-      // Left column: big readout numbers
-      // Right section: vertical scale bar with reference lines
-      const readoutW = 52 * dpr;
-      const padT = 6 * dpr;
-      const padB = 14 * dpr;
-      const padR = 4 * dpr;
-      const barX = readoutW;
-      const barW = W - barX - padR;
-      const barH = H - padT - padB;
-
-      if (barW <= 4 || barH <= 4) return;
-
-      // ── Reference lines ─────────────────────────────────────────────────
-      // Only draw long labels when the bar is wide enough to fit them legibly
-      const showLongLabels = barW > 120 * dpr;
+      // ── Reference lines ──────────────────────────────────────────────────
       ctx.setLineDash([3 * dpr, 4 * dpr]);
-      for (const [lufs, shortLabel, longLabel] of REF_LINES) {
-        const y = Math.round(padT + lufsToY(lufs, barH)) + 0.5;
-        const isMain = lufs === -14;
-        ctx.strokeStyle = isMain
-          ? (hyper ? 'rgba(88,124,255,0.72)' : nge ? 'rgba(100,200,40,0.6)' : 'rgba(50,50,72,1)')
-          : (hyper ? 'rgba(28,42,88,0.92)' : nge ? 'rgba(40,80,20,0.5)' : 'rgba(32,32,48,1)');
+      for (const [lufs, label] of REF_LINES) {
+        const y = Math.round(lufsToY(lufs, H, padV)) + 0.5;
+        const isTarget = lufs === -14;
+        ctx.strokeStyle = isTarget
+          ? (hyper ? 'rgba(88,124,255,0.65)' : nge ? 'rgba(100,200,40,0.55)' : 'rgba(50,50,72,1)')
+          : (hyper ? 'rgba(28,42,88,0.85)' : nge ? 'rgba(40,80,20,0.45)' : 'rgba(32,32,48,1)');
         ctx.lineWidth = 1;
-        ctx.beginPath(); ctx.moveTo(barX, y); ctx.lineTo(W - padR, y); ctx.stroke();
-
-        ctx.font = `${6 * dpr}px ${FONTS.mono}`;
-        ctx.fillStyle = isMain ? textColor : labelColor;
-        ctx.textAlign = 'left';
+        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+        ctx.font = `${6.5 * dpr}px ${FONTS.mono}`;
+        ctx.fillStyle = isTarget ? textColor : labelColor;
+        ctx.textAlign = 'right';
         ctx.textBaseline = 'bottom';
-        ctx.fillText(shortLabel, barX + 2 * dpr, y - 1 * dpr);
-        if (showLongLabels) {
-          ctx.textAlign = 'right';
-          ctx.fillText(longLabel, W - padR, y - 1 * dpr);
-        }
+        ctx.fillText(label, W - SPACING.xs * dpr, y - 1 * dpr);
       }
       ctx.setLineDash([]);
 
-      // ── Momentary bar fill ───────────────────────────────────────────────
-      if (hasSignal && momentaryLufs > LUFS_FLOOR) {
-        const momY = padT + lufsToY(momentaryLufs, barH);
-        const fillH = padT + barH - momY;
-        if (fillH > 0) {
-          const fillGrad = ctx.createLinearGradient(0, padT, 0, padT + barH);
-          fillGrad.addColorStop(0, nge ? 'rgba(160,216,64,0.06)' : hyper ? 'rgba(98,232,255,0.06)' : 'rgba(200,146,42,0.06)');
-          fillGrad.addColorStop(1, nge ? 'rgba(96,192,32,0.20)' : hyper ? 'rgba(98,232,255,0.20)' : 'rgba(200,146,42,0.20)');
-          ctx.fillStyle = fillGrad;
-          ctx.fillRect(barX, momY, barW, fillH);
+      // ── Scrolling momentary LUFS trace ───────────────────────────────────
+      const pxPerFrame = BASE_PX_PER_FRAME * scrollSpeed.value * dpr;
+      const elapsed = performance.now() - lastDataTimeRef.current;
+      const subProg = Math.min(1, elapsed / MS_PER_DATA_FRAME);
+      const subOffset = -subProg * pxPerFrame;
+      const baseY = H - padV;
+      const history = historyRef.current;
+
+      if (history.length > 1) {
+        const points: [number, number][] = [];
+        for (let i = 0; i < history.length; i++) {
+          const x = W - (history.length - 1 - i) * pxPerFrame + subOffset;
+          if (x < -pxPerFrame || x > W + pxPerFrame) continue;
+          const lufs = Math.max(LUFS_BOT, history[i]);
+          points.push([Math.max(0, Math.min(W, x)), lufsToY(lufs, H, padV)]);
         }
 
-        // Momentary level line
-        const momLineColor = momentaryLufs > -6
-          ? COLORS.statusErr
-          : momentaryLufs > -14
-            ? (nge ? '#c0e860' : hyper ? 'rgba(255,220,80,0.9)' : 'rgba(220,190,60,0.9)')
-            : traceColor;
-        ctx.strokeStyle = momLineColor;
-        ctx.lineWidth = 2 * dpr;
-        ctx.beginPath();
-        ctx.moveTo(barX, Math.round(momY) + 0.5);
-        ctx.lineTo(W - padR, Math.round(momY) + 0.5);
-        ctx.stroke();
-
-        // Short-term marker: small tick on right edge
-        if (stN >= MOMENTARY_FRAMES) {
-          const stY = Math.round(padT + lufsToY(shortTermLufs, barH)) + 0.5;
-          ctx.strokeStyle = nge ? 'rgba(160,216,64,0.45)' : hyper ? 'rgba(98,232,255,0.45)' : 'rgba(200,175,100,0.45)';
-          ctx.lineWidth = 1;
+        if (points.length > 1) {
+          // Filled area
           ctx.beginPath();
-          ctx.moveTo(W - padR - 7 * dpr, stY);
-          ctx.lineTo(W - padR, stY);
+          ctx.moveTo(points[0][0], baseY);
+          for (const [x, y] of points) ctx.lineTo(x, y);
+          ctx.lineTo(points[points.length - 1][0], baseY);
+          ctx.closePath();
+          const fillGrad = ctx.createLinearGradient(0, padV, 0, H);
+          fillGrad.addColorStop(0, nge ? 'rgba(160,216,64,0.26)' : hyper ? 'rgba(98,232,255,0.26)' : 'rgba(200,146,42,0.30)');
+          fillGrad.addColorStop(1, nge ? 'rgba(96,192,32,0.04)' : hyper ? 'rgba(255,92,188,0.06)' : 'rgba(200,146,42,0.04)');
+          ctx.fillStyle = fillGrad;
+          ctx.fill();
+
+          // Trace line
+          ctx.beginPath();
+          ctx.moveTo(points[0][0], points[0][1]);
+          for (let i = 1; i < points.length; i++) ctx.lineTo(points[i][0], points[i][1]);
+          ctx.strokeStyle = nge ? 'rgba(160,216,64,0.80)' : hyper ? 'rgba(98,232,255,0.86)' : 'rgba(200,146,42,0.78)';
+          ctx.lineWidth = 1.5 * dpr;
+          ctx.lineJoin = 'round';
           ctx.stroke();
+
+          // Head dot
+          const last = points[points.length - 1];
+          ctx.beginPath();
+          ctx.arc(last[0], last[1], 2.5 * dpr, 0, Math.PI * 2);
+          ctx.fillStyle = traceColor;
+          ctx.fill();
         }
+      } else if (history.length === 0) {
+        const y = Math.round(lufsToY(-30, H, padV)) + 0.5;
+        ctx.strokeStyle = hyper ? 'rgba(24,34,70,1)' : COLORS.bg3;
+        ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
       }
 
-      // ── True Peak pip (right edge) ───────────────────────────────────────
-      if (truePeak > LUFS_FLOOR + 6) {
-        const tpClamp = Math.max(LUFS_FLOOR, Math.min(0, truePeak));
-        const tpY = padT + lufsToY(tpClamp, barH);
-        const tpColor = truePeak > TP_WARN_DB
-          ? COLORS.statusErr
-          : truePeak > -6
-            ? (nge ? '#c0e860' : 'rgba(220,190,60,0.9)')
-            : traceColor;
-        ctx.fillStyle = tpColor;
-        ctx.fillRect(W - padR, tpY - 2 * dpr, 3 * dpr, 4 * dpr);
+      // ── Integrated LUFS hold line ────────────────────────────────────────
+      const intLufs = intLufsCachedRef.current;
+      const intHas = intHasRef.current;
+      if (intHas && intLufs > LUFS_BOT) {
+        const intY = Math.round(lufsToY(intLufs, H, padV)) + 0.5;
+        ctx.strokeStyle = nge ? 'rgba(160,216,64,0.30)' : hyper ? 'rgba(98,232,255,0.30)' : 'rgba(200,175,100,0.30)';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([6 * dpr, 4 * dpr]);
+        ctx.beginPath(); ctx.moveTo(0, intY); ctx.lineTo(W, intY); ctx.stroke();
+        ctx.setLineDash([]);
       }
 
-      // ── Left-column numeric readouts ─────────────────────────────────────
-      const rx = readoutW - 4 * dpr;
-      ctx.textAlign = 'right';
+      // ── Numeric readouts — top left ──────────────────────────────────────
+      const curLufs = history.length > 0 ? history[history.length - 1] : LUFS_FLOOR;
+      const hasSignal = curLufs > LUFS_FLOOR + 4;
 
-      // Momentary value — floats to match bar position
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+      const textX = SPACING.sm * dpr;
+      let textY = SPACING.xs * dpr;
+
+      // Momentary value (live)
       if (hasSignal) {
-        const momNumY = padT + lufsToY(momentaryLufs, barH);
-        const clampedNumY = Math.max(padT + 6 * dpr, Math.min(padT + barH - 6 * dpr, momNumY));
-        const momCol = momentaryLufs > -6
+        const momCol = curLufs > -6
           ? COLORS.statusErr
-          : momentaryLufs > -14
-            ? (nge ? '#c0e860' : 'rgba(220,190,60,0.9)')
+          : curLufs > -14
+            ? (nge ? '#c0e860' : 'rgba(220,190,60,0.95)')
             : textColor;
         ctx.font = `${10 * dpr}px ${FONTS.mono}`;
         ctx.fillStyle = momCol;
-        ctx.textBaseline = 'middle';
-        ctx.fillText(`${momentaryLufs.toFixed(1)}`, rx, clampedNumY);
+        ctx.fillText(`${curLufs.toFixed(1)} M`, textX, textY);
+        textY += 13 * dpr;
       }
 
-      // Integrated + Short-term + TP labels — stacked at top-left
-      const topLx = SPACING.xs * dpr;
-      ctx.textAlign = 'left';
-      ctx.textBaseline = 'top';
-      let topY = padT;
-
-      ctx.font = `${7.5 * dpr}px ${FONTS.mono}`;
-
-      // INT — clamp display to LUFS_FLOOR, show '< −60' for values that would go below
+      // Integrated
       const intDisplayStr = !intHas
-        ? '---.-'
-        : intLufs < LUFS_FLOOR
-          ? `<${LUFS_FLOOR}`
-          : intLufs.toFixed(1);
-      ctx.fillStyle = intHas ? textColor : labelColor;
-      ctx.fillText(`INT ${intDisplayStr}`, topLx, topY);
-      topY += 11 * dpr;
+        ? '---.- INT'
+        : `${intLufs < LUFS_BOT ? `<${LUFS_BOT}` : intLufs.toFixed(1)} INT`;
+      ctx.font = `${8 * dpr}px ${FONTS.mono}`;
+      ctx.fillStyle = intHas ? labelColor : 'rgba(80,80,80,0.4)';
+      ctx.fillText(intDisplayStr, textX, textY);
+      textY += 10 * dpr;
 
-      // ST
-      const stHas = stN >= MOMENTARY_FRAMES;
-      ctx.fillStyle = stHas ? labelColor : 'rgba(80,80,80,0.4)';
-      ctx.fillText(`ST  ${stHas ? shortTermLufs.toFixed(1) : '---.-'}`, topLx, topY);
-      topY += 10 * dpr;
-
-      // TP
+      // True Peak
+      const truePeak = tpHoldRef.current;
       if (truePeak > LUFS_FLOOR + 6) {
         const tpCol = truePeak > TP_WARN_DB
           ? COLORS.statusErr
           : truePeak > -6
             ? (nge ? '#c0e860' : 'rgba(220,190,60,0.9)')
             : labelColor;
+        ctx.font = `${8 * dpr}px ${FONTS.mono}`;
         ctx.fillStyle = tpCol;
-        ctx.fillText(`TP  ${truePeak.toFixed(1)}`, topLx, topY);
+        ctx.fillText(`${truePeak.toFixed(1)} TP`, textX, textY);
       }
 
       // Panel label
@@ -418,12 +389,12 @@ export function LoudnessMeterPanel(): React.ReactElement {
       ctx.fillStyle = labelColor;
       ctx.textAlign = 'left';
       ctx.textBaseline = 'bottom';
-      ctx.fillText('LUFS  EBU R128', SPACING.sm * dpr, H - SPACING.xs * dpr);
+      ctx.fillText('LUFS', SPACING.sm * dpr, H - SPACING.xs * dpr);
     };
 
     rafRef.current = requestAnimationFrame(draw);
     return () => { if (rafRef.current !== null) cancelAnimationFrame(rafRef.current); };
-  }, [displayMode]);
+  }, [displayMode, scrollSpeed]);
 
   return (
     <div style={panelStyle}>
