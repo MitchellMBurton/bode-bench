@@ -250,8 +250,8 @@ export function OscilloscopeScrollPanel(): React.ReactElement {
               if (v < mn) mn = v;
               if (v > mx) mx = v;
             }
-            const y1 = Math.round(midY - mx * gain * halfH);
-            const y2 = Math.round(midY - mn * gain * halfH);
+            const y1 = Math.round(Math.max(padY, Math.min(padY + drawH, midY - mx * gain * halfH)));
+            const y2 = Math.round(Math.max(padY, Math.min(padY + drawH, midY - mn * gain * halfH)));
             octx.fillRect(W - scrollPx + col, y1, 1, Math.max(1, y2 - y1));
           }
         }

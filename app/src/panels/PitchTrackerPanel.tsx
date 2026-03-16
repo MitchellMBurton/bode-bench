@@ -308,32 +308,32 @@ export function PitchTrackerPanel(): React.ReactElement {
         const midi = 69 + 12 * Math.log2(cur.f0Hz / 440);
         const cents = Math.round((midi - Math.round(midi)) * 100);
         const barW = Math.min(W * 0.55, 80 * dpr);
-        const barH2 = 4 * dpr;
+        const barH2 = 6 * dpr;
         const barX = W * 0.5 - barW * 0.5;
         const barY = H - (SPACING.xs + 9) * dpr;
 
-        // Background zones — low opacity to stay subtle at small panel heights
+        // Background zones
         const zoneW = barW / 2; // half = 50 cents
-        ctx.fillStyle = nge ? 'rgba(80,40,10,0.22)' : 'rgba(70,18,18,0.22)';
+        ctx.fillStyle = nge ? 'rgba(80,40,10,0.45)' : 'rgba(70,18,18,0.45)';
         ctx.fillRect(barX, barY, barW, barH2);
-        ctx.fillStyle = nge ? 'rgba(90,90,10,0.22)' : 'rgba(90,70,10,0.22)';
+        ctx.fillStyle = nge ? 'rgba(90,90,10,0.40)' : 'rgba(90,70,10,0.40)';
         ctx.fillRect(barX + zoneW * 0.5, barY, zoneW, barH2);
-        ctx.fillStyle = nge ? 'rgba(20,70,10,0.25)' : 'rgba(14,70,28,0.25)';
+        ctx.fillStyle = nge ? 'rgba(20,80,10,0.45)' : 'rgba(14,80,28,0.45)';
         ctx.fillRect(barX + zoneW * 0.8, barY, zoneW * 0.4, barH2);
 
         // Centre tick
         ctx.fillStyle = labelColor;
-        ctx.fillRect(barX + zoneW - 0.5 * dpr, barY - 1 * dpr, 1 * dpr, barH2 + 2 * dpr);
+        ctx.fillRect(barX + zoneW - 0.5 * dpr, barY - 2 * dpr, 1 * dpr, barH2 + 4 * dpr);
 
         // Needle — clamp to ±50 ct
         const needleX = barX + zoneW + (Math.max(-50, Math.min(50, cents)) / 50) * zoneW;
         const needleColor = Math.abs(cents) <= 10
-          ? (nge ? '#a0d840' : 'rgba(60,200,80,0.95)')
+          ? (nge ? '#a0d840' : 'rgba(60,220,90,1)')
           : Math.abs(cents) <= 25
-            ? (nge ? '#d0c040' : 'rgba(200,170,40,0.95)')
+            ? (nge ? '#d0c040' : 'rgba(210,180,40,1)')
             : COLORS.statusErr;
         ctx.fillStyle = needleColor;
-        ctx.fillRect(Math.round(needleX) - dpr * 0.5, barY - 1 * dpr, dpr * 1.5, barH2 + 2 * dpr);
+        ctx.fillRect(Math.round(needleX) - dpr, barY - 2 * dpr, dpr * 2.5, barH2 + 4 * dpr);
       } else {
         ctx.font = `${8 * dpr}px ${FONTS.mono}`;
         ctx.fillStyle = labelColor;

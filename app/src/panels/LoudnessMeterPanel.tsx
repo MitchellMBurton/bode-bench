@@ -17,9 +17,11 @@ const HISTORY_MAX = 1200;
 const BASE_PX_PER_FRAME = CANVAS.timelineScrollPx;
 const MS_PER_DATA_FRAME = 1000 / 20;
 
-// Y-axis display range — covers all delivery targets with headroom
+// Y-axis display range — tighter than RMS panel so delivery-range content fills the strip
+// RMS panel spans −54→0 dBFS (54 dB). LUFS spans −36→0 LU (36 LU), spreading
+// the −14/−16/−23/−24 reference lines across most of the visible height.
 const LUFS_TOP = 0;
-const LUFS_BOT = -48;
+const LUFS_BOT = -36;
 
 // ── K-weighting biquad coefficients (ITU-R BS.1770-4 @ 48 kHz) ──────────────
 const PRE_B0 = 1.53512485958697;
@@ -308,15 +310,15 @@ export function LoudnessMeterPanel(): React.ReactElement {
         }
 
         if (points.length > 1) {
-          // Filled area — teal palette to distinguish from amber RMS panel
+          // Filled area — blue/indigo palette (accent family, distinct from amber RMS)
           ctx.beginPath();
           ctx.moveTo(points[0][0], baseY);
           for (const [x, y] of points) ctx.lineTo(x, y);
           ctx.lineTo(points[points.length - 1][0], baseY);
           ctx.closePath();
           const fillGrad = ctx.createLinearGradient(0, padV, 0, H);
-          fillGrad.addColorStop(0, nge ? 'rgba(160,216,64,0.26)' : hyper ? 'rgba(98,232,255,0.26)' : 'rgba(60,180,160,0.26)');
-          fillGrad.addColorStop(1, nge ? 'rgba(96,192,32,0.04)' : hyper ? 'rgba(255,92,188,0.06)' : 'rgba(40,140,120,0.04)');
+          fillGrad.addColorStop(0, nge ? 'rgba(160,216,64,0.26)' : hyper ? 'rgba(98,232,255,0.26)' : 'rgba(100,120,210,0.28)');
+          fillGrad.addColorStop(1, nge ? 'rgba(96,192,32,0.04)' : hyper ? 'rgba(255,92,188,0.06)' : 'rgba(70,90,170,0.04)');
           ctx.fillStyle = fillGrad;
           ctx.fill();
 
@@ -324,7 +326,7 @@ export function LoudnessMeterPanel(): React.ReactElement {
           ctx.beginPath();
           ctx.moveTo(points[0][0], points[0][1]);
           for (let i = 1; i < points.length; i++) ctx.lineTo(points[i][0], points[i][1]);
-          ctx.strokeStyle = nge ? 'rgba(160,216,64,0.80)' : hyper ? 'rgba(98,232,255,0.86)' : 'rgba(72,200,175,0.82)';
+          ctx.strokeStyle = nge ? 'rgba(160,216,64,0.80)' : hyper ? 'rgba(98,232,255,0.86)' : 'rgba(130,152,228,0.88)';
           ctx.lineWidth = 1.5 * dpr;
           ctx.lineJoin = 'round';
           ctx.stroke();
@@ -333,7 +335,7 @@ export function LoudnessMeterPanel(): React.ReactElement {
           const last = points[points.length - 1];
           ctx.beginPath();
           ctx.arc(last[0], last[1], 2.5 * dpr, 0, Math.PI * 2);
-          ctx.fillStyle = nge ? traceColor : hyper ? traceColor : 'rgba(90,215,190,1)';
+          ctx.fillStyle = nge ? traceColor : hyper ? traceColor : 'rgba(150,170,240,1)';
           ctx.fill();
         }
       } else if (history.length === 0) {
@@ -348,7 +350,7 @@ export function LoudnessMeterPanel(): React.ReactElement {
       const intHas = intHasRef.current;
       if (intHas && intLufs > LUFS_BOT) {
         const intY = Math.round(lufsToY(intLufs, H, padV)) + 0.5;
-        const intLineColor = nge ? 'rgba(160,216,64,0.55)' : hyper ? 'rgba(98,232,255,0.55)' : 'rgba(90,215,190,0.55)';
+        const intLineColor = nge ? 'rgba(160,216,64,0.55)' : hyper ? 'rgba(98,232,255,0.55)' : 'rgba(130,152,228,0.60)';
         ctx.strokeStyle = intLineColor;
         ctx.lineWidth = 1.5 * dpr;
         ctx.setLineDash([8 * dpr, 3 * dpr]);
