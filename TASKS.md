@@ -10,7 +10,7 @@ Core hardening and generalization before major new feature branches.
 
 ### Hardening Track
 
-- [x] **H01 - Restore green build.** Fix current TypeScript build failures and keep `master` releasable.
+- [x] **H01 - Restore green build.** Fix current TypeScript build failures and keep `main` releasable.
 - [ ] **H02 - Add verification gate.** Add a repeatable CI path for typecheck, lint, and tests.
 - [x] **H03 - Introduce explicit session core.** Replace hidden global runtime state with a session-scoped application service.
 - [ ] **H04 - Define runtime interfaces.** Put core runtime behavior behind narrower adapter contracts.
@@ -20,6 +20,9 @@ Core hardening and generalization before major new feature branches.
 - [ ] **H08 - Worker-ready analysis path.** Move heavy non-UI analysis work toward worker-safe execution.
 - [x] **H09 - Desktop shell spike.** Add a thin desktop wrapper without introducing desktop-only core logic.
 - [ ] **H10 - Hosted queue seam.** Define request/result contracts so queued analysis can render through the same panel model later.
+- [x] **H11 - Fix stretch watchdog spurious fallback.** Re-register `setUpdateInterval` heartbeat after `dropBuffers()` so decoded playback doesn't trigger watchdog after 1.35 s.
+- [x] **H12 - Multi-instance RAF throttling.** `rafGuard.ts` — skip draw when hidden, throttle to 4 fps when unfocused. Applied to all canvas panels.
+- [x] **H13 - Full visual mode coherence.** DEFAULT / MONO / NGE / HYPER themes applied to every surface: all panels, controls, transport, diagnostics, runtime metric pills.
 
 ## Build Order
 
