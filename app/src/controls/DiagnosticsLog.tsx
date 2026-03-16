@@ -1248,7 +1248,7 @@ const perfWrapStyle: React.CSSProperties = {
   overflowY: 'auto',
   padding: `${SPACING.md}px ${SPACING.lg}px ${SPACING.sm}px`,
   boxSizing: 'border-box',
-  background: 'linear-gradient(180deg, rgba(8,10,16,0.96), rgba(14,16,24,0.98))',
+  background: COLORS.bg0,
 };
 
 const perfHeaderStyle: React.CSSProperties = {
@@ -1284,7 +1284,7 @@ const perfHealthTitleStyle: React.CSSProperties = {
 
 const perfHealthDetailStyle: React.CSSProperties = {
   fontFamily: FONTS.mono,
-  fontSize: FONTS.sizeSm,
+  fontSize: FONTS.sizeXs,
   color: COLORS.textSecondary,
   letterSpacing: '0.04em',
   maxWidth: 760,
@@ -1306,9 +1306,8 @@ const perfProfileRailStyle: React.CSSProperties = {
   alignItems: 'flex-start',
   padding: `${SPACING.sm}px ${SPACING.md}px`,
   border: `1px solid ${COLORS.border}`,
-  background: 'rgba(12, 15, 22, 0.86)',
+  background: COLORS.bg1,
   borderRadius: 2,
-  boxShadow: 'inset 0 1px 0 rgba(120, 134, 188, 0.06)',
 };
 
 const perfProfileSummaryStyle: React.CSSProperties = {
@@ -1363,14 +1362,13 @@ const perfCardStyle: React.CSSProperties = {
   borderWidth: 1,
   borderStyle: 'solid',
   borderColor: COLORS.border,
-  background: 'linear-gradient(180deg, rgba(20,22,32,0.92), rgba(11,13,20,0.95))',
+  background: COLORS.bg2,
   padding: `${SPACING.xs + 1}px ${SPACING.md}px`,
   borderRadius: 2,
   display: 'flex',
   flexDirection: 'column',
   gap: 3,
   minWidth: 0,
-  boxShadow: 'inset 0 1px 0 rgba(120, 134, 188, 0.08)',
 };
 
 const perfCardLabelStyle: React.CSSProperties = {
@@ -1409,11 +1407,10 @@ const perfPanelStyle: React.CSSProperties = {
   flexDirection: 'column',
   gap: SPACING.sm,
   border: `1px solid ${COLORS.border}`,
-  background: 'rgba(11, 14, 20, 0.88)',
+  background: COLORS.bg1,
   padding: `${SPACING.sm}px ${SPACING.md}px`,
   borderRadius: 2,
   overflow: 'hidden',
-  boxShadow: 'inset 0 1px 0 rgba(120, 134, 188, 0.07)',
 };
 
 const perfSectionTitleStyle: React.CSSProperties = {
@@ -1453,7 +1450,7 @@ const perfMeterValueStyle: React.CSSProperties = {
 const perfMeterTrackStyle: React.CSSProperties = {
   position: 'relative',
   height: 7,
-  borderRadius: 999,
+  borderRadius: 2,
   background: COLORS.levelTrack,
   overflow: 'hidden',
 };
@@ -1463,7 +1460,7 @@ const perfMeterFillStyle: React.CSSProperties = {
   left: 0,
   top: 0,
   bottom: 0,
-  borderRadius: 999,
+  borderRadius: 2,
 };
 
 const perfEventsStyle: React.CSSProperties = {
@@ -1475,7 +1472,7 @@ const perfEventsStyle: React.CSSProperties = {
   gap: 2,
   padding: `${SPACING.xs}px ${SPACING.sm}px`,
   border: `1px solid ${COLORS.border}`,
-  background: 'rgba(7, 10, 16, 0.78)',
+  background: COLORS.bg2,
   boxSizing: 'border-box',
 };
 
