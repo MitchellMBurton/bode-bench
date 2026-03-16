@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import { useAudioEngine, useDisplayMode, useFrameBus, useScrollSpeed, useTheaterMode } from '../core/session';
 import type { VisualMode } from '../audio/displayMode';
 import { COLORS, FONTS, CANVAS, SPACING } from '../theme';
-import { spectroColor } from '../utils/canvas';
+import { hexToRgb, spectroColor } from '../utils/canvas';
 import type { AudioFrame } from '../types';
 
 const FREQ_AXIS_W = CANVAS.spectroFreqAxisWidth;
@@ -54,14 +54,6 @@ function bandAverageDb(data: Float32Array, lowHz: number, highHz: number, sample
   return rms > 0 ? 20 * Math.log10(rms) : CANVAS.dbMin;
 }
 
-function hexToRgb(hex: string): [number, number, number] {
-  const value = hex.replace('#', '');
-  return [
-    parseInt(value.slice(0, 2), 16),
-    parseInt(value.slice(2, 4), 16),
-    parseInt(value.slice(4, 6), 16),
-  ];
-}
 
 function lerpColor(startHex: string, endHex: string, t: number): string {
   const [sr, sg, sb] = hexToRgb(startHex);

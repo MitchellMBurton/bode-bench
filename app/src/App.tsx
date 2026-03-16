@@ -388,7 +388,7 @@ const runtimeMetricPillStyle: React.CSSProperties = {
   borderWidth: 1,
   borderStyle: 'solid',
   borderColor: COLORS.border,
-  borderRadius: 999,
+  borderRadius: 2,
   background: COLORS.bg1,
   minWidth: 0,
 };

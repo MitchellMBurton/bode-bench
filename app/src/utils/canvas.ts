@@ -9,6 +9,12 @@ export function hexToRgb(hex: string): [number, number, number] {
   return [parseInt(v.slice(0, 2), 16), parseInt(v.slice(2, 4), 16), parseInt(v.slice(4, 6), 16)];
 }
 
+/** Convert a 6-digit hex color string to an rgba() string with the given alpha. */
+export function hexToRgba(hex: string, alpha: number): string {
+  const [r, g, b] = hexToRgb(hex);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
 /**
  * Remap every pixel in a monochrome canvas from one [bg, fg] pair to another.
  * Uses linear interpolation along the bg→fg axis so intermediate shades

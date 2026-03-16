@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useAudioEngine, useDisplayMode, useFrameBus, useTheaterMode } from '../core/session';
 import { CANVAS, COLORS, FONTS, SPACING } from '../theme';
-import { freqToX } from '../utils/canvas';
+import { freqToX, hexToRgba } from '../utils/canvas';
 import type { AudioFrame } from '../types';
 
 const PAD = SPACING.panelPad;
@@ -36,13 +36,6 @@ function hzAtFraction(fraction: number): number {
   return MIN_HZ * Math.pow(MAX_HZ / MIN_HZ, fraction);
 }
 
-function hexToRgba(hex: string, alpha: number): string {
-  const value = hex.replace('#', '');
-  const r = parseInt(value.slice(0, 2), 16);
-  const g = parseInt(value.slice(2, 4), 16);
-  const b = parseInt(value.slice(4, 6), 16);
-  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-}
 
 function ensureCurveBuffer(buffer: Float32Array | null, pointCount: number): Float32Array {
   if (buffer && buffer.length === pointCount) return buffer;
