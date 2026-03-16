@@ -1257,6 +1257,7 @@ const perfHeaderStyle: React.CSSProperties = {
   alignItems: 'flex-start',
   paddingBottom: SPACING.sm,
   borderBottom: `1px solid ${COLORS.border}`,
+  flexShrink: 0,
 };
 
 const perfHeaderTextStyle: React.CSSProperties = {
@@ -1307,6 +1308,7 @@ const perfProfileRailStyle: React.CSSProperties = {
   border: `1px solid ${COLORS.border}`,
   background: COLORS.bg1,
   borderRadius: 2,
+  flexShrink: 0,
 };
 
 const perfProfileSummaryStyle: React.CSSProperties = {
@@ -1400,7 +1402,6 @@ const perfBodyStyle: React.CSSProperties = {
 };
 
 const perfPanelStyle: React.CSSProperties = {
-  minHeight: 0,
   display: 'flex',
   flexDirection: 'column',
   gap: SPACING.sm,
@@ -1409,6 +1410,7 @@ const perfPanelStyle: React.CSSProperties = {
   padding: `${SPACING.sm}px ${SPACING.md}px`,
   borderRadius: 2,
   overflow: 'hidden',
+  flexShrink: 0,
 };
 
 const perfSectionTitleStyle: React.CSSProperties = {
