@@ -328,9 +328,6 @@ export class AudioEngine {
     const pending = createStretchNode(ctx, channelCount)
       .then(async (stretchNode) => {
         stretchNode.connect(this.playGainNode!);
-        if (this.streamedPitchInputNode) {
-          this.streamedPitchInputNode.connect(stretchNode);
-        }
         await stretchNode.configure({ preset: 'default' });
         await stretchNode.setUpdateInterval(0.1, () => {
           this.stretchLastProgressAt = this.ctx?.currentTime ?? 0;
@@ -369,11 +366,16 @@ export class AudioEngine {
 
     if (throughStretch) {
       if (this.stretchNode && this.streamedPitchInputNode) {
+        try { this.streamedPitchInputNode.disconnect(this.stretchNode); } catch { /* already disconnected */ }
+        this.streamedPitchInputNode.connect(this.stretchNode);
         this.mediaSourceNode.connect(this.streamedPitchInputNode);
       }
       return;
     }
 
+    if (this.stretchNode && this.streamedPitchInputNode) {
+      try { this.streamedPitchInputNode.disconnect(this.stretchNode); } catch { /* already disconnected */ }
+    }
     this.mediaSourceNode.connect(this.playGainNode);
   }
 
@@ -947,13 +949,6 @@ export class AudioEngine {
           const stretchNode = await this.ensureStretchNode(decodedBuffer.numberOfChannels);
           if (loadVersion !== this.loadVersion) return;
           await stretchNode.dropBuffers();
-          if (loadVersion !== this.loadVersion) return;
-          // dropBuffers() resets the worklet's internal state, which clears
-          // the setUpdateInterval callback registered at node creation. Re-register
-          // it here so the watchdog receives heartbeats during decoded playback.
-          await stretchNode.setUpdateInterval(0.1, () => {
-            this.stretchLastProgressAt = this.ctx?.currentTime ?? 0;
-          });
           if (loadVersion !== this.loadVersion) return;
           await stretchNode.addBuffers(this.prepareStretchBuffers(decodedBuffer));
           if (loadVersion !== this.loadVersion) return;
