@@ -375,7 +375,6 @@ const toggleStyle: React.CSSProperties = {
   borderRadius: 2,
   alignSelf: 'flex-start',
   outline: 'none',
-  transition: 'background 0.1s, border-color 0.1s, color 0.1s',
 };
 
 const utilityButtonStyle: React.CSSProperties = {

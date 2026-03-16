@@ -40,6 +40,19 @@ if (-not (Test-Path $shareDir)) {
   New-Item -ItemType Directory -Path $shareDir | Out-Null
 }
 
+$staleInstallerArtifacts = Get-ChildItem -Path $shareDir -File -ErrorAction SilentlyContinue | Where-Object {
+  (
+    $_.Name -like "*-Setup.exe" -or
+    $_.Name -like "*-Setup.exe.sha256.txt"
+  ) -and
+  $_.Name -ne $canonicalInstallerName -and
+  $_.Name -ne $hashFileName
+}
+
+foreach ($artifact in $staleInstallerArtifacts) {
+  Remove-Item -Path $artifact.FullName -Force
+}
+
 Copy-Item -Path $installer.FullName -Destination $targetInstaller -Force
 
 if (-not (Test-Path $webDistDir)) {
@@ -95,3 +108,6 @@ Write-Host "  Size:      $sizeBytes bytes"
 Write-Host "  SHA256:    $hash"
 Write-Host "  Manifest:  $manifestPath"
 Write-Host "  Web App:   $webIndexPath"
+if ($staleInstallerArtifacts) {
+  Write-Host "  Cleaned:   $($staleInstallerArtifacts.Count) stale installer artifact(s)"
+}

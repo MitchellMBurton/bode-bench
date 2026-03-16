@@ -17,15 +17,16 @@
 //     fracs state to a parent layout store and passing it back down.
 // ============================================================
 
-import { useCallback, useEffect, useId, useReducer, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useReducer, useRef, useState } from 'react';
 import { useLayoutInteraction } from './LayoutInteraction';
 import { COLORS } from '../theme';
 
 // Pixel height (column) or width (row) of the entire drag hit area.
-const HANDLE_HIT_PX = 8;
+const HANDLE_HIT_PX = 14;
 const PREVIEW_LINE_PX = 2;
 
 const DEFAULT_MIN_PX = 48;
+const COMPRESSED_MIN_PX = 24;
 const EMPTY_SIZES: number[] = [];
 const persistedPaneFractions = new Map<string, number[]>();
 
@@ -69,21 +70,54 @@ function readInitialFracs(initialSizes: number[], persistKey?: string): number[]
   return normalize(stored);
 }
 
+function getRequestedMinSizes(paneCount: number, minSizePx: number[]): number[] {
+  return Array.from({ length: paneCount }, (_, index) => {
+    const requested = minSizePx[index] ?? DEFAULT_MIN_PX;
+    return Math.max(0, requested);
+  });
+}
+
+function fitMinSizesToAvailable(requestedMinSizes: number[], availPx: number): number[] {
+  if (!Number.isFinite(availPx) || availPx <= 0) return requestedMinSizes;
+
+  const totalRequested = requestedMinSizes.reduce((sum, size) => sum + size, 0);
+  if (totalRequested <= availPx) return requestedMinSizes;
+
+  const paneCount = requestedMinSizes.length;
+  const compressedFloor = Math.min(COMPRESSED_MIN_PX, availPx / Math.max(1, paneCount));
+  const compressedFloorTotal = compressedFloor * paneCount;
+  if (compressedFloorTotal >= availPx) {
+    return Array.from({ length: paneCount }, () => availPx / Math.max(1, paneCount));
+  }
+
+  const requestedExtra = requestedMinSizes.map((size) => Math.max(0, size - compressedFloor));
+  const requestedExtraTotal = requestedExtra.reduce((sum, size) => sum + size, 0);
+  if (requestedExtraTotal <= 0) {
+    return Array.from({ length: paneCount }, () => compressedFloor);
+  }
+
+  const extraBudget = availPx - compressedFloorTotal;
+  return requestedExtra.map((size) => compressedFloor + (size / requestedExtraTotal) * extraBudget);
+}
+
 // ── ResizeHandle ──────────────────────────────────────────────────────────────
 
 interface HandleProps {
   isColumn: boolean;
-  onMouseDown: (e: React.MouseEvent) => void;
+  isActive: boolean;
+  onPointerDown: (e: React.PointerEvent<HTMLDivElement>) => void;
 }
 
-function ResizeHandle({ isColumn, onMouseDown }: HandleProps): React.ReactElement {
+function ResizeHandle({ isColumn, isActive, onPointerDown }: HandleProps): React.ReactElement {
   const [hovered, setHovered] = useState(false);
+  const active = hovered || isActive;
 
   return (
     <div
-      onMouseDown={onMouseDown}
+      onPointerDown={onPointerDown}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
+      title="Drag to resize panels"
       style={{
         flexShrink: 0,
         flexGrow: 0,
@@ -91,18 +125,61 @@ function ResizeHandle({ isColumn, onMouseDown }: HandleProps): React.ReactElemen
         [isColumn ? 'width' : 'height']: '100%',
         cursor: isColumn ? 'row-resize' : 'col-resize',
         position: 'relative',
-        zIndex: 10,
+        zIndex: 12,
+        touchAction: 'none',
+        background: active
+          ? isColumn
+            ? 'linear-gradient(180deg, rgba(124, 138, 210, 0), rgba(124, 138, 210, 0.16), rgba(124, 138, 210, 0))'
+            : 'linear-gradient(90deg, rgba(124, 138, 210, 0), rgba(124, 138, 210, 0.16), rgba(124, 138, 210, 0))'
+          : isColumn
+            ? 'linear-gradient(180deg, rgba(80, 92, 148, 0), rgba(80, 92, 148, 0.04), rgba(80, 92, 148, 0))'
+            : 'linear-gradient(90deg, rgba(80, 92, 148, 0), rgba(80, 92, 148, 0.04), rgba(80, 92, 148, 0))',
       }}
     >
-      {/* Visible 1px divider centred in the hit area */}
+      <div
+        style={{
+          position: 'absolute',
+          inset: 0,
+          pointerEvents: 'none',
+          boxShadow: active
+            ? `inset 0 0 0 1px ${COLORS.borderHighlight}`
+            : 'none',
+        }}
+      />
       <div
         style={{
           position: 'absolute',
           pointerEvents: 'none',
-          background: hovered ? COLORS.borderActive : COLORS.border,
+          background: active ? COLORS.borderActive : 'rgba(98, 108, 156, 0.26)',
           ...(isColumn
             ? { top: '50%', left: 0, right: 0, height: 1, transform: 'translateY(-50%)' }
             : { left: '50%', top: 0, bottom: 0, width: 1, transform: 'translateX(-50%)' }),
+        }}
+      />
+      <div
+        style={{
+          position: 'absolute',
+          pointerEvents: 'none',
+          borderRadius: 999,
+          background: active ? COLORS.borderHighlight : 'rgba(128, 134, 172, 0.28)',
+          boxShadow: active ? `0 0 10px ${COLORS.borderHighlight}` : 'none',
+          opacity: active ? 1 : 0.28,
+          transition: 'opacity 120ms ease, background 120ms ease, box-shadow 120ms ease',
+          ...(isColumn
+            ? {
+                top: '50%',
+                left: '50%',
+                width: 44,
+                height: 4,
+                transform: 'translate(-50%, -50%)',
+              }
+            : {
+                top: '50%',
+                left: '50%',
+                width: 4,
+                height: 44,
+                transform: 'translate(-50%, -50%)',
+              }),
         }}
       />
     </div>
@@ -154,6 +231,8 @@ export function SplitPane({
   const previewGuideRef = useRef<HTMLDivElement>(null);
   const pendingFracsRef = useRef<number[] | null>(null);
   const dragFrameRef = useRef<number | null>(null);
+  const [containerMainPx, setContainerMainPx] = useState<number>(0);
+  const [activeHandleIdx, setActiveHandleIdx] = useState<number | null>(null);
   const interactionId = useId();
   const { beginResize, endInteraction } = useLayoutInteraction();
   const isColumn = direction === 'column';
@@ -161,10 +240,33 @@ export function SplitPane({
   const initialSizesKey = initialSizes.join('|');
   const lastResetTokenRef = useRef(resetToken);
   const latestInitialSizesRef = useRef(initialSizes);
+  const requestedMinSizes = useMemo(() => getRequestedMinSizes(n, minSizePx), [minSizePx, n]);
+  const paneAvailPx = containerMainPx > 0
+    ? Math.max(0, containerMainPx - (n - 1) * HANDLE_HIT_PX)
+    : Number.POSITIVE_INFINITY;
+  const effectiveMinSizePx = useMemo(
+    () => fitMinSizesToAvailable(requestedMinSizes, paneAvailPx),
+    [paneAvailPx, requestedMinSizes],
+  );
 
   useEffect(() => {
     latestInitialSizesRef.current = initialSizes;
   }, [initialSizes]);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const updateMainPx = () => {
+      const rect = container.getBoundingClientRect();
+      setContainerMainPx(isColumn ? rect.height : rect.width);
+    };
+
+    updateMainPx();
+    const observer = new ResizeObserver(() => updateMainPx());
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, [isColumn]);
 
   useEffect(() => {
     if (!persistKey) return;
@@ -178,6 +280,8 @@ export function SplitPane({
     startFracs: number[];
     availPx: number;
     previewFracs: number[];
+    pointerId: number;
+    effectiveMinSizePx: number[];
   } | null>(null);
 
   // Compute pixel space available for panes (container minus all handle slices).
@@ -209,9 +313,11 @@ export function SplitPane({
       : `translate3d(${guidePx}px, 0, 0)`;
   }, [isColumn, n]);
 
-  const onHandleMouseDown = useCallback(
-    (e: React.MouseEvent, handleIdx: number) => {
+  const onHandlePointerDown = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>, handleIdx: number) => {
+      if (!e.isPrimary || e.button !== 0) return;
       e.preventDefault();
+      e.stopPropagation();
       const availPx = computeAvailPx();
       const startFracs = [...fracs];
       dragRef.current = {
@@ -220,7 +326,10 @@ export function SplitPane({
         startFracs,
         availPx,
         previewFracs: startFracs,
+        pointerId: e.pointerId,
+        effectiveMinSizePx,
       };
+      setActiveHandleIdx(handleIdx);
       pendingFracsRef.current = null;
       setPreviewPosition(handleIdx, startFracs);
       setPreviewVisible(true);
@@ -228,13 +337,13 @@ export function SplitPane({
       document.body.style.cursor = isColumn ? 'row-resize' : 'col-resize';
       document.body.style.userSelect = 'none';
     },
-    [beginResize, computeAvailPx, fracs, interactionId, isColumn, setPreviewPosition, setPreviewVisible],
+    [beginResize, computeAvailPx, effectiveMinSizePx, fracs, interactionId, isColumn, setPreviewPosition, setPreviewVisible],
   );
 
   useEffect(() => {
-    const onMouseMove = (e: MouseEvent) => {
+    const onPointerMove = (e: PointerEvent) => {
       const drag = dragRef.current;
-      if (!drag || drag.availPx <= 0) return;
+      if (!drag || drag.availPx <= 0 || drag.pointerId !== e.pointerId) return;
 
       const coord = isColumn ? e.clientY : e.clientX;
       const deltaPx = coord - drag.startCoord;
@@ -243,8 +352,8 @@ export function SplitPane({
       const combined = drag.startFracs[i] + drag.startFracs[i + 1];
 
       // Per-pane minimum fractions derived from pixel minimums.
-      const minA = (minSizePx[i]     ?? DEFAULT_MIN_PX) / drag.availPx;
-      const minB = (minSizePx[i + 1] ?? DEFAULT_MIN_PX) / drag.availPx;
+      const minA = (drag.effectiveMinSizePx[i]     ?? DEFAULT_MIN_PX) / drag.availPx;
+      const minB = (drag.effectiveMinSizePx[i + 1] ?? DEFAULT_MIN_PX) / drag.availPx;
 
       // Per-pane maximum fractions (optional).
       const maxA = maxSizePx[i]     ? maxSizePx[i]     / drag.availPx : combined - minB;
@@ -272,9 +381,9 @@ export function SplitPane({
       });
     };
 
-    const onMouseUp = () => {
+    const endPointerDrag = (pointerId: number) => {
       const drag = dragRef.current;
-      if (!drag) return;
+      if (!drag || drag.pointerId !== pointerId) return;
 
       const finalFracs = pendingFracsRef.current ?? drag.previewFracs;
       pendingFracsRef.current = null;
@@ -282,6 +391,7 @@ export function SplitPane({
         cancelAnimationFrame(dragFrameRef.current);
         dragFrameRef.current = null;
       }
+      setActiveHandleIdx(null);
       setPreviewVisible(false);
       dispatch({ type: 'apply', fracs: finalFracs });
       dragRef.current = null;
@@ -290,8 +400,17 @@ export function SplitPane({
       endInteraction();
     };
 
-    window.addEventListener('mousemove', onMouseMove);
-    window.addEventListener('mouseup', onMouseUp);
+    const onPointerUp = (e: PointerEvent) => {
+      endPointerDrag(e.pointerId);
+    };
+
+    const onPointerCancel = (e: PointerEvent) => {
+      endPointerDrag(e.pointerId);
+    };
+
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', onPointerUp);
+    window.addEventListener('pointercancel', onPointerCancel);
     return () => {
       if (dragFrameRef.current !== null) {
         cancelAnimationFrame(dragFrameRef.current);
@@ -303,10 +422,11 @@ export function SplitPane({
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
       endInteraction();
-      window.removeEventListener('mousemove', onMouseMove);
-      window.removeEventListener('mouseup', onMouseUp);
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', onPointerUp);
+      window.removeEventListener('pointercancel', onPointerCancel);
     };
-  }, [endInteraction, isColumn, maxSizePx, minSizePx, setPreviewPosition, setPreviewVisible]);
+  }, [endInteraction, isColumn, maxSizePx, setPreviewPosition, setPreviewVisible]);
 
   useEffect(() => {
     if (resetToken === undefined) return;
@@ -332,7 +452,7 @@ export function SplitPane({
   // Build interleaved [pane, handle, pane, handle, pane, …] children.
   const items: React.ReactElement[] = [];
   children.forEach((child, i) => {
-    const minPx = minSizePx[i] ?? DEFAULT_MIN_PX;
+    const minPx = effectiveMinSizePx[i] ?? requestedMinSizes[i] ?? DEFAULT_MIN_PX;
     items.push(
       <div
         key={`pane-${i}`}
@@ -354,7 +474,8 @@ export function SplitPane({
         <ResizeHandle
           key={`handle-${i}`}
           isColumn={isColumn}
-          onMouseDown={(e) => onHandleMouseDown(e, i)}
+          isActive={activeHandleIdx === i}
+          onPointerDown={(e) => onHandlePointerDown(e, i)}
         />,
       );
     }

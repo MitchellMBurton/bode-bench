@@ -2,13 +2,13 @@
 // App root - wires layout, panels, controls, and score loader.
 // ============================================================
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useSyncExternalStore } from 'react';
 import { ConsoleLayout } from './layout/ConsoleLayout';
 import { SplitPane } from './layout/SplitPane';
 import { TransportControls } from './controls/TransportControls';
 import { MetadataDisplay } from './controls/MetadataDisplay';
 import { SessionControls } from './controls/SessionControls';
-import { DiagnosticsLog } from './controls/DiagnosticsLog';
+import { DiagnosticsLog, PerformanceDiagnostics } from './controls/DiagnosticsLog';
 import { WaveformOverviewPanel } from './panels/WaveformOverviewPanel';
 import { OscilloscopePanel } from './panels/OscilloscopePanel';
 import { OscilloscopeScrollPanel } from './panels/OscilloscopeScrollPanel';
@@ -20,17 +20,68 @@ import { FrequencyBandsPanel } from './panels/FrequencyBandsPanel';
 import { PitchTrackerPanel } from './panels/PitchTrackerPanel';
 import { HarmonicLadderPanel } from './panels/HarmonicLadderPanel';
 import { LoudnessHistoryPanel } from './panels/LoudnessHistoryPanel';
-import { useAudioEngine, useDisplayMode, useTheaterMode } from './core/session';
+import { useAudioEngine, useDiagnosticsLog, useDisplayMode, usePerformanceDiagnosticsStore, usePerformanceProfile, useTheaterMode } from './core/session';
 import type { VisualMode } from './audio/displayMode';
+import type { PerformanceDiagnosticsSnapshot } from './diagnostics/logStore';
 import { COLORS, FONTS, SPACING } from './theme';
 
 const SEEK_STEP = 5;
+const SEEK_STEP_LARGE = 15;
+const GLOBAL_HOTKEY_BLOCK_SELECTOR = [
+  'input',
+  'textarea',
+  'select',
+  'button',
+  'summary',
+  '[contenteditable=""]',
+  '[contenteditable="true"]',
+  '[role="textbox"]',
+  '[role="button"]',
+  '[role="dialog"]',
+  '[aria-modal="true"]',
+  '[data-shell-interactive="true"]',
+  '[data-shell-overlay="true"]',
+].join(', ');
+
+function formatTransportTime(seconds: number): string {
+  const minutes = Math.floor(seconds / 60);
+  const secs = Math.floor(seconds % 60);
+  const tenths = Math.floor((seconds % 1) * 10);
+  return `${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}.${tenths}`;
+}
+
+function formatRuntimeMs(value: number | null, digits = 0): string {
+  if (value === null || !Number.isFinite(value)) return '--';
+  return `${value.toFixed(digits)} ms`;
+}
+
+function getRuntimeStatus(snapshot: PerformanceDiagnosticsSnapshot): string {
+  if (snapshot.videoRecoveryCount > 0 || snapshot.videoStallCount > 0) return 'VIDEO PRESSURE';
+  if (snapshot.uiFrameP95Ms >= 24 || snapshot.uiJankPercent >= 14 || (snapshot.lastLongTaskMs ?? 0) >= 40) return 'UI PRESSURE';
+  if (snapshot.videoCatchupActive || Math.abs(snapshot.videoDriftMs) >= 80) return 'SYNC ACTIVE';
+  return 'CLEAN';
+}
+
+function shouldIgnoreGlobalTransportHotkeys(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) return false;
+  if ((target as HTMLElement).isContentEditable) return true;
+  return target.closest(GLOBAL_HOTKEY_BLOCK_SELECTOR) !== null;
+}
 
 export default function App(): React.ReactElement {
   const audioEngine = useAudioEngine();
+  const diagnosticsLog = useDiagnosticsLog();
   const displayMode = useDisplayMode();
+  const performanceDiagnostics = usePerformanceDiagnosticsStore();
+  const performanceProfile = usePerformanceProfile();
+  const perfSnapshot = useSyncExternalStore(
+    performanceDiagnostics.subscribe,
+    performanceDiagnostics.getSnapshot,
+    performanceDiagnostics.getSnapshot,
+  );
   const theaterMode = useTheaterMode();
   const [filename, setFilename] = useState<string | null>(null);
+  const [performanceLabOpen, setPerformanceLabOpen] = useState(false);
   const [grayscale, setGrayscale] = useState(false);
   const [visualMode, setVisualMode] = useState<VisualMode>('default');
   const [layoutResetToken, setLayoutResetToken] = useState(0);
@@ -38,8 +89,37 @@ export default function App(): React.ReactElement {
   useEffect(() => {
     return audioEngine.onTransport((state) => {
       setFilename(state.filename);
+      performanceDiagnostics.noteTransport(state);
     });
-  }, [audioEngine]);
+  }, [audioEngine, performanceDiagnostics]);
+
+  useEffect(() => {
+    let rafId = 0;
+    let lastAt = 0;
+    const tick = (now: number) => {
+      if (lastAt !== 0) {
+        performanceDiagnostics.noteUiFrame(now - lastAt);
+      }
+      lastAt = now;
+      rafId = requestAnimationFrame(tick);
+    };
+    rafId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafId);
+  }, [performanceDiagnostics]);
+
+  useEffect(() => {
+    if (typeof PerformanceObserver === 'undefined') return;
+    if (!PerformanceObserver.supportedEntryTypes?.includes('longtask')) return;
+
+    const observer = new PerformanceObserver((list) => {
+      for (const entry of list.getEntries()) {
+        performanceDiagnostics.noteLongTask(entry.duration);
+      }
+    });
+
+    observer.observe({ entryTypes: ['longtask'] });
+    return () => observer.disconnect();
+  }, [performanceDiagnostics]);
 
   useEffect(() => {
     displayMode.setMode(visualMode);
@@ -47,8 +127,7 @@ export default function App(): React.ReactElement {
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      const tag = (e.target as HTMLElement)?.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+      if (e.defaultPrevented || shouldIgnoreGlobalTransportHotkeys(e.target)) return;
 
       switch (e.code) {
         case 'Space':
@@ -59,11 +138,26 @@ export default function App(): React.ReactElement {
           break;
         case 'ArrowLeft':
           e.preventDefault();
-          audioEngine.seek(Math.max(0, audioEngine.currentTime - SEEK_STEP));
+          audioEngine.seek(Math.max(0, audioEngine.currentTime - (e.shiftKey ? SEEK_STEP_LARGE : SEEK_STEP)));
           break;
         case 'ArrowRight':
           e.preventDefault();
-          audioEngine.seek(Math.min(audioEngine.duration, audioEngine.currentTime + SEEK_STEP));
+          audioEngine.seek(Math.min(audioEngine.duration, audioEngine.currentTime + (e.shiftKey ? SEEK_STEP_LARGE : SEEK_STEP)));
+          break;
+        case 'KeyS':
+          e.preventDefault();
+          audioEngine.stop();
+          break;
+        case 'KeyL':
+          e.preventDefault();
+          if (audioEngine.duration <= 0) break;
+          if (audioEngine.loopStart !== null && audioEngine.loopEnd !== null) {
+            audioEngine.clearLoop();
+            diagnosticsLog.push('loop cleared', 'info', 'transport');
+          } else {
+            audioEngine.setLoop(0, audioEngine.duration);
+            diagnosticsLog.push(`loop file 00:00.0 -> ${formatTransportTime(audioEngine.duration)}`, 'info', 'transport');
+          }
           break;
         case 'Escape':
           e.preventDefault();
@@ -73,11 +167,12 @@ export default function App(): React.ReactElement {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [audioEngine]);
+  }, [audioEngine, diagnosticsLog]);
 
   const fileTitle = filename ? filename.replace(/\.[^/.]+$/, '') : null;
   const panelTitle = fileTitle ?? 'NO SESSION';
   const showScanLines = visualMode === 'nge' || visualMode === 'hyper';
+  const runtimeStatus = getRuntimeStatus(perfSnapshot);
 
   return (
     <>
@@ -86,6 +181,48 @@ export default function App(): React.ReactElement {
         visualMode={visualMode}
         layoutResetToken={layoutResetToken}
         onResetLayout={() => setLayoutResetToken((token) => token + 1)}
+        runtimeDock={{
+          label: 'RUNTIME PROFILE',
+          value: runtimeStatus,
+          actionLabel: 'PERF LAB',
+          open: performanceLabOpen,
+          onToggle: () => setPerformanceLabOpen((open) => !open),
+          summary: (
+            <>
+              <RuntimeMetricPill
+                label="UI"
+                value={`${perfSnapshot.uiFps.toFixed(0)} FPS`}
+                tone={perfSnapshot.uiFrameP95Ms >= 24 || perfSnapshot.uiJankPercent >= 14 ? 'warn' : 'dim'}
+              />
+              <RuntimeMetricPill
+                label="JANK"
+                value={`${perfSnapshot.uiJankPercent.toFixed(0)}%`}
+                tone={perfSnapshot.uiJankPercent >= 14 ? 'warn' : 'dim'}
+              />
+              <RuntimeMetricPill
+                label="VIDEO"
+                value={`${perfSnapshot.videoState.toUpperCase()} ${Math.round(Math.abs(perfSnapshot.videoDriftMs))} MS`}
+                tone={perfSnapshot.videoState === 'waiting' || perfSnapshot.videoState === 'stalled' ? 'warn' : perfSnapshot.videoCatchupActive ? 'info' : 'dim'}
+              />
+              <RuntimeMetricPill
+                label="LOAD"
+                value={perfSnapshot.lastLoad ? `${perfSnapshot.lastLoad.totalMs.toFixed(0)} MS` : '--'}
+                tone={perfSnapshot.lastLoad && perfSnapshot.lastLoad.totalMs >= 1200 ? 'warn' : perfSnapshot.lastLoad && perfSnapshot.lastLoad.totalMs >= 900 ? 'info' : 'dim'}
+              />
+              <RuntimeMetricPill
+                label="PROFILE"
+                value={performanceProfile.label}
+                tone={performanceProfile.activeProfile === 'desktop-high' ? 'info' : 'dim'}
+              />
+              <RuntimeMetricPill
+                label="LONG"
+                value={formatRuntimeMs(perfSnapshot.lastLongTaskMs)}
+                tone={(perfSnapshot.lastLongTaskMs ?? 0) >= 40 ? 'warn' : 'dim'}
+              />
+            </>
+          ),
+          content: <PerformanceDiagnostics />,
+        }}
         topLeft={{
           category: 'SUITE CONSOLE',
           title: panelTitle,
@@ -139,7 +276,7 @@ export default function App(): React.ReactElement {
             <TheaterPanelShell
               active={theaterMode}
               title="SURFACES IDLED"
-              detail="Instrumentation remains mounted so state is preserved when theater mode closes."
+              detail="Instrumentation is held in place during video priority mode, then resumes instantly."
             >
               <SplitPane
                 direction="column"
@@ -187,6 +324,37 @@ export default function App(): React.ReactElement {
   );
 }
 
+
+function RuntimeMetricPill({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: string;
+  tone: 'dim' | 'info' | 'warn';
+}): React.ReactElement {
+  const borderColor =
+    tone === 'warn'
+      ? COLORS.statusWarn
+      : tone === 'info'
+        ? COLORS.borderHighlight
+        : COLORS.border;
+  const textColor =
+    tone === 'warn'
+      ? COLORS.textPrimary
+      : tone === 'info'
+        ? COLORS.textPrimary
+        : COLORS.textSecondary;
+
+  return (
+    <span style={{ ...runtimeMetricPillStyle, borderColor }}>
+      <span style={runtimeMetricLabelStyle}>{label}</span>
+      <span style={{ ...runtimeMetricValueStyle, color: textColor }}>{value}</span>
+    </span>
+  );
+}
+
 function TheaterPanelShell({
   active,
   title,
@@ -210,6 +378,34 @@ function TheaterPanelShell({
     </div>
   );
 }
+
+
+const runtimeMetricPillStyle: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: SPACING.xs,
+  padding: `2px ${SPACING.sm}px`,
+  borderWidth: 1,
+  borderStyle: 'solid',
+  borderColor: COLORS.border,
+  borderRadius: 2,
+  background: COLORS.bg1,
+  minWidth: 0,
+};
+
+const runtimeMetricLabelStyle: React.CSSProperties = {
+  fontFamily: FONTS.mono,
+  fontSize: FONTS.sizeXs,
+  color: COLORS.textCategory,
+  letterSpacing: '0.12em',
+};
+
+const runtimeMetricValueStyle: React.CSSProperties = {
+  fontFamily: FONTS.mono,
+  fontSize: FONTS.sizeXs,
+  letterSpacing: '0.06em',
+  color: COLORS.textSecondary,
+};
 
 const controlPanelStyle: React.CSSProperties = {
   display: 'flex',

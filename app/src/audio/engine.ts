@@ -18,6 +18,7 @@ import { createStretchNode, type StretchNode, type StretchSchedule } from './str
 import { CANVAS } from '../theme';
 import type { AudioFrame, FileAnalysis, ScrubStyle, TransportState } from '../types';
 import { RATE_MIN, RATE_MAX, PITCH_MIN, PITCH_MAX } from '../constants';
+import type { PerformanceDiagnosticsStore } from '../diagnostics/logStore';
 
 type TransportListener = (state: TransportState) => void;
 
@@ -38,6 +39,22 @@ const DECLICK_IN_S = 0.008;
 const SEEK_RESUME_DELAY_MS = 140;
 const STRETCH_WATCHDOG_GRACE_S = 0.75;
 const STRETCH_WATCHDOG_TIMEOUT_S = 0.6;
+const MAX_STRETCH_PREP_BYTES = 512 * 1024 * 1024;
+const MAX_IN_MEMORY_FILE_BYTES = 384 * 1024 * 1024;
+const MAX_DECODE_AUDIO_BYTES = 768 * 1024 * 1024;
+const DEFERRED_ANALYSIS_SLICE_MS = 6;
+const DEFERRED_ANALYSIS_SAMPLE_BATCH = 16_384;
+const STREAMED_MEDIA_SAMPLE_RATE = 48_000;
+const STREAMED_MEDIA_CHANNELS = 2;
+const STREAMED_OVERVIEW_PROBE_FFT_SIZE = 2048;
+
+type PlaybackBackend = 'decoded' | 'streamed';
+export interface StreamedOverviewProbe {
+  readonly element: HTMLMediaElement;
+  readonly analyser: AnalyserNode;
+  readonly timeDomain: Float32Array;
+  dispose(): void;
+}
 const SCRUB_STYLE_CONFIG: Record<ScrubStyle, ScrubStyleConfig> = {
   step: {
     delayMs: 28,
@@ -70,9 +87,11 @@ const SCRUB_STYLE_CONFIG: Record<ScrubStyle, ScrubStyleConfig> = {
 
 export class AudioEngine {
   private readonly frameBus: FrameBus;
+  private readonly performanceDiagnostics: PerformanceDiagnosticsStore | null;
 
-  constructor(frameBus: FrameBus) {
+  constructor(frameBus: FrameBus, performanceDiagnostics: PerformanceDiagnosticsStore | null = null) {
     this.frameBus = frameBus;
+    this.performanceDiagnostics = performanceDiagnostics;
   }
 
   private ctx: AudioContext | null = null;
@@ -80,15 +99,21 @@ export class AudioEngine {
   private analyserR: AnalyserNode | null = null;
   private masterGain: GainNode | null = null;
   private playGainNode: GainNode | null = null;
+  private streamedPitchInputNode: GainNode | null = null;
   private splitterNode: ChannelSplitterNode | null = null;
   private sourceNode: AudioBufferSourceNode | null = null;
+  private mediaElement: HTMLMediaElement | null = null;
+  private mediaSourceNode: MediaElementAudioSourceNode | null = null;
+  private mediaObjectUrl: string | null = null;
   private stretchNode: StretchNode | null = null;
   private stretchNodeReady: Promise<StretchNode> | null = null;
   private stretchChannelCount = 0;
   private stretchLatency = 0;
   private stretchEnabledForBuffer = false;
+  private stretchEnabledForStream = false;
   private stretchLastProgressAt = 0;
   private pitchShiftAvailable = true;
+  private playbackBackend: PlaybackBackend = 'decoded';
 
   private buffer: AudioBuffer | null = null;
   private startedAt = 0;
@@ -99,7 +124,9 @@ export class AudioEngine {
   private _playbackRate = 1;
   private _pitchSemitones = 0;
   private playId = 0;
+  private streamedPlayAttemptId = 0;
   private fileId = 0;
+  private loadVersion = 0;
   private _displayGain = 1;
   private _loopStart: number | null = null;
   private _loopEnd: number | null = null;
@@ -128,6 +155,38 @@ export class AudioEngine {
   private _fileAnalysis: FileAnalysis | null = null;
   private _filename: string | null = null;
   private lastAnalysisAt = 0;
+  private stretchMutationChain: Promise<void> = Promise.resolve();
+  private deferredAnalysisCancel: (() => void) | null = null;
+
+  private invalidateStreamedPlayAttempt(): void {
+    this.streamedPlayAttemptId++;
+  }
+
+  private isBenignStreamedPlayInterruption(error: unknown): boolean {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      return true;
+    }
+
+    const message = error instanceof Error
+      ? error.message
+      : typeof error === 'string'
+        ? error
+        : '';
+    return /play\(\) request was interrupted by a call to pause\(\)/i.test(message);
+  }
+
+  private shouldPreflightStreaming(file: File): boolean {
+    return file.type.startsWith('video/') || file.size >= MAX_IN_MEMORY_FILE_BYTES;
+  }
+
+  private shouldPreferStreamingLoad(file: File, durationSeconds: number | null): boolean {
+    if (file.size >= MAX_IN_MEMORY_FILE_BYTES) return true;
+    if (durationSeconds !== null && Number.isFinite(durationSeconds) && durationSeconds > 0) {
+      const estimatedDecodedBytes = durationSeconds * STREAMED_MEDIA_SAMPLE_RATE * STREAMED_MEDIA_CHANNELS * Float32Array.BYTES_PER_ELEMENT;
+      if (estimatedDecodedBytes >= MAX_DECODE_AUDIO_BYTES) return true;
+    }
+    return false;
+  }
 
   private ensureContext(): AudioContext {
     if (!this.ctx) {
@@ -168,6 +227,12 @@ export class AudioEngine {
     this.playGainNode.channelCountMode = 'explicit';
     this.playGainNode.connect(this.masterGain);
 
+    this.streamedPitchInputNode = ctx.createGain();
+    this.streamedPitchInputNode.gain.value = 1;
+    this.streamedPitchInputNode.channelCount = STREAMED_MEDIA_CHANNELS;
+    this.streamedPitchInputNode.channelCountMode = 'explicit';
+    this.streamedPitchInputNode.channelInterpretation = 'speakers';
+
     this.splitterNode = ctx.createChannelSplitter(2);
     this.playGainNode.connect(this.splitterNode);
     this.splitterNode.connect(this.analyserL, 0);
@@ -178,6 +243,15 @@ export class AudioEngine {
     void command.catch((error) => {
       console.error(`stretch ${label} failed`, error);
     });
+  }
+
+  private async runSerializedStretchMutation<T>(fn: () => Promise<T>): Promise<T> {
+    const next = this.stretchMutationChain.then(fn, fn);
+    this.stretchMutationChain = next.then(
+      () => undefined,
+      () => undefined,
+    );
+    return next;
   }
 
   private get transportRate(): number {
@@ -192,12 +266,31 @@ export class AudioEngine {
     return this.stretchEnabledForBuffer ? this.transportRate : this.nativeFallbackRate;
   }
 
+  private get stretchActive(): boolean {
+    return this.stretchEnabledForBuffer || this.stretchEnabledForStream;
+  }
+
+  private get streamedPitchShiftActive(): boolean {
+    return this.playbackBackend === 'streamed' && this.stretchEnabledForStream && !!this.mediaElement;
+  }
+
   private get scrubConfig(): ScrubStyleConfig {
     return SCRUB_STYLE_CONFIG[this._scrubStyle];
   }
 
+  private get streamedScrubCanStayLive(): boolean {
+    return this.playbackBackend === 'streamed' && !!this.mediaElement;
+  }
+
   private async disposeStretchNode(): Promise<void> {
     const readyNode = this.stretchNode ?? await this.stretchNodeReady?.catch(() => null) ?? null;
+    if (this.streamedPitchInputNode) {
+      try {
+        this.streamedPitchInputNode.disconnect();
+      } catch {
+        // Already disconnected.
+      }
+    }
     if (readyNode) {
       try {
         await readyNode.dropBuffers();
@@ -235,6 +328,9 @@ export class AudioEngine {
     const pending = createStretchNode(ctx, channelCount)
       .then(async (stretchNode) => {
         stretchNode.connect(this.playGainNode!);
+        if (this.streamedPitchInputNode) {
+          this.streamedPitchInputNode.connect(stretchNode);
+        }
         await stretchNode.configure({ preset: 'default' });
         await stretchNode.setUpdateInterval(0.1, () => {
           this.stretchLastProgressAt = this.ctx?.currentTime ?? 0;
@@ -262,57 +358,640 @@ export class AudioEngine {
     });
   }
 
+  private routeStreamedSource(throughStretch: boolean): void {
+    if (!this.mediaSourceNode || !this.playGainNode) return;
+
+    try {
+      this.mediaSourceNode.disconnect();
+    } catch {
+      // Already disconnected.
+    }
+
+    if (throughStretch) {
+      if (this.stretchNode && this.streamedPitchInputNode) {
+        this.mediaSourceNode.connect(this.streamedPitchInputNode);
+      }
+      return;
+    }
+
+    this.mediaSourceNode.connect(this.playGainNode);
+  }
+
+  private setMediaElementPitchPreservation(enabled: boolean): void {
+    if (!this.mediaElement) return;
+    const pitchPreservingElement = this.mediaElement as HTMLMediaElement & {
+      preservesPitch?: boolean;
+      mozPreservesPitch?: boolean;
+      webkitPreservesPitch?: boolean;
+    };
+    if ('preservesPitch' in pitchPreservingElement) {
+      pitchPreservingElement.preservesPitch = enabled;
+    }
+    if ('mozPreservesPitch' in pitchPreservingElement) {
+      pitchPreservingElement.mozPreservesPitch = enabled;
+    }
+    if ('webkitPreservesPitch' in pitchPreservingElement) {
+      pitchPreservingElement.webkitPreservesPitch = enabled;
+    }
+  }
+
+  private get activeStreamInputRate(): number {
+    return this.scrubActive ? this.scrubPreviewRate : this.nativeFallbackRate;
+  }
+
+  private get streamedPitchCompensatedSemitones(): number {
+    const inputRate = Math.max(0.01, this.activeStreamInputRate);
+    return this._pitchSemitones - 12 * Math.log2(inputRate);
+  }
+
+  private get streamedPitchScheduleLeadTime(): number {
+    return Math.max(this.stretchLatency, 0.05);
+  }
+
+  private get streamedFormantCompensationEnabled(): boolean {
+    const effectiveSemitones = Math.abs(this.streamedPitchCompensatedSemitones);
+    if (effectiveSemitones <= 0.001) return false;
+    return effectiveSemitones <= 4.5;
+  }
+
+  private buildStreamedPitchSchedule(outputTime: number): StretchSchedule {
+    return {
+      active: true,
+      outputTime,
+      semitones: this.streamedPitchCompensatedSemitones,
+      formantCompensation: this.streamedFormantCompensationEnabled,
+      formantBaseHz: 0,
+    };
+  }
+
+  private scheduleStreamedPitchUpdate(
+    outputTime = (this.ctx?.currentTime ?? 0) + this.streamedPitchScheduleLeadTime,
+    label = 'stream-pitch',
+  ): void {
+    if (!this.streamedPitchShiftActive || !this.stretchNode) return;
+    this.queueStretchCommand(this.stretchNode.schedule(this.buildStreamedPitchSchedule(outputTime)), label);
+  }
+
+  private async prepareStreamedPitchShift(loadVersion: number): Promise<void> {
+    await this.runSerializedStretchMutation(async () => {
+      if (loadVersion !== this.loadVersion || this.playbackBackend !== 'streamed' || !this.mediaElement) return;
+      try {
+        await this.ensureStretchNode(STREAMED_MEDIA_CHANNELS);
+        if (loadVersion !== this.loadVersion || this.playbackBackend !== 'streamed' || !this.mediaElement) return;
+        this.pitchShiftAvailable = true;
+        this.emitTransport();
+      } catch (error) {
+        if (loadVersion !== this.loadVersion || this.playbackBackend !== 'streamed') return;
+        this.pitchShiftAvailable = false;
+        this._pitchSemitones = 0;
+        this.emitTransport();
+        console.warn('streamed pitch prep failed, native playback retained', error);
+      }
+    });
+  }
+
+  private async setStreamedPitchShiftEnabled(enabled: boolean): Promise<boolean> {
+    if (this.playbackBackend !== 'streamed' || !this.mediaElement || !this.mediaSourceNode) {
+      return false;
+    }
+
+    if (!enabled) {
+      if (this.stretchEnabledForStream && this.ctx && this.stretchNode) {
+        try {
+          await this.stretchNode.stop(this.ctx.currentTime + DECLICK_FADE_S);
+        } catch {
+          // Ignore live stretch stop failures while returning to native playback.
+        }
+      }
+      this.routeStreamedSource(false);
+      this.setMediaElementPitchPreservation(true);
+      this.stretchEnabledForStream = false;
+      return true;
+    }
+
+    try {
+      await this.ensureStretchNode(STREAMED_MEDIA_CHANNELS);
+    } catch (error) {
+      this.stretchEnabledForStream = false;
+      this.pitchShiftAvailable = false;
+      console.warn('streamed pitch activation failed, native playback retained', error);
+      return false;
+    }
+
+    if (this.playbackBackend !== 'streamed' || !this.mediaElement || !this.mediaSourceNode) {
+      this.stretchEnabledForStream = false;
+      return false;
+    }
+
+    this.routeStreamedSource(true);
+    this.setMediaElementPitchPreservation(false);
+    this.stretchEnabledForStream = true;
+    this.pitchShiftAvailable = true;
+    return true;
+  }
+
+  private async enableStreamedPitchShiftLive(): Promise<boolean> {
+    if (
+      this.playbackBackend !== 'streamed'
+      || !this.mediaElement
+      || !this.mediaSourceNode
+      || !this.ctx
+      || !this._isPlaying
+    ) {
+      return this.setStreamedPitchShiftEnabled(true);
+    }
+
+    const resumeAt = this.currentTime;
+    const previewRate = this.scrubActive ? this.scrubPreviewRate : this.nativeFallbackRate;
+    const enabled = await this.setStreamedPitchShiftEnabled(true);
+    if (!enabled || !this.stretchNode || this.playbackBackend !== 'streamed' || !this.mediaElement || !this.ctx) {
+      return false;
+    }
+
+    const outputTime = this.ctx.currentTime + this.streamedPitchScheduleLeadTime;
+    this.offsetAt = resumeAt;
+    this.startedAt = outputTime;
+    this.mediaElement.currentTime = resumeAt;
+    this.mediaElement.defaultPlaybackRate = this.nativeFallbackRate;
+    this.mediaElement.playbackRate = previewRate;
+    this.rampPlayGain(1, DECLICK_IN_S, outputTime);
+    this.emitTransport();
+
+    try {
+      await this.stretchNode.start(this.buildStreamedPitchSchedule(outputTime));
+      return true;
+    } catch (error) {
+      console.error('streamed pitch live-enable failed, native playback retained', error);
+      this.offsetAt = resumeAt;
+      this.startedAt = this.ctx.currentTime;
+      await this.setStreamedPitchShiftEnabled(false);
+      this.pitchShiftAvailable = false;
+      this._pitchSemitones = 0;
+      this.setMediaElementPitchPreservation(true);
+      this.emitTransport();
+      return false;
+    }
+  }
+
+  private estimateStretchPrepBytes(buffer: AudioBuffer): number {
+    return buffer.length * buffer.numberOfChannels * Float32Array.BYTES_PER_ELEMENT;
+  }
+
+  private async createPreflightMediaElement(file: File): Promise<{
+    readonly element: HTMLMediaElement;
+    readonly url: string;
+    readonly duration: number | null;
+  }> {
+    const url = URL.createObjectURL(file);
+    const element = file.type.startsWith('video/')
+      ? document.createElement('video')
+      : new Audio();
+    element.preload = 'metadata';
+    element.src = url;
+    element.crossOrigin = 'anonymous';
+    if (element instanceof HTMLVideoElement) {
+      element.playsInline = true;
+    }
+
+    return await new Promise((resolve, reject) => {
+      const cleanup = () => {
+        element.onloadedmetadata = null;
+        element.onerror = null;
+      };
+
+      element.onloadedmetadata = () => {
+        cleanup();
+        const duration = Number.isFinite(element.duration) && element.duration > 0
+          ? element.duration
+          : null;
+        resolve({ element, url, duration });
+      };
+
+      element.onerror = () => {
+        cleanup();
+        URL.revokeObjectURL(url);
+        reject(new DOMException('The media element could not read this file.', 'NotSupportedError'));
+      };
+    });
+  }
+
+  private disposePreflightMediaElement(element: HTMLMediaElement, url: string): void {
+    element.pause();
+    element.removeAttribute('src');
+    element.load();
+    URL.revokeObjectURL(url);
+  }
+
+  private disposeStreamedMedia(): void {
+    if (this.mediaElement) {
+      this.invalidateStreamedPlayAttempt();
+      this.mediaElement.pause();
+      this.mediaElement.onended = null;
+      this.mediaElement.onerror = null;
+      this.mediaElement.onloadedmetadata = null;
+      this.mediaElement.onseeked = null;
+      this.mediaElement.onpause = null;
+      this.mediaElement.onplay = null;
+      this.mediaElement.removeAttribute('src');
+      this.mediaElement.load();
+      this.mediaElement = null;
+    }
+
+    if (this.mediaSourceNode) {
+      try {
+        this.mediaSourceNode.disconnect();
+      } catch {
+        // Already disconnected.
+      }
+      this.mediaSourceNode = null;
+    }
+
+    if (this.mediaObjectUrl) {
+      URL.revokeObjectURL(this.mediaObjectUrl);
+      this.mediaObjectUrl = null;
+    }
+
+    this.stretchEnabledForStream = false;
+    this.playbackBackend = 'decoded';
+  }
+
+  private async activateStreamedMediaLoad(
+    file: File,
+    media: {
+      readonly element: HTMLMediaElement;
+      readonly url: string;
+      readonly duration: number | null;
+    },
+    loadVersion: number,
+    loadStartedAt: number,
+    readMs: number,
+    decodeMs: number,
+    stretchMs: number,
+  ): Promise<void> {
+    const ctx = this.ensureContext();
+    if (!this.playGainNode) {
+      this.disposePreflightMediaElement(media.element, media.url);
+      throw new Error('playGainNode is not initialized');
+    }
+
+    this.disposeStreamedMedia();
+    await this.runSerializedStretchMutation(async () => {
+      if (loadVersion !== this.loadVersion) return;
+      if (this.stretchNode || this.stretchNodeReady) {
+        await this.disposeStretchNode();
+      }
+    });
+    if (loadVersion !== this.loadVersion) {
+      this.disposePreflightMediaElement(media.element, media.url);
+      return;
+    }
+
+    media.element.muted = false;
+    media.element.volume = 1;
+    media.element.defaultPlaybackRate = this.nativeFallbackRate;
+    media.element.playbackRate = this.nativeFallbackRate;
+    media.element.currentTime = 0;
+
+    const sourceNode = ctx.createMediaElementSource(media.element);
+    sourceNode.connect(this.playGainNode);
+
+    media.element.onended = () => {
+      if (this.mediaElement !== media.element) return;
+      if (!this._isPlaying) return;
+      this.stopPlayback(true, 'stream-ended');
+      this.emitTransport();
+    };
+    media.element.onseeked = () => {
+      if (this.mediaElement !== media.element || this._isPlaying) return;
+      this.offsetAt = media.element.currentTime;
+      this.emitTransport();
+    };
+
+    this.mediaElement = media.element;
+    this.mediaSourceNode = sourceNode;
+    this.mediaObjectUrl = media.url;
+    this.setMediaElementPitchPreservation(true);
+    this.playbackBackend = 'streamed';
+    this.buffer = null;
+    this.stretchEnabledForBuffer = false;
+    this.stretchEnabledForStream = false;
+    this.pitchShiftAvailable = false;
+    this._pitchSemitones = 0;
+    this._displayGain = 1;
+    this._fileAnalysis = null;
+    this._waveformPeaks = null;
+    this._filename = file.name;
+    this.offsetAt = 0;
+    this.fileId++;
+
+    this.performanceDiagnostics?.noteLoadSample({
+      filename: file.name,
+      totalMs: performance.now() - loadStartedAt,
+      readMs,
+      decodeMs,
+      stretchMs,
+      channels: 0,
+      durationS: media.duration ?? 0,
+      stretchEnabled: false,
+    });
+
+    this.emitTransport();
+    void this.prepareStreamedPitchShift(loadVersion);
+  }
+
+  private cancelDeferredAnalysis(): void {
+    if (this.deferredAnalysisCancel) {
+      this.deferredAnalysisCancel();
+      this.deferredAnalysisCancel = null;
+    }
+  }
+
+  private scheduleDeferredBufferAnalysis(
+    buffer: AudioBuffer,
+    fileId: number,
+    loadVersion: number,
+  ): void {
+    this.cancelDeferredAnalysis();
+
+    const channelData = Array.from({ length: buffer.numberOfChannels }, (_, channel) => buffer.getChannelData(channel));
+    const binSamples = AudioEngine.WAVEFORM_BIN_SAMPLES;
+    const numBins = Math.ceil(buffer.length / binSamples);
+    const peaks = new Float32Array(numBins * 2);
+    let channelIndex = 0;
+    let sampleIndex = 0;
+    let peak = 0;
+    let rmsSum = 0;
+    let totalSamples = 0;
+    let clipCount = 0;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const finalize = (): void => {
+      if (cancelled) return;
+      const rms = totalSamples > 0 ? Math.sqrt(rmsSum / totalSamples) : 0;
+      const peakDb = peak > 0 ? 20 * Math.log10(peak) : -100;
+      const rmsDb = rms > 0 ? 20 * Math.log10(rms) : -100;
+
+      if (this.fileId !== fileId || loadVersion !== this.loadVersion || this.buffer !== buffer) {
+        return;
+      }
+
+      this._displayGain = peak > 0.001 ? 0.95 / peak : 1;
+      this._fileAnalysis = {
+        crestFactorDb: peakDb - rmsDb,
+        peakDb,
+        rmsDb,
+        clipCount,
+        duration: buffer.duration,
+        channels: buffer.numberOfChannels,
+        decodedSampleRate: buffer.sampleRate,
+        contextSampleRate: this.ctx?.sampleRate ?? buffer.sampleRate,
+        fileId,
+      };
+      this._waveformPeaks = peaks;
+      this.deferredAnalysisCancel = null;
+
+      for (const fn of this.fileReadyListeners) {
+        fn(this._fileAnalysis);
+      }
+    };
+
+    const step = (): void => {
+      timer = null;
+      if (cancelled) return;
+
+      const sliceStartedAt = performance.now();
+      while (channelIndex < channelData.length) {
+        const data = channelData[channelIndex];
+        const end = Math.min(sampleIndex + DEFERRED_ANALYSIS_SAMPLE_BATCH, data.length);
+
+        for (let sample = sampleIndex; sample < end; sample++) {
+          const value = data[sample];
+          const abs = Math.abs(value);
+          if (abs > peak) peak = abs;
+          rmsSum += value * value;
+          totalSamples++;
+          if (abs >= 0.9999) clipCount++;
+
+          if (channelIndex === 0) {
+            const bin = Math.floor(sample / binSamples);
+            const peakIndex = bin * 2;
+            if (value < peaks[peakIndex]) peaks[peakIndex] = value;
+            if (value > peaks[peakIndex + 1]) peaks[peakIndex + 1] = value;
+          }
+        }
+
+        sampleIndex = end;
+        if (sampleIndex >= data.length) {
+          channelIndex++;
+          sampleIndex = 0;
+        }
+
+        if (performance.now() - sliceStartedAt >= DEFERRED_ANALYSIS_SLICE_MS) {
+          timer = window.setTimeout(step, 0);
+          return;
+        }
+      }
+
+      finalize();
+    };
+
+    this.deferredAnalysisCancel = () => {
+      cancelled = true;
+      if (timer !== null) {
+        window.clearTimeout(timer);
+        timer = null;
+      }
+    };
+
+    timer = window.setTimeout(step, 0);
+  }
+
   async load(file: File): Promise<void> {
     const ctx = this.ensureContext();
+    const loadVersion = ++this.loadVersion;
+    const loadStartedAt = performance.now();
+    let readMs = 0;
+    let decodeMs = 0;
+    let stretchMs = 0;
     if (ctx.state === 'suspended') {
       await ctx.resume();
     }
+    if (loadVersion !== this.loadVersion) return;
 
-    this.stop();
     this.clearSeekResume();
     this.clearScrubTimers();
+    this.cancelDeferredAnalysis();
+    this.disposeStreamedMedia();
     this.scrubActive = false;
     this.scrubResumeAfter = false;
     this.scrubPreviewRate = 1;
     this.scrubLastTarget = 0;
     this.scrubLastMoveAt = 0;
+    this.stopPlayback(true, 'load');
     this._loopStart = null;
     this._loopEnd = null;
     this._playbackRate = 1;
     this._pitchSemitones = 0;
-
-    const arrayBuffer = await file.arrayBuffer();
-    const decodedBuffer = await ctx.decodeAudioData(arrayBuffer);
+    this.buffer = null;
+    this._filename = null;
+    this.offsetAt = 0;
+    this._displayGain = 1;
+    this._fileAnalysis = null;
+    this._waveformPeaks = null;
     this.stretchEnabledForBuffer = false;
     this.pitchShiftAvailable = true;
-    try {
-      const stretchNode = await this.ensureStretchNode(decodedBuffer.numberOfChannels);
-      await stretchNode.dropBuffers();
-      await stretchNode.addBuffers(this.prepareStretchBuffers(decodedBuffer));
-      this.stretchEnabledForBuffer = true;
-    } catch (error) {
-      console.error('stretch load failed, falling back to native playback', error);
-      await this.disposeStretchNode();
+    this.playbackBackend = 'decoded';
+    this.emitTransport();
+
+    let preflightMedia: {
+      readonly element: HTMLMediaElement;
+      readonly url: string;
+      readonly duration: number | null;
+    } | null = null;
+
+    if (this.shouldPreflightStreaming(file)) {
+      try {
+        preflightMedia = await this.createPreflightMediaElement(file);
+        if (loadVersion !== this.loadVersion) {
+          this.disposePreflightMediaElement(preflightMedia.element, preflightMedia.url);
+          return;
+        }
+        if (this.shouldPreferStreamingLoad(file, preflightMedia.duration)) {
+          await this.activateStreamedMediaLoad(
+            file,
+            preflightMedia,
+            loadVersion,
+            loadStartedAt,
+            readMs,
+            decodeMs,
+            stretchMs,
+          );
+          return;
+        }
+      } catch {
+        preflightMedia = null;
+      }
     }
 
+    let arrayBuffer: ArrayBuffer;
+    try {
+      const readStartedAt = performance.now();
+      arrayBuffer = await file.arrayBuffer();
+      readMs = performance.now() - readStartedAt;
+    } catch (error) {
+      const streamedMedia = preflightMedia ?? await this.createPreflightMediaElement(file).catch(() => null);
+      if (streamedMedia) {
+        await this.activateStreamedMediaLoad(
+          file,
+          streamedMedia,
+          loadVersion,
+          loadStartedAt,
+          readMs,
+          decodeMs,
+          stretchMs,
+        );
+        return;
+      }
+      throw error;
+    }
+    if (loadVersion !== this.loadVersion) {
+      if (preflightMedia) {
+        this.disposePreflightMediaElement(preflightMedia.element, preflightMedia.url);
+      }
+      return;
+    }
+
+    if (preflightMedia) {
+      this.disposePreflightMediaElement(preflightMedia.element, preflightMedia.url);
+      preflightMedia = null;
+    }
+
+    let decodedBuffer: AudioBuffer;
+    try {
+      const decodeStartedAt = performance.now();
+      decodedBuffer = await ctx.decodeAudioData(arrayBuffer);
+      decodeMs = performance.now() - decodeStartedAt;
+    } catch (error) {
+      const streamedMedia = await this.createPreflightMediaElement(file).catch(() => null);
+      if (streamedMedia) {
+        await this.activateStreamedMediaLoad(
+          file,
+          streamedMedia,
+          loadVersion,
+          loadStartedAt,
+          readMs,
+          decodeMs,
+          stretchMs,
+        );
+        return;
+      }
+      throw error;
+    }
+    if (loadVersion !== this.loadVersion) return;
+
+    const stretchStartedAt = performance.now();
+    let stretchEnabledForBuffer = false;
+    const stretchPrepBytes = this.estimateStretchPrepBytes(decodedBuffer);
+    if (stretchPrepBytes > MAX_STRETCH_PREP_BYTES) {
+      await this.runSerializedStretchMutation(async () => {
+        if (loadVersion !== this.loadVersion) return;
+        if (this.stretchNode || this.stretchNodeReady) {
+          await this.disposeStretchNode();
+        }
+      });
+    } else {
+      await this.runSerializedStretchMutation(async () => {
+        if (loadVersion !== this.loadVersion) return;
+        try {
+          const stretchNode = await this.ensureStretchNode(decodedBuffer.numberOfChannels);
+          if (loadVersion !== this.loadVersion) return;
+          await stretchNode.dropBuffers();
+          if (loadVersion !== this.loadVersion) return;
+          // dropBuffers() resets the worklet's internal state, which clears
+          // the setUpdateInterval callback registered at node creation. Re-register
+          // it here so the watchdog receives heartbeats during decoded playback.
+          await stretchNode.setUpdateInterval(0.1, () => {
+            this.stretchLastProgressAt = this.ctx?.currentTime ?? 0;
+          });
+          if (loadVersion !== this.loadVersion) return;
+          await stretchNode.addBuffers(this.prepareStretchBuffers(decodedBuffer));
+          if (loadVersion !== this.loadVersion) return;
+          stretchEnabledForBuffer = true;
+        } catch {
+          console.warn('stretch prep failed, native playback retained');
+          if (loadVersion === this.loadVersion) {
+            await this.disposeStretchNode();
+          }
+        }
+      });
+    }
+    stretchMs = performance.now() - stretchStartedAt;
+    if (loadVersion !== this.loadVersion) return;
+
+    this.stretchEnabledForBuffer = stretchEnabledForBuffer;
+    this.pitchShiftAvailable = stretchEnabledForBuffer;
+    this.playbackBackend = 'decoded';
     this.buffer = decodedBuffer;
     this._filename = file.name;
     this.offsetAt = 0;
     this.fileId++;
 
+    this.performanceDiagnostics?.noteLoadSample({
+      filename: file.name,
+      totalMs: performance.now() - loadStartedAt,
+      readMs,
+      decodeMs,
+      stretchMs,
+      channels: decodedBuffer.numberOfChannels,
+      durationS: decodedBuffer.duration,
+      stretchEnabled: stretchEnabledForBuffer,
+    });
+
     this.emitTransport();
 
-    const capturedBuffer = this.buffer;
     const capturedFileId = this.fileId;
-    setTimeout(() => {
-      if (this.fileId !== capturedFileId) return;
-      this._displayGain = this.computeDisplayGain(capturedBuffer);
-      this._fileAnalysis = this.computeFileAnalysis(capturedBuffer);
-      this._waveformPeaks = this.computeWaveformPeaks(capturedBuffer);
-      for (const fn of this.fileReadyListeners) {
-        fn(this._fileAnalysis!);
-      }
-    }, 0);
+    this.scheduleDeferredBufferAnalysis(decodedBuffer, capturedFileId, loadVersion);
   }
 
   private rampPlayGain(target: number, durationSeconds: number, startAt?: number): void {
@@ -374,6 +1053,7 @@ export class AudioEngine {
     if (this.scrubStopTimer !== null) {
       window.clearTimeout(this.scrubStopTimer);
     }
+    if (this.streamedScrubCanStayLive) return;
     if (!this.scrubActive) return;
     this.scrubStopTimer = window.setTimeout(() => {
       this.scrubStopTimer = null;
@@ -388,7 +1068,7 @@ export class AudioEngine {
       window.clearTimeout(this.scrubPreviewTimer);
       this.scrubPreviewTimer = null;
     }
-    if (!this.scrubActive || !this.buffer) return;
+    if (!this.scrubActive || (!this.buffer && !this.mediaElement)) return;
     if (this._isPlaying) {
       this.refreshScrubStopTimer();
       return;
@@ -396,7 +1076,7 @@ export class AudioEngine {
 
     this.scrubPreviewTimer = window.setTimeout(() => {
       this.scrubPreviewTimer = null;
-      if (!this.scrubActive || !this.buffer) return;
+      if (!this.scrubActive || (!this.buffer && !this.mediaElement)) return;
 
       this.play();
       this.refreshScrubStopTimer();
@@ -424,6 +1104,7 @@ export class AudioEngine {
 
   private shouldRestartScrubPreview(targetSeconds: number): boolean {
     if (!this._isPlaying) return true;
+    if (this.streamedScrubCanStayLive) return false;
     if (!this.scrubConfig.preferNative) return true;
     return Math.abs(targetSeconds - this.playbackHeadTime) > this.scrubConfig.continuityThresholdS;
   }
@@ -457,7 +1138,7 @@ export class AudioEngine {
     if (this._isPlaying && this.ctx) {
       this.rampPlayGain(0, DECLICK_FADE_S);
 
-      if (this.stretchEnabledForBuffer && this.stretchNode) {
+      if (this.stretchActive && this.stretchNode) {
         this.queueStretchCommand(
           this.stretchNode.stop(this.ctx.currentTime + DECLICK_FADE_S),
           label,
@@ -471,24 +1152,83 @@ export class AudioEngine {
           // Ignore stop on an already-ended native source.
         }
       }
+
+      if (this.mediaElement) {
+        this.invalidateStreamedPlayAttempt();
+        this.mediaElement.pause();
+      }
     }
 
     this.sourceNode = null;
     this.offsetAt = nextOffset;
     this.startedAt = 0;
     this._isPlaying = false;
+    if (this.mediaElement && resetToStart) {
+      this.mediaElement.currentTime = 0;
+    }
     this.stopRaf();
   }
 
   play(): void {
     this.clearSeekResume();
-    if (this._isPlaying || !this.buffer || !this.playGainNode) {
+    if (this._isPlaying || (!this.buffer && !this.mediaElement) || !this.playGainNode) {
       return;
     }
 
     const ctx = this.ensureContext();
     if (ctx.state === 'suspended') {
       void ctx.resume();
+    }
+
+    if (this.mediaElement && this.playbackBackend === 'streamed') {
+      const playAttemptId = ++this.streamedPlayAttemptId;
+      const previewRate = this.scrubActive ? this.scrubPreviewRate : this.nativeFallbackRate;
+      this.mediaElement.playbackRate = previewRate;
+      this.setMediaElementPitchPreservation(!this.streamedPitchShiftActive);
+      if (Math.abs(this.mediaElement.currentTime - this.offsetAt) > 0.05) {
+        this.mediaElement.currentTime = this.offsetAt;
+      }
+      const outputTime = this.streamedPitchShiftActive ? ctx.currentTime + this.stretchLatency : ctx.currentTime;
+      this.rampPlayGain(1, DECLICK_IN_S, outputTime);
+      this.startedAt = outputTime;
+      this._isPlaying = true;
+      this.playId++;
+      this.startRaf();
+      this.emitTransport();
+      if (this.streamedPitchShiftActive && this.stretchNode) {
+        const schedule = this.buildStreamedPitchSchedule(outputTime);
+        void this.stretchNode.start(schedule).catch((error) => {
+          console.error('streamed pitch start failed, native playback retained', error);
+          if (this.playbackBackend !== 'streamed' || !this.mediaElement) return;
+          const wasPlaying = this._isPlaying;
+          const resumeAt = this.currentTime;
+          this.stopPlayback(false, 'stream-pitch-fallback');
+          this.offsetAt = resumeAt;
+          void this.setStreamedPitchShiftEnabled(false).then(() => {
+            this.pitchShiftAvailable = false;
+            this._pitchSemitones = 0;
+            this.emitTransport();
+            if (wasPlaying) this.play();
+          });
+        });
+      }
+      void this.mediaElement.play().catch((error) => {
+        const staleAttempt = playAttemptId !== this.streamedPlayAttemptId;
+        if (staleAttempt) {
+          return;
+        }
+        if (this.isBenignStreamedPlayInterruption(error)) {
+          return;
+        }
+        if (this.mediaElement) {
+          this.offsetAt = this.mediaElement.currentTime;
+        }
+        this._isPlaying = false;
+        this.stopRaf();
+        this.emitTransport();
+        console.error('streamed media play failed', error);
+      });
+      return;
     }
 
     const useNativeScrubPreview = this.scrubActive && this.scrubConfig.preferNative;
@@ -570,6 +1310,7 @@ export class AudioEngine {
   stop(): void {
     this.clearSeekResume();
     this.clearScrubTimers();
+    this.cancelDeferredAnalysis();
     this.scrubActive = false;
     this.scrubResumeAfter = false;
     this.scrubPreviewRate = 1;
@@ -580,8 +1321,10 @@ export class AudioEngine {
   }
 
   reset(): void {
+    this.loadVersion++;
     this.clearSeekResume();
     this.clearScrubTimers();
+    this.cancelDeferredAnalysis();
     this.scrubActive = false;
     this.scrubResumeAfter = false;
     this.scrubPreviewRate = 1;
@@ -596,10 +1339,13 @@ export class AudioEngine {
     this._waveformPeaks = null;
     this._loopStart = null;
     this._loopEnd = null;
+    this.playbackBackend = 'decoded';
 
     if (this.stretchNode) {
       this.queueStretchCommand(this.stretchNode.dropBuffers(), 'dropBuffers');
     }
+
+    this.disposeStreamedMedia();
 
     this.emitTransport();
     for (const fn of this.resetListeners) {
@@ -608,7 +1354,7 @@ export class AudioEngine {
   }
 
   setLoop(start: number, end: number): void {
-    const dur = this.buffer?.duration ?? 0;
+    const dur = this.duration;
     this._loopStart = Math.max(0, Math.min(start, dur));
     this._loopEnd = Math.max(0, Math.min(end, dur));
     if (this._loopStart >= this._loopEnd) {
@@ -628,7 +1374,7 @@ export class AudioEngine {
   get loopEnd(): number | null { return this._loopEnd; }
 
   beginScrub(): void {
-    if (!this.buffer) return;
+    if (!this.buffer && !this.mediaElement) return;
 
     const pendingResume = this.seekResumePending;
     this.clearSeekResume();
@@ -637,11 +1383,11 @@ export class AudioEngine {
     }
 
     this.clearScrubTimers();
-    if (this._isPlaying) {
+    if (this._isPlaying && !this.streamedScrubCanStayLive) {
       this.stopPlayback(false, 'scrub-begin');
     }
 
-    this.scrubLastTarget = this.offsetAt;
+    this.scrubLastTarget = this.currentTime;
     this.scrubLastMoveAt = 0;
     this.scrubPreviewRate = 1;
     this.scrubActive = true;
@@ -649,12 +1395,12 @@ export class AudioEngine {
   }
 
   scrubTo(seconds: number): void {
-    if (!this.buffer) return;
+    if (!this.buffer && !this.mediaElement) return;
     if (!this.scrubActive) {
       this.beginScrub();
     }
 
-    const nextOffset = Math.max(0, Math.min(seconds, this.buffer.duration));
+    const nextOffset = Math.max(0, Math.min(seconds, this.duration));
     this.updateScrubPreviewRate(nextOffset);
     const shouldRestart = this.shouldRestartScrubPreview(nextOffset);
 
@@ -664,9 +1410,19 @@ export class AudioEngine {
     }
 
     this.offsetAt = nextOffset;
+    if (this.mediaElement) {
+      this.mediaElement.currentTime = nextOffset;
+    }
     this.emitTransport();
 
     if (this._isPlaying && !shouldRestart) {
+      if (this.mediaElement) {
+        this.mediaElement.playbackRate = this.scrubPreviewRate;
+        this.setMediaElementPitchPreservation(!this.streamedPitchShiftActive);
+        if (this.streamedPitchShiftActive) {
+          this.scheduleStreamedPitchUpdate(undefined, 'stream-scrub');
+        }
+      }
       if (this.sourceNode) {
         this.sourceNode.playbackRate.value = this.scrubPreviewRate;
       }
@@ -683,7 +1439,8 @@ export class AudioEngine {
     const resumeAt = Math.max(0, Math.min(this.scrubLastTarget, this.duration));
     const shouldResume = this.scrubResumeAfter && resumeAt < this.duration;
     this.clearScrubTimers();
-    if (this._isPlaying) {
+    const keepContinuousPlayback = this.streamedScrubCanStayLive && this._isPlaying && shouldResume;
+    if (this._isPlaying && !keepContinuousPlayback) {
       this.stopPlayback(false, 'scrub-end');
     }
 
@@ -693,6 +1450,22 @@ export class AudioEngine {
     this.scrubPreviewRate = 1;
     this.scrubLastMoveAt = 0;
     this.scrubLastTarget = resumeAt;
+
+    if (keepContinuousPlayback && this.mediaElement) {
+      this.mediaElement.currentTime = resumeAt;
+      this.mediaElement.defaultPlaybackRate = this.nativeFallbackRate;
+      this.mediaElement.playbackRate = this.nativeFallbackRate;
+      this.setMediaElementPitchPreservation(!this.streamedPitchShiftActive);
+      if (this.streamedPitchShiftActive) {
+        this.scheduleStreamedPitchUpdate(undefined, 'stream-scrub-end');
+      }
+      if (this.ctx) {
+        this.startedAt = this.ctx.currentTime;
+      }
+      this.offsetAt = resumeAt;
+      this.emitTransport();
+      return;
+    }
 
     if (shouldResume) {
       this.play();
@@ -719,7 +1492,13 @@ export class AudioEngine {
       this.clearSeekResume();
     }
 
-    this.offsetAt = Math.max(0, Math.min(seconds, this.buffer?.duration ?? 0));
+    this.offsetAt = Math.max(0, Math.min(seconds, this.duration));
+    if (this.mediaElement) {
+      this.mediaElement.currentTime = this.offsetAt;
+      if (resumeAfterSeek) {
+        this.mediaElement.playbackRate = this.nativeFallbackRate;
+      }
+    }
     this.emitTransport();
 
     if (resumeAfterSeek) {
@@ -729,25 +1508,23 @@ export class AudioEngine {
 
   get currentTime(): number {
     if (this.scrubActive) return this.scrubLastTarget;
+    if (this.mediaElement) {
+      if (this.streamedPitchShiftActive) {
+        return this.playbackHeadTime;
+      }
+      return this._isPlaying ? this.mediaElement.currentTime : this.offsetAt;
+    }
     if (!this.ctx) return 0;
     if (!this._isPlaying) return this.offsetAt;
     return this.playbackHeadTime;
   }
 
   get duration(): number {
-    return this.buffer?.duration ?? 0;
-  }
-
-  private computeDisplayGain(buffer: AudioBuffer): number {
-    let peak = 0;
-    for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
-      const data = buffer.getChannelData(channel);
-      for (let i = 0; i < data.length; i++) {
-        const value = Math.abs(data[i]);
-        if (value > peak) peak = value;
-      }
+    if (this.buffer) return this.buffer.duration;
+    if (this.mediaElement) {
+      return Number.isFinite(this.mediaElement.duration) ? this.mediaElement.duration : 0;
     }
-    return peak > 0.001 ? 0.95 / peak : 1;
+    return 0;
   }
 
   private rebasePlaybackClock(): void {
@@ -789,15 +1566,14 @@ export class AudioEngine {
           return;
         }
 
-        if (
-          this._isPlaying &&
-          this.stretchEnabledForBuffer &&
-          this.ctx &&
-          this.ctx.currentTime >= this.startedAt + STRETCH_WATCHDOG_GRACE_S &&
-          this.ctx.currentTime - this.stretchLastProgressAt > STRETCH_WATCHDOG_TIMEOUT_S
-        ) {
-          this.fallbackToNativePlayback('watchdog');
-          return;
+        if (this._isPlaying && this.stretchEnabledForBuffer && this.ctx) {
+          if (
+            this.ctx.currentTime > this.startedAt + STRETCH_WATCHDOG_GRACE_S &&
+            this.ctx.currentTime - this.stretchLastProgressAt > STRETCH_WATCHDOG_TIMEOUT_S
+          ) {
+            this.fallbackToNativePlayback('watchdog');
+            return;
+          }
         }
 
         if (this._isPlaying && this._loopStart === null && this.currentTime >= this.duration) {
@@ -940,16 +1716,77 @@ export class AudioEngine {
     this._playbackRate = nextRate;
     if (this.stretchEnabledForBuffer) {
       this.scheduleStretchUpdate();
+    }
+    if (this.mediaElement) {
+      const activeRate = this.scrubActive ? this.scrubPreviewRate : this.nativeFallbackRate;
+      this.mediaElement.defaultPlaybackRate = this.nativeFallbackRate;
+      this.mediaElement.playbackRate = activeRate;
+      this.setMediaElementPitchPreservation(!this.streamedPitchShiftActive);
+      if (this._isPlaying) {
+        this.scheduleStreamedPitchUpdate(undefined, 'stream-rate');
+      }
     } else if (this.sourceNode) {
-      this.sourceNode.playbackRate.value = this.nativeFallbackRate;
+      this.sourceNode.playbackRate.value = this.scrubActive ? this.scrubPreviewRate : this.nativeFallbackRate;
     }
     this.emitTransport();
   }
 
   setPitchSemitones(semitones: number): void {
-    if (!this.pitchShiftAvailable) return;
     const nextPitch = Math.max(PITCH_MIN, Math.min(PITCH_MAX, semitones));
     if (Math.abs(nextPitch - this._pitchSemitones) < 0.0001) return;
+
+    if (this.playbackBackend === 'streamed' && this.mediaElement) {
+      const shouldEnableStreamPitch = Math.abs(nextPitch) > 0.0001;
+      this._pitchSemitones = nextPitch;
+
+      if (!shouldEnableStreamPitch) {
+        if (!this.stretchEnabledForStream) {
+          this.emitTransport();
+          return;
+        }
+        const wasPlaying = this._isPlaying;
+        const resumeAt = this.currentTime;
+        if (wasPlaying) {
+          this.stopPlayback(false, 'stream-pitch-off');
+        }
+        this.offsetAt = resumeAt;
+        void this.setStreamedPitchShiftEnabled(false).then(() => {
+          this._pitchSemitones = 0;
+          this.emitTransport();
+          if (wasPlaying) this.play();
+        });
+        return;
+      }
+
+      if (!this.stretchEnabledForStream) {
+        const wasPlaying = this._isPlaying;
+        const resumeAt = this.currentTime;
+        if (!wasPlaying) {
+          this.offsetAt = resumeAt;
+        }
+        const enablePitch = wasPlaying
+          ? this.enableStreamedPitchShiftLive()
+          : this.setStreamedPitchShiftEnabled(true);
+        void enablePitch.then((enabled) => {
+          if (!enabled) {
+            this._pitchSemitones = 0;
+            this.emitTransport();
+            return;
+          }
+          this.emitTransport();
+          if (!wasPlaying) this.play();
+        });
+        return;
+      }
+
+      if (this._isPlaying) {
+        this.scheduleStreamedPitchUpdate(undefined, 'stream-pitch');
+      }
+      this.emitTransport();
+      return;
+    }
+
+    if (!this.pitchShiftAvailable) return;
 
     if (!this.stretchEnabledForBuffer) {
       this.rebasePlaybackClock();
@@ -977,6 +1814,68 @@ export class AudioEngine {
   get waveformPeaks(): Float32Array | null { return this._waveformPeaks; }
   get waveformBinSamples(): number { return AudioEngine.WAVEFORM_BIN_SAMPLES; }
   get sampleRate(): number { return this.ctx?.sampleRate ?? 44100; }
+  get backendMode(): 'decoded' | 'streamed' { return this.playbackBackend; }
+  createStreamedOverviewProbe(): StreamedOverviewProbe | null {
+    if (this.playbackBackend !== 'streamed' || !this.mediaObjectUrl || !this.mediaElement) return null;
+
+    const ctx = this.ensureContext();
+    const element = this.mediaElement instanceof HTMLVideoElement
+      ? document.createElement('video')
+      : new Audio();
+    element.preload = 'auto';
+    element.src = this.mediaObjectUrl;
+    element.crossOrigin = 'anonymous';
+    element.defaultPlaybackRate = 1;
+    element.playbackRate = 1;
+    element.defaultMuted = true;
+    element.muted = true;
+
+    if (element instanceof HTMLVideoElement) {
+      element.playsInline = true;
+    }
+
+    const source = ctx.createMediaElementSource(element);
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = STREAMED_OVERVIEW_PROBE_FFT_SIZE;
+    analyser.smoothingTimeConstant = 0.08;
+    analyser.minDecibels = CANVAS.dbMin;
+    analyser.maxDecibels = CANVAS.dbMax;
+
+    const sink = ctx.createGain();
+    sink.gain.value = 0;
+
+    source.connect(analyser);
+    analyser.connect(sink);
+    sink.connect(ctx.destination);
+
+    const timeDomain = new Float32Array(analyser.fftSize);
+
+    return {
+      element,
+      analyser,
+      timeDomain,
+      dispose: () => {
+        element.pause();
+        element.removeAttribute('src');
+        element.load();
+        try {
+          source.disconnect();
+        } catch {
+          // Already disconnected.
+        }
+        try {
+          analyser.disconnect();
+        } catch {
+          // Already disconnected.
+        }
+        try {
+          sink.disconnect();
+        } catch {
+          // Already disconnected.
+        }
+      },
+    };
+  }
 
   getTimeDomainData(out: Float32Array): void {
     if (this.analyserL) {
@@ -1008,67 +1907,13 @@ export class AudioEngine {
     };
   }
 
-  private computeWaveformPeaks(buffer: AudioBuffer): Float32Array {
-    const data = buffer.getChannelData(0);
-    const binSamples = AudioEngine.WAVEFORM_BIN_SAMPLES;
-    const numBins = Math.ceil(data.length / binSamples);
-    const peaks = new Float32Array(numBins * 2);
-    for (let bin = 0; bin < numBins; bin++) {
-      const start = bin * binSamples;
-      const end = Math.min(start + binSamples, data.length);
-      let min = 0;
-      let max = 0;
-      for (let sample = start; sample < end; sample++) {
-        const value = data[sample];
-        if (value < min) min = value;
-        if (value > max) max = value;
-      }
-      peaks[bin * 2] = min;
-      peaks[bin * 2 + 1] = max;
-    }
-    return peaks;
-  }
-
-  private computeFileAnalysis(buffer: AudioBuffer): FileAnalysis {
-    let peak = 0;
-    let rmsSum = 0;
-    let totalSamples = 0;
-    let clipCount = 0;
-
-    for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
-      const data = buffer.getChannelData(channel);
-      for (let i = 0; i < data.length; i++) {
-        const value = Math.abs(data[i]);
-        if (value > peak) peak = value;
-        rmsSum += data[i] * data[i];
-        totalSamples++;
-        if (value >= 0.9999) clipCount++;
-      }
-    }
-
-    const rms = Math.sqrt(rmsSum / totalSamples);
-    const peakDb = peak > 0 ? 20 * Math.log10(peak) : -100;
-    const rmsDb = rms > 0 ? 20 * Math.log10(rms) : -100;
-
-    return {
-      crestFactorDb: peakDb - rmsDb,
-      peakDb,
-      rmsDb,
-      clipCount,
-      duration: buffer.duration,
-      channels: buffer.numberOfChannels,
-      decodedSampleRate: buffer.sampleRate,
-      contextSampleRate: this.ctx?.sampleRate ?? buffer.sampleRate,
-      fileId: this.fileId,
-    };
-  }
-
   private createTransportState(): TransportState {
     return {
       isPlaying: this._isPlaying && !this.scrubActive,
       currentTime: this.currentTime,
       duration: this.duration,
       filename: this._filename,
+      playbackBackend: this.playbackBackend,
       scrubActive: this.scrubActive,
       playbackRate: this._playbackRate,
       pitchSemitones: this._pitchSemitones,
@@ -1086,9 +1931,3 @@ export class AudioEngine {
     }
   }
 }
-
-
-
-
-
-

@@ -4,7 +4,7 @@
 // ============================================================
 
 import { useEffect, useRef } from 'react';
-import { useAudioEngine, useFrameBus } from '../core/session';
+import { useAudioEngine, useFrameBus, useTheaterMode } from '../core/session';
 import { COLORS, FONTS, CANVAS, SPACING } from '../theme';
 import { levelToDb, dbToFraction, drawDbScale } from '../utils/canvas';
 import type { AudioFrame } from '../types';
@@ -22,6 +22,7 @@ interface PeakHolder {
 export function LevelsPanel(): React.ReactElement {
   const frameBus = useFrameBus();
   const audioEngine = useAudioEngine();
+  const theaterMode = useTheaterMode();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const frameRef = useRef<AudioFrame | null>(null);
   const rafRef = useRef<number | null>(null);
@@ -54,6 +55,13 @@ export function LevelsPanel(): React.ReactElement {
       }
     });
     ro.observe(canvas);
+
+    if (theaterMode) {
+      return () => {
+        ro.disconnect();
+        if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
+      };
+    }
 
     const draw = () => {
       rafRef.current = requestAnimationFrame(draw);
@@ -155,7 +163,7 @@ export function LevelsPanel(): React.ReactElement {
       ro.disconnect();
       if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
     };
-  }, []);
+  }, [theaterMode]);
 
   return (
     <div style={panelStyle}>
