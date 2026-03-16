@@ -3,11 +3,53 @@
 // Peak and RMS bars with labelled dB scale.
 // ============================================================
 
-import { useEffect, useRef } from 'react';
-import { useAudioEngine, useFrameBus, useTheaterMode } from '../core/session';
+import { useEffect, useLayoutEffect, useRef } from 'react';
+import { useAudioEngine, useDisplayMode, useFrameBus, useTheaterMode } from '../core/session';
 import { COLORS, FONTS, CANVAS, SPACING } from '../theme';
 import { levelToDb, dbToFraction, drawDbScale } from '../utils/canvas';
+import { shouldSkipFrame } from '../utils/rafGuard';
 import type { AudioFrame } from '../types';
+import type { VisualMode } from '../audio/displayMode';
+
+interface LevelsColors {
+  bg: string;
+  track: string;
+  levelGreen: string;
+  levelYellow: string;
+  levelRed: string;
+  peakHold: string;
+  label: string;
+}
+
+function buildLevelsColors(mode: VisualMode): LevelsColors {
+  if (mode === 'nge') return {
+    bg: CANVAS.nge.bg2,
+    track: '#030a03',
+    levelGreen: '#70c018',
+    levelYellow: COLORS.levelYellow,
+    levelRed: COLORS.levelRed,
+    peakHold: 'rgba(120,200,60,0.6)',
+    label: 'rgba(80,160,50,0.5)',
+  };
+  if (mode === 'hyper') return {
+    bg: CANVAS.hyper.bg2,
+    track: '#030918',
+    levelGreen: '#28b0c8',
+    levelYellow: COLORS.levelYellow,
+    levelRed: COLORS.levelRed,
+    peakHold: 'rgba(78,200,255,0.55)',
+    label: 'rgba(84,132,255,0.5)',
+  };
+  return {
+    bg: COLORS.bg2,
+    track: COLORS.levelTrack,
+    levelGreen: COLORS.levelGreen,
+    levelYellow: COLORS.levelYellow,
+    levelRed: COLORS.levelRed,
+    peakHold: COLORS.textSecondary,
+    label: COLORS.textDim,
+  };
+}
 
 const HOLD_MS = CANVAS.levelPeakHoldMs;
 const BAR_W = CANVAS.levelBarWidth;
@@ -23,6 +65,10 @@ export function LevelsPanel(): React.ReactElement {
   const frameBus = useFrameBus();
   const audioEngine = useAudioEngine();
   const theaterMode = useTheaterMode();
+  const displayMode = useDisplayMode();
+  const currentColors = buildLevelsColors(displayMode.mode);
+  const colorsRef = useRef(currentColors);
+  useLayoutEffect(() => { colorsRef.current = currentColors; });
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const frameRef = useRef<AudioFrame | null>(null);
   const rafRef = useRef<number | null>(null);
@@ -65,6 +111,7 @@ export function LevelsPanel(): React.ReactElement {
 
     const draw = () => {
       rafRef.current = requestAnimationFrame(draw);
+      if (shouldSkipFrame()) return;
       const frame = frameRef.current;
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
@@ -78,13 +125,14 @@ export function LevelsPanel(): React.ReactElement {
       const barW = BAR_W * dpr;
       const barH = H - padY * 2;
 
+      const c = colorsRef.current;
       ctx.clearRect(0, 0, W, H);
-      ctx.fillStyle = COLORS.bg2;
+      ctx.fillStyle = c.bg;
       ctx.fillRect(0, 0, W, H);
 
       if (!frame) {
         drawDbScale(ctx, scaleW, padY, barH, [-60, -40, -20, -12, -6, -3, 0]);
-        drawLabel(ctx, W, dpr);
+        drawLabel(ctx, W, dpr, c.label);
         return;
       }
 
@@ -120,14 +168,14 @@ export function LevelsPanel(): React.ReactElement {
         const x = barStartX + ch * (barW + 4 * dpr);
 
         // Track
-        ctx.fillStyle = COLORS.levelTrack;
+        ctx.fillStyle = c.track;
         ctx.fillRect(x, padY, barW, barH);
 
         // RMS bar (dimmer, slightly narrower)
         const rmsH = rmsFrac * barH;
-        const rmsColor = rmsFrac > dbToFraction(-3) ? COLORS.levelRed
-          : rmsFrac > dbToFraction(-12) ? COLORS.levelYellow
-          : COLORS.levelGreen;
+        const rmsColor = rmsFrac > dbToFraction(-3) ? c.levelRed
+          : rmsFrac > dbToFraction(-12) ? c.levelYellow
+          : c.levelGreen;
         ctx.globalAlpha = 0.4;
         ctx.fillStyle = rmsColor;
         ctx.fillRect(x, padY + (barH - rmsH), barW, rmsH);
@@ -135,26 +183,26 @@ export function LevelsPanel(): React.ReactElement {
 
         // Peak bar
         const pkH = pkFrac * barH;
-        const pkColor = pkFrac > dbToFraction(-3) ? COLORS.levelRed
-          : pkFrac > dbToFraction(-12) ? COLORS.levelYellow
-          : COLORS.levelGreen;
+        const pkColor = pkFrac > dbToFraction(-3) ? c.levelRed
+          : pkFrac > dbToFraction(-12) ? c.levelYellow
+          : c.levelGreen;
         ctx.fillStyle = pkColor;
         ctx.fillRect(x, padY + (barH - pkH), barW, pkH);
 
         // Peak hold tick
         const holdY = padY + barH - holdFrac * barH;
-        ctx.fillStyle = COLORS.textSecondary;
+        ctx.fillStyle = c.peakHold;
         ctx.fillRect(x, holdY - dpr, barW, 2 * dpr);
 
         // Channel label
         ctx.font = `${8 * dpr}px ${FONTS.mono}`;
-        ctx.fillStyle = COLORS.textDim;
+        ctx.fillStyle = c.label;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'top';
         ctx.fillText(ch === 0 ? 'L' : 'R', x + barW / 2, padY + barH + 2 * dpr);
       }
 
-      drawLabel(ctx, W, dpr);
+      drawLabel(ctx, W, dpr, c.label);
     };
 
     rafRef.current = requestAnimationFrame(draw);
@@ -166,15 +214,15 @@ export function LevelsPanel(): React.ReactElement {
   }, [theaterMode]);
 
   return (
-    <div style={panelStyle}>
+    <div style={{ ...panelStyle, background: currentColors.bg }}>
       <canvas ref={canvasRef} style={canvasStyle} />
     </div>
   );
 }
 
-function drawLabel(ctx: CanvasRenderingContext2D, W: number, dpr: number): void {
+function drawLabel(ctx: CanvasRenderingContext2D, W: number, dpr: number, color: string): void {
   ctx.font = `${9 * dpr}px ${FONTS.mono}`;
-  ctx.fillStyle = COLORS.textDim;
+  ctx.fillStyle = color;
   ctx.textAlign = 'right';
   ctx.textBaseline = 'top';
   ctx.fillText('LEVELS', W - 8 * dpr, 6 * dpr);

@@ -23,7 +23,7 @@ import { LoudnessHistoryPanel } from './panels/LoudnessHistoryPanel';
 import { useAudioEngine, useDiagnosticsLog, useDisplayMode, usePerformanceDiagnosticsStore, usePerformanceProfile, useTheaterMode } from './core/session';
 import type { VisualMode } from './audio/displayMode';
 import type { PerformanceDiagnosticsSnapshot } from './diagnostics/logStore';
-import { COLORS, FONTS, SPACING } from './theme';
+import { CANVAS, COLORS, FONTS, SPACING } from './theme';
 
 const SEEK_STEP = 5;
 const SEEK_STEP_LARGE = 15;
@@ -189,39 +189,39 @@ export default function App(): React.ReactElement {
           onToggle: () => setPerformanceLabOpen((open) => !open),
           summary: (
             <>
-              <RuntimeMetricPill
+              <RuntimeMetricPill visualMode={visualMode}
                 label="UI"
                 value={`${perfSnapshot.uiFps.toFixed(0)} FPS`}
                 tone={perfSnapshot.uiFrameP95Ms >= 24 || perfSnapshot.uiJankPercent >= 14 ? 'warn' : 'dim'}
               />
-              <RuntimeMetricPill
+              <RuntimeMetricPill visualMode={visualMode}
                 label="JANK"
                 value={`${perfSnapshot.uiJankPercent.toFixed(0)}%`}
                 tone={perfSnapshot.uiJankPercent >= 14 ? 'warn' : 'dim'}
               />
-              <RuntimeMetricPill
+              <RuntimeMetricPill visualMode={visualMode}
                 label="VIDEO"
                 value={`${perfSnapshot.videoState.toUpperCase()} ${Math.round(Math.abs(perfSnapshot.videoDriftMs))} MS`}
                 tone={perfSnapshot.videoState === 'waiting' || perfSnapshot.videoState === 'stalled' ? 'warn' : perfSnapshot.videoCatchupActive ? 'info' : 'dim'}
               />
-              <RuntimeMetricPill
+              <RuntimeMetricPill visualMode={visualMode}
                 label="LOAD"
                 value={perfSnapshot.lastLoad ? `${perfSnapshot.lastLoad.totalMs.toFixed(0)} MS` : '--'}
                 tone={perfSnapshot.lastLoad && perfSnapshot.lastLoad.totalMs >= 1200 ? 'warn' : perfSnapshot.lastLoad && perfSnapshot.lastLoad.totalMs >= 900 ? 'info' : 'dim'}
               />
-              <RuntimeMetricPill
+              <RuntimeMetricPill visualMode={visualMode}
                 label="PROFILE"
                 value={performanceProfile.label}
                 tone={performanceProfile.activeProfile === 'desktop-high' ? 'info' : 'dim'}
               />
-              <RuntimeMetricPill
+              <RuntimeMetricPill visualMode={visualMode}
                 label="LONG"
                 value={formatRuntimeMs(perfSnapshot.lastLongTaskMs)}
                 tone={(perfSnapshot.lastLongTaskMs ?? 0) >= 40 ? 'warn' : 'dim'}
               />
             </>
           ),
-          content: <PerformanceDiagnostics />,
+          content: <PerformanceDiagnostics visualMode={visualMode} />,
         }}
         topLeft={{
           category: 'SUITE CONSOLE',
@@ -329,27 +329,35 @@ function RuntimeMetricPill({
   label,
   value,
   tone,
+  visualMode = 'default',
 }: {
   label: string;
   value: string;
   tone: 'dim' | 'info' | 'warn';
+  visualMode?: VisualMode;
 }): React.ReactElement {
+  const nge = visualMode === 'nge';
+  const hyper = visualMode === 'hyper';
+
+  const pillBg = nge ? 'rgba(4,10,4,0.85)' : hyper ? 'rgba(2,5,18,0.85)' : COLORS.bg1;
+  const labelColor = nge ? 'rgba(80,160,50,0.55)' : hyper ? CANVAS.hyper.category : COLORS.textCategory;
+
   const borderColor =
     tone === 'warn'
       ? COLORS.statusWarn
       : tone === 'info'
-        ? COLORS.borderHighlight
-        : COLORS.border;
+        ? nge ? CANVAS.nge.chromeBorder : hyper ? CANVAS.hyper.chromeBorder : COLORS.borderHighlight
+        : nge ? 'rgba(60,130,30,0.38)' : hyper ? 'rgba(40,70,180,0.38)' : COLORS.border;
   const textColor =
     tone === 'warn'
       ? COLORS.textPrimary
       : tone === 'info'
-        ? COLORS.textPrimary
-        : COLORS.textSecondary;
+        ? nge ? CANVAS.nge.trace : hyper ? CANVAS.hyper.trace : COLORS.textPrimary
+        : nge ? 'rgba(120,200,60,0.75)' : hyper ? 'rgba(112,180,255,0.65)' : COLORS.textSecondary;
 
   return (
-    <span style={{ ...runtimeMetricPillStyle, borderColor }}>
-      <span style={runtimeMetricLabelStyle}>{label}</span>
+    <span style={{ ...runtimeMetricPillStyle, borderColor, background: pillBg }}>
+      <span style={{ ...runtimeMetricLabelStyle, color: labelColor }}>{label}</span>
       <span style={{ ...runtimeMetricValueStyle, color: textColor }}>{value}</span>
     </span>
   );

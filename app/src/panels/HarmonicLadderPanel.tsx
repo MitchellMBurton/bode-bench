@@ -4,10 +4,12 @@
 // display is meaningful at any signal level — not absolute dBFS.
 // ============================================================
 
-import { useEffect, useRef } from 'react';
-import { useAudioEngine, useFrameBus, useTheaterMode } from '../core/session';
+import { useEffect, useLayoutEffect, useRef } from 'react';
+import { useAudioEngine, useDisplayMode, useFrameBus, useTheaterMode } from '../core/session';
 import { COLORS, FONTS, SPACING, CANVAS } from '../theme';
+import { shouldSkipFrame } from '../utils/rafGuard';
 import type { AudioFrame } from '../types';
+import type { VisualMode } from '../audio/displayMode';
 
 const PANEL_DPR_MAX = 1.5;
 const NUM_PARTIALS = 10;
@@ -17,19 +19,65 @@ const SMOOTH_DECAY  = 0.12;
 // Dynamic range window: anything >40 dB below the peak is shown as zero
 const DISPLAY_RANGE_DB = 40;
 
-// Amber (fundamental) → desaturated steel (overtones)
-const PARTIAL_COLORS = [
-  '#c8922a',
-  '#b08832',
-  '#8a7a3c',
-  '#6a6e4a',
-  '#4e6458',
-  '#3a5c68',
-  '#2c5478',
-  '#224a84',
-  '#1a408e',
-  '#143896',
+// Default: amber (fundamental) → desaturated steel (overtones)
+const PARTIAL_COLORS_DEFAULT = [
+  '#c8922a', '#b08832', '#8a7a3c', '#6a6e4a', '#4e6458',
+  '#3a5c68', '#2c5478', '#224a84', '#1a408e', '#143896',
 ];
+
+// NGE: bright lime (fundamental) → deep dark green (overtones)
+const PARTIAL_COLORS_NGE = [
+  '#9ed828', '#84c020', '#6aaa16', '#528e0e', '#3c7208',
+  '#2c5e04', '#204a02', '#163802', '#0e2800', '#081800',
+];
+
+// HYPER: bright cyan (fundamental) → deep indigo (overtones)
+const PARTIAL_COLORS_HYPER = [
+  '#62e8ff', '#4ac8e8', '#32a8d0', '#1e88b8', '#106aa0',
+  '#085088', '#043870', '#022458', '#011040', '#000828',
+];
+
+function getPartialColors(mode: VisualMode): readonly string[] {
+  if (mode === 'nge') return PARTIAL_COLORS_NGE;
+  if (mode === 'hyper') return PARTIAL_COLORS_HYPER;
+  return PARTIAL_COLORS_DEFAULT;
+}
+
+interface LadderColors {
+  bg: string;
+  track: string;
+  separator: string;
+  f0Color: string;
+  labelColor: string;
+  dimColor: string;
+}
+
+function buildLadderColors(mode: VisualMode): LadderColors {
+  if (mode === 'nge') return {
+    bg: CANVAS.nge.bg2,
+    track: '#030a03',
+    separator: '#040e04',
+    f0Color: '#90d820',
+    labelColor: CANVAS.nge.label,
+    dimColor: 'rgba(80,160,50,0.45)',
+  };
+  if (mode === 'hyper') return {
+    bg: CANVAS.hyper.bg2,
+    track: '#030918',
+    separator: '#04091c',
+    f0Color: CANVAS.hyper.trace,
+    labelColor: CANVAS.hyper.label,
+    dimColor: 'rgba(84,132,255,0.45)',
+  };
+  return {
+    bg: COLORS.bg2,
+    track: COLORS.levelTrack,
+    separator: COLORS.bg3,
+    f0Color: COLORS.waveform,
+    labelColor: COLORS.textSecondary,
+    dimColor: COLORS.textDim,
+  };
+}
 
 function getPartialDb(
   frequencyDb: Float32Array,
@@ -56,7 +104,16 @@ export function HarmonicLadderPanel(): React.ReactElement {
   const frameBus = useFrameBus();
   const audioEngine = useAudioEngine();
   const theaterMode = useTheaterMode();
+  const displayMode = useDisplayMode();
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const currentLadderColors = buildLadderColors(displayMode.mode);
+  const currentPartialColors = getPartialColors(displayMode.mode);
+  const ladderColorsRef = useRef(currentLadderColors);
+  const partialColorsRef = useRef(currentPartialColors);
+  useLayoutEffect(() => {
+    ladderColorsRef.current = currentLadderColors;
+    partialColorsRef.current = currentPartialColors;
+  });
   const frameRef = useRef<AudioFrame | null>(null);
   const smoothedRef = useRef<Float32Array>(new Float32Array(NUM_PARTIALS).fill(Number(CANVAS.dbMin)));
   const rafRef = useRef<number | null>(null);
@@ -94,6 +151,7 @@ export function HarmonicLadderPanel(): React.ReactElement {
 
     const draw = () => {
       rafRef.current = requestAnimationFrame(draw);
+      if (shouldSkipFrame()) return;
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
 
@@ -101,8 +159,10 @@ export function HarmonicLadderPanel(): React.ReactElement {
       const H = canvas.height;
       const dpr = Math.min(devicePixelRatio, PANEL_DPR_MAX);
 
+      const lc = ladderColorsRef.current;
+      const partialColors = partialColorsRef.current;
       ctx.clearRect(0, 0, W, H);
-      ctx.fillStyle = COLORS.bg2;
+      ctx.fillStyle = lc.bg;
       ctx.fillRect(0, 0, W, H);
 
       const frame = frameRef.current;
@@ -147,13 +207,13 @@ export function HarmonicLadderPanel(): React.ReactElement {
         const y = topPad + drawH - barH;
 
         // Track
-        ctx.fillStyle = COLORS.levelTrack;
+        ctx.fillStyle = lc.track;
         ctx.fillRect(x, topPad, barW, drawH);
 
         // Bar — brighter at top (peak)
         if (barH > 0) {
           const grad = ctx.createLinearGradient(0, y, 0, y + barH);
-          const col = PARTIAL_COLORS[i] ?? COLORS.waveform;
+          const col = partialColors[i] ?? lc.f0Color;
           grad.addColorStop(0, col);
           grad.addColorStop(1, col + '66'); // 40% opacity at bottom
           ctx.fillStyle = grad;
@@ -166,14 +226,14 @@ export function HarmonicLadderPanel(): React.ReactElement {
 
         // Partial number label
         ctx.font = `${7 * dpr}px ${FONTS.mono}`;
-        ctx.fillStyle = i === 0 ? COLORS.textSecondary : COLORS.textDim;
+        ctx.fillStyle = i === 0 ? lc.labelColor : lc.dimColor;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText(String(i + 1), x + barW / 2, topPad + drawH + labelH / 2);
       }
 
       // Bottom separator line above labels
-      ctx.fillStyle = COLORS.bg3;
+      ctx.fillStyle = lc.separator;
       ctx.fillRect(0, topPad + drawH, W, 1);
 
       // F0 readout top-left
@@ -181,16 +241,16 @@ export function HarmonicLadderPanel(): React.ReactElement {
       ctx.textAlign = 'left';
       ctx.textBaseline = 'top';
       if (hasPitch && frame?.f0Hz) {
-        ctx.fillStyle = COLORS.waveform;
+        ctx.fillStyle = lc.f0Color;
         ctx.fillText(`${Math.round(frame.f0Hz)} Hz`, SPACING.sm * dpr, 1 * dpr);
       } else {
-        ctx.fillStyle = COLORS.textDim;
+        ctx.fillStyle = lc.dimColor;
         ctx.fillText('PARTIALS', SPACING.sm * dpr, 1 * dpr);
       }
 
       // Panel label top-right
       ctx.font = `${7 * dpr}px ${FONTS.mono}`;
-      ctx.fillStyle = COLORS.textDim;
+      ctx.fillStyle = lc.dimColor;
       ctx.textAlign = 'right';
       ctx.textBaseline = 'top';
       ctx.fillText('HARMONICS', W - SPACING.sm * dpr, 1 * dpr);
@@ -201,7 +261,7 @@ export function HarmonicLadderPanel(): React.ReactElement {
   }, [theaterMode]);
 
   return (
-    <div style={panelStyle}>
+    <div style={{ ...panelStyle, background: currentLadderColors.bg }}>
       <canvas ref={canvasRef} style={canvasStyle} />
     </div>
   );

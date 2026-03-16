@@ -7,7 +7,59 @@ import { useCallback, useEffect, useEffectEvent, useRef, useState } from 'react'
 
 import { useAudioEngine, useScrollSpeed } from '../core/session';
 import type { VisualMode } from '../audio/displayMode';
-import { COLORS, FONTS, SPACING } from '../theme';
+import { CANVAS, COLORS, FONTS, SPACING } from '../theme';
+
+interface SessionTheme {
+  separator: string;
+  labelColor: string;
+  trackBg: string;
+  fillAccent: string;
+  fillPitch: string;
+  valueColor: string;
+  buttonBg: string;
+  buttonBorder: string;
+  buttonColor: string;
+}
+
+function buildSessionTheme(visualMode: VisualMode): SessionTheme {
+  if (visualMode === 'nge') {
+    return {
+      separator: 'rgba(60,140,30,0.28)',
+      labelColor: 'rgba(140,210,40,0.6)',
+      trackBg: 'rgba(4,12,4,0.9)',
+      fillAccent: 'rgba(120,200,60,0.85)',
+      fillPitch: 'rgba(120,200,60,0.85)',
+      valueColor: 'rgba(180,230,80,0.9)',
+      buttonBg: 'rgba(4,10,4,0.9)',
+      buttonBorder: 'rgba(60,130,30,0.35)',
+      buttonColor: 'rgba(140,210,40,0.5)',
+    };
+  }
+  if (visualMode === 'hyper') {
+    return {
+      separator: 'rgba(60,100,200,0.28)',
+      labelColor: CANVAS.hyper.label,
+      trackBg: 'rgba(4,9,28,0.9)',
+      fillAccent: 'rgba(98,232,255,0.8)',
+      fillPitch: 'rgba(98,232,255,0.8)',
+      valueColor: 'rgba(210,236,255,0.88)',
+      buttonBg: 'rgba(2,5,18,0.9)',
+      buttonBorder: 'rgba(40,70,180,0.35)',
+      buttonColor: 'rgba(112,180,255,0.5)',
+    };
+  }
+  return {
+    separator: COLORS.border,
+    labelColor: COLORS.textSecondary,
+    trackBg: COLORS.bg3,
+    fillAccent: COLORS.accent,
+    fillPitch: COLORS.accent,
+    valueColor: COLORS.textSecondary,
+    buttonBg: COLORS.bg3,
+    buttonBorder: COLORS.border,
+    buttonColor: COLORS.textSecondary,
+  };
+}
 import {
   RATE_MIN, RATE_MAX, RATE_DEFAULT,
   PITCH_MIN, PITCH_MAX, PITCH_DEFAULT,
@@ -153,14 +205,22 @@ export function SessionControls({
 
   const isNge = visualMode === 'nge';
   const isHyper = visualMode === 'hyper';
+  const t = buildSessionTheme(visualMode);
+
+  const thSeparator: React.CSSProperties = { ...separatorStyle, background: t.separator };
+  const thLabel: React.CSSProperties = { ...labelStyle, color: t.labelColor };
+  const thTrack: React.CSSProperties = { ...trackStyle, background: t.trackBg };
+  const thFill: React.CSSProperties = { ...fillStyle, background: t.fillAccent };
+  const thValue: React.CSSProperties = { ...valueStyle, color: t.valueColor };
+  const thButton: React.CSSProperties = { ...toggleStyle, background: t.buttonBg, borderColor: t.buttonBorder, color: t.buttonColor };
 
   return (
     <div style={wrapStyle}>
-      <div style={separatorStyle} />
+      <div style={thSeparator} />
 
       <div style={utilityRowStyle}>
         <button
-          style={utilityButtonStyle}
+          style={{ ...utilityButtonStyle, background: t.buttonBg, borderColor: t.buttonBorder, color: t.buttonColor }}
           onClick={onResetSettings}
           title="Reset session controls to defaults"
         >
@@ -169,9 +229,9 @@ export function SessionControls({
       </div>
 
       <div style={rowStyle}>
-        <span style={labelStyle}>VOL</span>
-        <div style={trackStyle}>
-          <div ref={volFillRef} style={{ ...fillStyle, width: `${volume * 100}%` }} />
+        <span style={thLabel}>VOL</span>
+        <div style={thTrack}>
+          <div ref={volFillRef} style={{ ...thFill, width: `${volume * 100}%` }} />
           <input
             type="range"
             min={0}
@@ -183,13 +243,13 @@ export function SessionControls({
             title="Master output level"
           />
         </div>
-        <span style={valueStyle}>{volPct}</span>
+        <span style={thValue}>{volPct}</span>
       </div>
 
       <div style={rowStyle}>
-        <span style={labelStyle}>RATE</span>
-        <div style={trackStyle}>
-          <div ref={rateFillRef} style={{ ...fillStyle, width: fillWidth(rate, RATE_MIN, RATE_MAX) }} />
+        <span style={thLabel}>RATE</span>
+        <div style={thTrack}>
+          <div ref={rateFillRef} style={{ ...thFill, width: fillWidth(rate, RATE_MIN, RATE_MAX) }} />
           <input
             type="range"
             min={RATE_MIN}
@@ -201,18 +261,18 @@ export function SessionControls({
             title="Playback rate multiplier"
           />
         </div>
-        <span style={valueStyle}>{rateLabel}</span>
+        <span style={thValue}>{rateLabel}</span>
       </div>
 
       <div style={rowStyle}>
-        <span style={labelStyle}>PITCH</span>
-        <div style={trackStyle}>
+        <span style={thLabel}>PITCH</span>
+        <div style={thTrack}>
           <div
             ref={pitchFillRef}
             style={{
-              ...fillStyle,
+              ...thFill,
               width: fillWidth(pitch, PITCH_MIN, PITCH_MAX),
-              background: pitchAvailable ? COLORS.accent : COLORS.border,
+              background: pitchAvailable ? t.fillPitch : COLORS.border,
             }}
           />
           <input
@@ -227,13 +287,13 @@ export function SessionControls({
             disabled={!pitchAvailable}
           />
         </div>
-        <span style={valueStyle}>{pitchAvailable ? pitchLabel : 'N/A'}</span>
+        <span style={thValue}>{pitchAvailable ? pitchLabel : 'N/A'}</span>
       </div>
 
       <div style={rowStyle}>
-        <span style={labelStyle}>SCRL</span>
-        <div style={trackStyle}>
-          <div ref={scrollFillRef} style={{ ...fillStyle, width: fillWidth(scroll, SCROLL_MIN, SCROLL_MAX) }} />
+        <span style={thLabel}>SCRL</span>
+        <div style={thTrack}>
+          <div ref={scrollFillRef} style={{ ...thFill, width: fillWidth(scroll, SCROLL_MIN, SCROLL_MAX) }} />
           <input
             type="range"
             min={SCROLL_MIN}
@@ -245,14 +305,14 @@ export function SessionControls({
             title="Visual scroll speed multiplier"
           />
         </div>
-        <span style={valueStyle}>{scrollLabel}</span>
+        <span style={thValue}>{scrollLabel}</span>
       </div>
 
-      <div style={separatorStyle} />
+      <div style={thSeparator} />
 
       <div style={toggleRowStyle}>
         <button
-          style={{ ...toggleStyle, ...(grayscale ? toggleActiveStyle : {}) }}
+          style={{ ...thButton, ...(grayscale ? toggleActiveStyle : {}) }}
           onClick={() => onGrayscale(!grayscale)}
           title="Toggle greyscale display mode"
         >
@@ -260,7 +320,7 @@ export function SessionControls({
         </button>
 
         <button
-          style={{ ...toggleStyle, ...(isNge ? ngeActiveStyle : {}) }}
+          style={{ ...thButton, ...(isNge ? ngeActiveStyle : {}) }}
           onClick={() => {
             const nextMode = isNge ? 'default' : 'nge';
             onVisualMode(nextMode);
@@ -271,7 +331,7 @@ export function SessionControls({
         </button>
 
         <button
-          style={{ ...toggleStyle, ...(isHyper ? hyperActiveStyle : {}) }}
+          style={{ ...thButton, ...(isHyper ? hyperActiveStyle : {}) }}
           onClick={() => {
             const nextMode = isHyper ? 'default' : 'hyper';
             onVisualMode(nextMode);

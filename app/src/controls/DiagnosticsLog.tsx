@@ -2,13 +2,155 @@
 import {
   useAudioEngine,
   useDiagnosticsLog,
+  useDisplayMode,
   usePerformanceDiagnosticsStore,
   usePerformanceProfile,
   usePerformanceProfileStore,
 } from '../core/session';
 import type { PerformanceProfilePreference } from '../runtime/performanceProfile';
 import { CANVAS, COLORS, FONTS, SPACING } from '../theme';
+import type { VisualMode } from '../audio/displayMode';
 import type { FileAnalysis, TransportState } from '../types';
+
+interface PerfTheme {
+  bg0: string;
+  bg1: string;
+  bg2: string;
+  border: string;
+  textCategory: string;
+  textTitle: string;
+  textPrimary: string;
+  textSecondary: string;
+  textDim: string;
+  levelTrack: string;
+  fillInfo: string;
+}
+
+function buildPerfTheme(visualMode: VisualMode): PerfTheme {
+  if (visualMode === 'hyper') {
+    return {
+      bg0: CANVAS.hyper.bg,
+      bg1: '#04091a',
+      bg2: CANVAS.hyper.bg2,
+      border: CANVAS.hyper.chromeBorder,
+      textCategory: CANVAS.hyper.category,
+      textTitle: CANVAS.hyper.label,
+      textPrimary: CANVAS.hyper.trace,
+      textSecondary: 'rgba(112,180,255,0.45)',
+      textDim: 'rgba(84,132,255,0.18)',
+      levelTrack: '#040b18',
+      fillInfo: 'linear-gradient(90deg, rgba(58,86,200,0.8), rgba(98,232,255,0.88))',
+    };
+  }
+  if (visualMode === 'nge') {
+    return {
+      bg0: CANVAS.nge.bg,
+      bg1: '#07100a',
+      bg2: CANVAS.nge.bg2,
+      border: CANVAS.nge.chromeBorder,
+      textCategory: CANVAS.nge.category,
+      textTitle: CANVAS.nge.label,
+      textPrimary: CANVAS.nge.trace,
+      textSecondary: 'rgba(120,200,74,0.5)',
+      textDim: 'rgba(80,160,50,0.2)',
+      levelTrack: '#040a04',
+      fillInfo: 'linear-gradient(90deg, rgba(64,128,40,0.8), rgba(160,216,64,0.88))',
+    };
+  }
+  return {
+    bg0: COLORS.bg0,
+    bg1: COLORS.bg1,
+    bg2: COLORS.bg2,
+    border: COLORS.border,
+    textCategory: COLORS.textCategory,
+    textTitle: COLORS.textTitle,
+    textPrimary: COLORS.textPrimary,
+    textSecondary: COLORS.textSecondary,
+    textDim: COLORS.textDim,
+    levelTrack: COLORS.levelTrack,
+    fillInfo: 'linear-gradient(90deg, rgba(80,96,192,0.8), rgba(120,154,255,0.88))',
+  };
+}
+interface LogTheme {
+  wrapBorder: string;
+  headerBg: string;
+  headerBorder: string;
+  scrollBg: string;
+  buttonBg: string;
+  buttonBorder: string;
+  buttonColor: string;
+  buttonActiveBg: string;
+  buttonActiveBorder: string;
+  buttonActiveColor: string;
+  headerLabel: string;
+  headerMeta: string;
+  clockColor: string;
+  sourceColor: string;
+  toneInfo: string;
+  toneDim: string;
+}
+
+function buildLogTheme(visualMode: VisualMode): LogTheme {
+  if (visualMode === 'nge') {
+    return {
+      wrapBorder: 'rgba(60,140,30,0.3)',
+      headerBg: CANVAS.nge.bg,
+      headerBorder: CANVAS.nge.chromeBorder,
+      scrollBg: '#030703',
+      buttonBg: 'rgba(4,10,4,0.9)',
+      buttonBorder: 'rgba(60,130,30,0.35)',
+      buttonColor: 'rgba(140,210,40,0.5)',
+      buttonActiveBg: 'rgba(10,28,8,0.95)',
+      buttonActiveBorder: 'rgba(120,200,60,0.7)',
+      buttonActiveColor: 'rgba(180,230,80,0.95)',
+      headerLabel: CANVAS.nge.category,
+      headerMeta: 'rgba(80,160,50,0.45)',
+      clockColor: 'rgba(80,160,50,0.45)',
+      sourceColor: CANVAS.nge.category,
+      toneInfo: 'rgba(140,230,60,0.9)',
+      toneDim: 'rgba(100,180,60,0.5)',
+    };
+  }
+  if (visualMode === 'hyper') {
+    return {
+      wrapBorder: 'rgba(60,100,200,0.35)',
+      headerBg: CANVAS.hyper.bg,
+      headerBorder: CANVAS.hyper.chromeBorder,
+      scrollBg: '#020410',
+      buttonBg: 'rgba(2,5,18,0.9)',
+      buttonBorder: 'rgba(40,70,180,0.35)',
+      buttonColor: 'rgba(112,180,255,0.5)',
+      buttonActiveBg: 'rgba(6,14,40,0.95)',
+      buttonActiveBorder: 'rgba(98,200,255,0.7)',
+      buttonActiveColor: 'rgba(210,236,255,0.98)',
+      headerLabel: CANVAS.hyper.category,
+      headerMeta: 'rgba(84,132,255,0.45)',
+      clockColor: 'rgba(84,132,255,0.4)',
+      sourceColor: CANVAS.hyper.category,
+      toneInfo: CANVAS.hyper.trace,
+      toneDim: 'rgba(112,180,255,0.45)',
+    };
+  }
+  return {
+    wrapBorder: COLORS.border,
+    headerBg: COLORS.bg1,
+    headerBorder: COLORS.border,
+    scrollBg: COLORS.bg2,
+    buttonBg: COLORS.bg3,
+    buttonBorder: COLORS.border,
+    buttonColor: COLORS.textSecondary,
+    buttonActiveBg: COLORS.bg2,
+    buttonActiveBorder: COLORS.borderActive,
+    buttonActiveColor: COLORS.textPrimary,
+    headerLabel: COLORS.textCategory,
+    headerMeta: COLORS.textDim,
+    clockColor: COLORS.textDim,
+    sourceColor: COLORS.textCategory,
+    toneInfo: COLORS.textPrimary,
+    toneDim: COLORS.textSecondary,
+  };
+}
+
 import type { DiagnosticsEntry, PerformanceDiagnosticsSnapshot, PerformanceEvent, PerformanceTraceSample } from '../diagnostics/logStore';
 
 function formatPlaybackTime(seconds: number): string {
@@ -51,6 +193,8 @@ const PERFORMANCE_PROFILE_OPTIONS: ReadonlyArray<{
 export function DiagnosticsLog(): React.ReactElement {
   const audioEngine = useAudioEngine();
   const diagnosticsLog = useDiagnosticsLog();
+  const displayMode = useDisplayMode();
+  const lt = buildLogTheme(displayMode.mode);
   const entries = useSyncExternalStore(
     diagnosticsLog.subscribe,
     diagnosticsLog.getSnapshot,
@@ -394,33 +538,36 @@ export function DiagnosticsLog(): React.ReactElement {
 
   const emptyText = warnOnly ? 'No warning entries yet.' : 'Awaiting file diagnostics...';
 
+  const ltBtn: React.CSSProperties = { ...actionButtonStyle, background: lt.buttonBg, borderColor: lt.buttonBorder, color: lt.buttonColor };
+  const ltBtnActive: React.CSSProperties = { ...ltBtn, background: lt.buttonActiveBg, borderColor: lt.buttonActiveBorder, color: lt.buttonActiveColor };
+
   return (
-    <div style={wrapStyle}>
-      <div style={headerRowStyle}>
+    <div style={{ ...wrapStyle, borderTopColor: lt.wrapBorder }}>
+      <div style={{ ...headerRowStyle, background: lt.headerBg, borderBottomColor: lt.headerBorder }}>
         <div style={titleGroupStyle}>
-          <div style={headerStyle}>TRACE / DIAGNOSTICS</div>
-          <div style={metaStyle}>{visibleEntries.length}/{entries.length} visible · {warnCount} warn</div>
+          <div style={{ ...headerStyle, color: lt.headerLabel }}>TRACE / DIAGNOSTICS</div>
+          <div style={{ ...metaStyle, color: lt.headerMeta }}>{visibleEntries.length}/{entries.length} visible · {warnCount} warn</div>
         </div>
         <div style={actionsStyle}>
-          <button style={{ ...actionButtonStyle, ...(warnOnly ? actionButtonActiveStyle : {}) }} onClick={() => setWarnOnly((prev) => !prev)}>
+          <button style={warnOnly ? ltBtnActive : ltBtn} onClick={() => setWarnOnly((prev) => !prev)}>
             WARN ONLY
           </button>
-          <button style={{ ...actionButtonStyle, ...(followTail ? actionButtonActiveStyle : {}) }} onClick={onToggleFollow}>
+          <button style={followTail ? ltBtnActive : ltBtn} onClick={onToggleFollow}>
             {followTail ? 'FOLLOW' : 'REVIEW'}
           </button>
-          <button style={actionButtonStyle} onClick={onCopy}>
+          <button style={ltBtn} onClick={onCopy}>
             {copyState === 'copied' ? 'COPIED' : copyState === 'failed' ? 'COPY FAIL' : 'COPY'}
           </button>
-          <button style={actionButtonStyle} onClick={onSave}>SAVE TXT</button>
-          <button style={actionButtonStyle} onClick={onClear}>CLEAR</button>
+          <button style={ltBtn} onClick={onSave}>SAVE TXT</button>
+          <button style={ltBtn} onClick={onClear}>CLEAR</button>
         </div>
       </div>
-      <div ref={scrollRef} style={scrollStyle} onScroll={onScroll}>
+      <div ref={scrollRef} style={{ ...scrollStyle, background: lt.scrollBg }} onScroll={onScroll}>
         {visibleEntries.length === 0 ? (
-          <div style={emptyLineStyle}>{emptyText}</div>
+          <div style={{ ...emptyLineStyle, color: lt.clockColor }}>{emptyText}</div>
         ) : (
           visibleEntries.map((entry) => (
-            <DiagnosticsLine key={entry.id} entry={entry} />
+            <DiagnosticsLine key={entry.id} entry={entry} lt={lt} />
           ))
         )}
       </div>
@@ -428,18 +575,18 @@ export function DiagnosticsLog(): React.ReactElement {
   );
 }
 
-function DiagnosticsLine({ entry }: { entry: DiagnosticsEntry }): React.ReactElement {
+function DiagnosticsLine({ entry, lt }: { entry: DiagnosticsEntry; lt: LogTheme }): React.ReactElement {
   const toneColor =
     entry.tone === 'warn'
       ? COLORS.statusWarn
       : entry.tone === 'info'
-        ? COLORS.textPrimary
-        : COLORS.textSecondary;
+        ? lt.toneInfo
+        : lt.toneDim;
 
   return (
     <div style={lineStyle}>
-      <span style={clockStyle}>{entry.clock}</span>
-      <span style={sourceStyle}>{entry.source.toUpperCase()}</span>
+      <span style={{ ...clockStyle, color: lt.clockColor }}>{entry.clock}</span>
+      <span style={{ ...sourceStyle, color: lt.sourceColor }}>{entry.source.toUpperCase()}</span>
       <span style={{ ...messageStyle, color: toneColor }}>{entry.text}</span>
     </div>
   );
@@ -671,7 +818,8 @@ function buildPerformanceExport(snapshot: PerformanceDiagnosticsSnapshot): strin
   return lines.join('\n');
 }
 
-export function PerformanceDiagnostics(): React.ReactElement {
+export function PerformanceDiagnostics({ visualMode = 'default' }: { visualMode?: VisualMode }): React.ReactElement {
+  const theme = buildPerfTheme(visualMode);
   const performanceDiagnostics = usePerformanceDiagnosticsStore();
   const performanceProfileStore = usePerformanceProfileStore();
   const performanceProfile = usePerformanceProfile();
@@ -723,16 +871,19 @@ export function PerformanceDiagnostics(): React.ReactElement {
     health.tone === 'warn'
       ? COLORS.statusWarn
       : health.tone === 'info'
-        ? COLORS.textPrimary
-        : COLORS.textSecondary;
+        ? theme.textPrimary
+        : theme.textSecondary;
+
+  const panelStyle: React.CSSProperties = { ...perfPanelStyle, background: theme.bg1, border: `1px solid ${theme.border}` };
+  const sectionTitleStyle: React.CSSProperties = { ...perfSectionTitleStyle, color: theme.textCategory };
 
   return (
-    <div style={perfWrapStyle}>
-      <div style={perfHeaderStyle}>
+    <div style={{ ...perfWrapStyle, background: theme.bg0 }}>
+      <div style={{ ...perfHeaderStyle, borderBottom: `1px solid ${theme.border}` }}>
         <div style={perfHeaderTextStyle}>
-          <div style={perfEyebrowStyle}>PERF LAB / INTERNAL TELEMETRY</div>
+          <div style={{ ...perfEyebrowStyle, color: theme.textCategory }}>PERF LAB / INTERNAL TELEMETRY</div>
           <div style={{ ...perfHealthTitleStyle, color: healthColor }}>{health.title}</div>
-          <div style={perfHealthDetailStyle}>{health.detail}</div>
+          <div style={{ ...perfHealthDetailStyle, color: theme.textSecondary }}>{health.detail}</div>
         </div>
         <div style={perfActionsStyle}>
           <button style={actionButtonStyle} onClick={onCopy}>
@@ -742,16 +893,16 @@ export function PerformanceDiagnostics(): React.ReactElement {
         </div>
       </div>
 
-      <div style={perfProfileRailStyle}>
+      <div style={{ ...perfProfileRailStyle, background: theme.bg1, border: `1px solid ${theme.border}` }}>
         <div style={perfProfileSummaryStyle}>
-          <div style={perfSectionTitleStyle}>PERFORMANCE PROFILE</div>
-          <div style={perfProfileActiveStyle}>
+          <div style={sectionTitleStyle}>PERFORMANCE PROFILE</div>
+          <div style={{ ...perfProfileActiveStyle, color: theme.textPrimary }}>
             {performanceProfile.label}
-            <span style={perfProfileMetaStyle}>
+            <span style={{ ...perfProfileMetaStyle, color: theme.textCategory }}>
               {performanceProfile.runtimeKind.toUpperCase()} / {performanceProfile.preference.toUpperCase()}
             </span>
           </div>
-          <div style={perfProfileDetailStyle}>{performanceProfile.summary}</div>
+          <div style={{ ...perfProfileDetailStyle, color: theme.textSecondary }}>{performanceProfile.summary}</div>
         </div>
         <div style={perfProfileButtonGroupStyle}>
           {PERFORMANCE_PROFILE_OPTIONS.map((option) => (
@@ -771,37 +922,37 @@ export function PerformanceDiagnostics(): React.ReactElement {
       </div>
 
       <div style={perfCardGridStyle}>
-        <PerformanceStatCard
+        <PerformanceStatCard theme={theme}
           label="UI PACE"
           value={`${snapshot.uiFps.toFixed(0)} FPS`}
           detail={`avg ${formatPerfMs(snapshot.uiFrameAvgMs)} / p95 ${formatPerfMs(snapshot.uiFrameP95Ms)}`}
           tone={snapshot.uiFrameP95Ms >= 24 || snapshot.uiJankPercent >= 14 ? 'warn' : 'dim'}
         />
-        <PerformanceStatCard
+        <PerformanceStatCard theme={theme}
           label="VIDEO SYNC"
           value={formatPerfSignedMs(snapshot.videoDriftMs)}
           detail={`${snapshot.videoState.toUpperCase()} / preview ${snapshot.videoPreviewRate.toFixed(2)}x`}
           tone={snapshot.videoState === 'waiting' || snapshot.videoState === 'stalled' ? 'warn' : snapshot.videoCatchupActive ? 'info' : 'dim'}
         />
-        <PerformanceStatCard
+        <PerformanceStatCard theme={theme}
           label="TRANSPORT"
           value={`${snapshot.transportRate.toFixed(2)}x / ${snapshot.pitchSemitones.toFixed(0)} st`}
           detail={snapshot.transportPlaying ? 'playing' : 'paused'}
           tone="dim"
         />
-        <PerformanceStatCard
+        <PerformanceStatCard theme={theme}
           label="LOAD"
           value={snapshot.lastLoad ? `${snapshot.lastLoad.totalMs.toFixed(0)} ms` : '--'}
           detail={snapshot.lastLoad ? `${snapshot.lastLoad.decodeMs.toFixed(0)} ms decode / ${snapshot.lastLoad.stretchMs.toFixed(0)} ms stretch` : 'Awaiting media load'}
           tone={snapshot.lastLoad && snapshot.lastLoad.totalMs >= 1200 ? 'warn' : snapshot.lastLoad && snapshot.lastLoad.totalMs >= 900 ? 'info' : 'dim'}
         />
-        <PerformanceStatCard
+        <PerformanceStatCard theme={theme}
           label="PROFILE"
           value={performanceProfile.label}
           detail={`${performanceProfile.runtimeKind.toUpperCase()} / ${performanceProfile.preference.toUpperCase()}`}
           tone={performanceProfile.activeProfile === 'desktop-high' ? 'info' : 'dim'}
         />
-        <PerformanceStatCard
+        <PerformanceStatCard theme={theme}
           label="RECOVERY"
           value={`${snapshot.videoHardSyncCount} HS / ${snapshot.videoRecoveryCount} RC`}
           detail={`${snapshot.videoWaitCount} waits / ${snapshot.videoStallCount} stalls / ready ${snapshot.videoReadyState}`}
@@ -809,25 +960,25 @@ export function PerformanceDiagnostics(): React.ReactElement {
         />
       </div>
 
-      <PerformanceTracePanel samples={traceSamples} events={snapshot.recentEvents} />
+      <PerformanceTracePanel samples={traceSamples} events={snapshot.recentEvents} theme={theme} />
 
       <div style={perfBodyStyle}>
-        <div style={perfPanelStyle}>
-          <div style={perfSectionTitleStyle}>PRESSURE MAP</div>
-          <PerformanceMeter label="UI P95" value={snapshot.uiFrameP95Ms} max={40} detail={formatPerfMs(snapshot.uiFrameP95Ms)} tone={snapshot.uiFrameP95Ms >= 24 ? 'warn' : 'dim'} />
-          <PerformanceMeter label="JANK" value={snapshot.uiJankPercent} max={30} detail={`${snapshot.uiJankPercent.toFixed(1)}%`} tone={snapshot.uiJankPercent >= 14 ? 'warn' : 'dim'} />
-          <PerformanceMeter label="DRIFT" value={Math.abs(snapshot.videoDriftMs)} max={240} detail={formatPerfSignedMs(snapshot.videoDriftMs)} tone={Math.abs(snapshot.videoDriftMs) >= 90 ? 'warn' : snapshot.videoCatchupActive ? 'info' : 'dim'} />
-          <PerformanceMeter label="LONG TASK" value={snapshot.lastLongTaskMs ?? 0} max={120} detail={snapshot.lastLongTaskMs !== null ? formatPerfMs(snapshot.lastLongTaskMs, 0) : '--'} tone={(snapshot.lastLongTaskMs ?? 0) >= 40 ? 'warn' : 'dim'} />
-          <PerformanceMeter label="LOAD" value={snapshot.lastLoad?.totalMs ?? 0} max={2400} detail={snapshot.lastLoad ? `${snapshot.lastLoad.totalMs.toFixed(0)} ms` : '--'} tone={snapshot.lastLoad && snapshot.lastLoad.totalMs >= 1200 ? 'warn' : snapshot.lastLoad && snapshot.lastLoad.totalMs >= 900 ? 'info' : 'dim'} />
+        <div style={panelStyle}>
+          <div style={sectionTitleStyle}>PRESSURE MAP</div>
+          <PerformanceMeter theme={theme} label="UI P95" value={snapshot.uiFrameP95Ms} max={40} detail={formatPerfMs(snapshot.uiFrameP95Ms)} tone={snapshot.uiFrameP95Ms >= 24 ? 'warn' : 'dim'} />
+          <PerformanceMeter theme={theme} label="JANK" value={snapshot.uiJankPercent} max={30} detail={`${snapshot.uiJankPercent.toFixed(1)}%`} tone={snapshot.uiJankPercent >= 14 ? 'warn' : 'dim'} />
+          <PerformanceMeter theme={theme} label="DRIFT" value={Math.abs(snapshot.videoDriftMs)} max={240} detail={formatPerfSignedMs(snapshot.videoDriftMs)} tone={Math.abs(snapshot.videoDriftMs) >= 90 ? 'warn' : snapshot.videoCatchupActive ? 'info' : 'dim'} />
+          <PerformanceMeter theme={theme} label="LONG TASK" value={snapshot.lastLongTaskMs ?? 0} max={120} detail={snapshot.lastLongTaskMs !== null ? formatPerfMs(snapshot.lastLongTaskMs, 0) : '--'} tone={(snapshot.lastLongTaskMs ?? 0) >= 40 ? 'warn' : 'dim'} />
+          <PerformanceMeter theme={theme} label="LOAD" value={snapshot.lastLoad?.totalMs ?? 0} max={2400} detail={snapshot.lastLoad ? `${snapshot.lastLoad.totalMs.toFixed(0)} ms` : '--'} tone={snapshot.lastLoad && snapshot.lastLoad.totalMs >= 1200 ? 'warn' : snapshot.lastLoad && snapshot.lastLoad.totalMs >= 900 ? 'info' : 'dim'} />
         </div>
 
-        <div style={perfPanelStyle}>
-          <div style={perfSectionTitleStyle}>RECENT SIGNALS</div>
-          <div style={perfEventsStyle}>
+        <div style={panelStyle}>
+          <div style={sectionTitleStyle}>RECENT SIGNALS</div>
+          <div style={{ ...perfEventsStyle, background: theme.bg2, border: `1px solid ${theme.border}` }}>
             {recentEvents.length === 0 ? (
-              <div style={perfEmptyStyle}>Open this panel, reproduce the stutter, and the runtime trace will collect the last few important signals here.</div>
+              <div style={{ ...perfEmptyStyle, color: theme.textDim }}>Open this panel, reproduce the stutter, and the runtime trace will collect the last few important signals here.</div>
             ) : (
-              recentEvents.map((event) => <PerformanceEventLine key={event.id} event={event} />)
+              recentEvents.map((event) => <PerformanceEventLine key={event.id} event={event} theme={theme} />)
             )}
           </div>
         </div>
@@ -841,24 +992,26 @@ function PerformanceStatCard({
   value,
   detail,
   tone,
+  theme,
 }: {
   label: string;
   value: string;
   detail: string;
   tone: 'dim' | 'info' | 'warn';
+  theme: PerfTheme;
 }): React.ReactElement {
   const accent =
     tone === 'warn'
       ? COLORS.statusWarn
       : tone === 'info'
         ? COLORS.borderHighlight
-        : COLORS.border;
+        : theme.border;
 
   return (
-    <div style={{ ...perfCardStyle, borderColor: accent }}>
-      <div style={perfCardLabelStyle}>{label}</div>
-      <div style={{ ...perfCardValueStyle, color: tone === 'warn' ? COLORS.textPrimary : COLORS.textTitle }}>{value}</div>
-      <div style={perfCardDetailStyle}>{detail}</div>
+    <div style={{ ...perfCardStyle, background: theme.bg2, borderColor: accent }}>
+      <div style={{ ...perfCardLabelStyle, color: theme.textCategory }}>{label}</div>
+      <div style={{ ...perfCardValueStyle, color: tone === 'warn' ? COLORS.textPrimary : theme.textTitle }}>{value}</div>
+      <div style={{ ...perfCardDetailStyle, color: theme.textSecondary }}>{detail}</div>
     </div>
   );
 }
@@ -869,28 +1022,30 @@ function PerformanceMeter({
   max,
   detail,
   tone,
+  theme,
 }: {
   label: string;
   value: number;
   max: number;
   detail: string;
   tone: 'dim' | 'info' | 'warn';
+  theme: PerfTheme;
 }): React.ReactElement {
   const fill = clampMeter(value, max);
   const fillColor =
     tone === 'warn'
       ? 'linear-gradient(90deg, rgba(176,144,48,0.85), rgba(200,146,42,0.92))'
       : tone === 'info'
-        ? 'linear-gradient(90deg, rgba(80,96,192,0.8), rgba(120,154,255,0.88))'
+        ? theme.fillInfo
         : 'linear-gradient(90deg, rgba(64,64,88,0.72), rgba(96,96,120,0.8))';
 
   return (
     <div style={perfMeterWrapStyle}>
       <div style={perfMeterHeaderStyle}>
-        <span style={perfMeterLabelStyle}>{label}</span>
-        <span style={perfMeterValueStyle}>{detail}</span>
+        <span style={{ ...perfMeterLabelStyle, color: theme.textPrimary }}>{label}</span>
+        <span style={{ ...perfMeterValueStyle, color: theme.textSecondary }}>{detail}</span>
       </div>
-      <div style={perfMeterTrackStyle}>
+      <div style={{ ...perfMeterTrackStyle, background: theme.levelTrack }}>
         <div style={{ ...perfMeterFillStyle, width: `${fill}%`, background: fillColor }} />
       </div>
     </div>
@@ -927,33 +1082,32 @@ function classifyTraceEvent(event: PerformanceEvent): {
 function PerformanceTracePanel({
   samples,
   events,
+  theme,
 }: {
   samples: readonly PerformanceTraceSample[];
   events: readonly PerformanceEvent[];
+  theme: PerfTheme;
 }): React.ReactElement {
-  const width = 1280;
-  const height = 256;
-  const leftRailWidth = 178;
-  const rightRailWidth = 108;
-  const plotLeft = leftRailWidth + 12;
-  const plotRight = rightRailWidth + 12;
-  const headerTop = 12;
-  const eventBandHeight = 22;
-  const plotTop = headerTop + eventBandHeight + 14;
-  const laneHeight = 36;
-  const laneGap = 8;
-  const plotWidth = width - plotLeft - plotRight;
+  // Layout constants — rails are HTML, plot is SVG-only (no text in SVG)
+  const svgViewW = 1000;
+  const eventBandH = 20;
+  const laneH = 38;
+  const laneGap = 6;
+  const leftRailW = 176;
+  const rightRailW = 116;
   const latest = samples[samples.length - 1] ?? null;
   const spanLabel = formatTraceSpan(samples);
 
+  const tracePanelStyle: React.CSSProperties = { ...perfPanelStyle, background: theme.bg1, border: `1px solid ${theme.border}` };
+
   if (samples.length < 2 || !latest) {
     return (
-      <div style={perfPanelStyle}>
+      <div style={tracePanelStyle}>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: SPACING.sm, alignItems: 'baseline' }}>
-          <div style={perfSectionTitleStyle}>PERFORMANCE TRACE</div>
-          <div style={{ ...perfMeterValueStyle, color: COLORS.textDim }}>LAST {spanLabel}</div>
+          <div style={{ ...perfSectionTitleStyle, color: theme.textCategory }}>PERFORMANCE TRACE</div>
+          <div style={{ ...perfMeterValueStyle, color: theme.textDim }}>LAST {spanLabel}</div>
         </div>
-        <div style={perfEmptyStyle}>Keep Perf Lab open while you play, scrub, or retune. This surface will accumulate a rolling performance history over time.</div>
+        <div style={{ ...perfEmptyStyle, color: theme.textDim }}>Keep Perf Lab open while you play, scrub, or retune. This surface will accumulate a rolling performance history over time.</div>
       </div>
     );
   }
@@ -961,17 +1115,16 @@ function PerformanceTracePanel({
   const traceStartAt = samples[0].atMs;
   const traceEndAt = latest.atMs;
   const traceDurationMs = Math.max(1, traceEndAt - traceStartAt);
-  const laneTopAt = (laneIndex: number): number => plotTop + laneIndex * (laneHeight + laneGap);
-  const plotBottom = laneTopAt(3) + laneHeight;
-  const plotHeight = plotBottom - headerTop + 10;
-  const xForTime = (atMs: number): number => plotLeft + ((atMs - traceStartAt) / traceDurationMs) * plotWidth;
+  const svgH = eventBandH + 4 * (laneH + laneGap) - laneGap;
+  const laneTop = (i: number): number => eventBandH + i * (laneH + laneGap);
+  const xForTime = (atMs: number): number => ((atMs - traceStartAt) / traceDurationMs) * svgViewW;
   const positiveY = (value: number, max: number, top: number): number => {
     const ratio = Math.max(0, Math.min(1, value / max));
-    return top + laneHeight - ratio * (laneHeight - 6) - 3;
+    return top + laneH - ratio * (laneH - 4) - 2;
   };
   const centeredY = (value: number, max: number, top: number): number => {
     const ratio = Math.max(-1, Math.min(1, value / max));
-    return top + laneHeight / 2 - ratio * ((laneHeight - 8) * 0.5);
+    return top + laneH / 2 - ratio * ((laneH - 6) * 0.5);
   };
   const buildLinePath = (
     selector: (sample: PerformanceTraceSample) => number,
@@ -979,7 +1132,7 @@ function PerformanceTracePanel({
     laneIndex: number,
     centered = false,
   ): string => {
-    const top = laneTopAt(laneIndex);
+    const top = laneTop(laneIndex);
     return samples
       .map((sample, index) => {
         const x = xForTime(sample.atMs);
@@ -993,11 +1146,11 @@ function PerformanceTracePanel({
     max: number,
     laneIndex: number,
   ): string => {
-    const top = laneTopAt(laneIndex);
-    const baseline = top + laneHeight - 2;
-    const points = samples.map((sample) => `${xForTime(sample.atMs).toFixed(2)} ${positiveY(selector(sample), max, top).toFixed(2)}`);
+    const top = laneTop(laneIndex);
+    const baseline = top + laneH - 2;
+    const points = samples.map((s) => `${xForTime(s.atMs).toFixed(2)} ${positiveY(selector(s), max, top).toFixed(2)}`);
     if (points.length === 0) return '';
-    return `M${plotLeft} ${baseline.toFixed(2)} L${points.join(' L ')} L${xForTime(traceEndAt).toFixed(2)} ${baseline.toFixed(2)} Z`;
+    return `M0 ${baseline} L${points.join(' L ')} L${xForTime(traceEndAt).toFixed(2)} ${baseline} Z`;
   };
   const formatRelativeTick = (fraction: number): string => {
     const remainingMs = Math.max(0, Math.round((1 - fraction) * traceDurationMs));
@@ -1088,151 +1241,156 @@ function PerformanceTracePanel({
   const tickFractions = [0, 0.2, 0.4, 0.6, 0.8, 1];
   const contactColor = (tone: 'dim' | 'info' | 'warn'): string =>
     tone === 'warn' ? COLORS.waveform : tone === 'info' ? COLORS.borderHighlight : COLORS.textLabel;
-  const catchupBandWidth = Math.max(5, plotWidth / Math.max(40, samples.length * 0.92));
+  const catchupBandW = Math.max(5, svgViewW / Math.max(40, samples.length * 0.92));
+
+  // Shared styles for HTML rail cells
+  const railHeaderH = eventBandH;
+  const railCellBase: React.CSSProperties = {
+    height: laneH,
+    flexShrink: 0,
+    display: 'flex',
+    flexDirection: 'column',
+    justifyContent: 'center',
+    padding: `0 ${SPACING.sm}px`,
+    boxSizing: 'border-box',
+  };
 
   return (
-    <div style={perfPanelStyle}>
+    <div style={tracePanelStyle}>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: SPACING.sm, alignItems: 'baseline' }}>
-        <div style={perfSectionTitleStyle}>PERFORMANCE TRACE</div>
-        <div style={{ ...perfMeterValueStyle, color: COLORS.textDim }}>WINDOW {spanLabel} / {samples.length} SAMPLES</div>
+        <div style={{ ...perfSectionTitleStyle, color: theme.textCategory }}>PERFORMANCE TRACE</div>
+        <div style={{ ...perfMeterValueStyle, color: theme.textDim }}>WINDOW {spanLabel} / {samples.length} SAMPLES</div>
       </div>
-      <div
-        style={{
-          border: `1px solid ${COLORS.border}`,
-          background: COLORS.bg2,
-          padding: `${SPACING.xs}px ${SPACING.xs}px ${SPACING.sm}px`,
-        }}
-      >
-        <svg viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" style={{ display: 'block', width: '100%', height: 236 }}>
-          <defs>
-            <linearGradient id="perfTraceSweepModern" x1="0" y1="0" x2="1" y2="0">
-              <stop offset="0%" stopColor="rgba(80, 96, 192, 0)" />
-              <stop offset="72%" stopColor="rgba(80, 96, 192, 0.02)" />
-              <stop offset="100%" stopColor="rgba(80, 96, 192, 0.08)" />
-            </linearGradient>
-            <linearGradient id="perfTraceHeaderModern" x1="0" y1="0" x2="1" y2="0">
-              <stop offset="0%" stopColor="rgba(12, 15, 22, 0.96)" />
-              <stop offset="100%" stopColor="rgba(16, 20, 29, 0.92)" />
-            </linearGradient>
-          </defs>
 
-          <rect x={8} y={headerTop} width={leftRailWidth - 2} height={plotHeight + eventBandHeight + 8} fill="rgba(10, 14, 20, 0.72)" stroke={COLORS.border} strokeOpacity={0.22} />
-          <rect x={width - rightRailWidth - 6} y={headerTop} width={rightRailWidth - 2} height={plotHeight + eventBandHeight + 8} fill="rgba(10, 14, 20, 0.72)" stroke={COLORS.border} strokeOpacity={0.22} />
-          <rect x={plotLeft} y={headerTop} width={plotWidth} height={plotHeight + eventBandHeight + 8} fill="rgba(8, 12, 18, 0.66)" stroke={COLORS.border} strokeOpacity={0.3} />
-          <rect x={plotLeft} y={headerTop} width={plotWidth} height={eventBandHeight} fill="url(#perfTraceHeaderModern)" stroke={COLORS.border} strokeOpacity={0.1} />
-          <rect x={width - plotRight - 128} y={headerTop} width={128} height={plotHeight + eventBandHeight + 8} fill="url(#perfTraceSweepModern)" />
+      {/* Trace body: HTML left rail | SVG plot | HTML right rail */}
+      <div style={{ display: 'flex', border: `1px solid ${theme.border}`, background: theme.bg2, overflow: 'hidden' }}>
 
-          {tickFractions.map((fraction, index) => {
-            const x = plotLeft + plotWidth * fraction;
-            return (
-              <g key={`tick-${fraction}`}>
-                <line
-                  x1={x}
-                  y1={headerTop}
-                  x2={x}
-                  y2={plotBottom + 8}
-                  stroke={COLORS.border}
-                  strokeOpacity={index === tickFractions.length - 1 ? 0.34 : 0.1}
-                  strokeDasharray={index === tickFractions.length - 1 ? undefined : '2 8'}
-                />
-                <text
-                  x={x}
-                  y={plotBottom + 20}
-                  fill={COLORS.textDim}
-                  fontFamily={FONTS.mono}
-                  fontSize={9}
-                  textAnchor={index === 0 ? 'start' : index === tickFractions.length - 1 ? 'end' : 'middle'}
-                  letterSpacing="0.8"
-                >
-                  {index === tickFractions.length - 1 ? 'NOW' : `-${formatRelativeTick(fraction)}`}
-                </text>
-              </g>
-            );
-          })}
+        {/* Left rail — HTML, fixed width, text never distorts */}
+        <div style={{ width: leftRailW, flexShrink: 0, borderRight: `1px solid ${theme.border}`, display: 'flex', flexDirection: 'column' }}>
+          <div style={{ height: railHeaderH, flexShrink: 0, display: 'flex', alignItems: 'center', padding: `0 ${SPACING.sm}px`, borderBottom: `1px solid ${theme.border}` }}>
+            <span style={{ fontFamily: FONTS.mono, fontSize: '8px', color: theme.textCategory, letterSpacing: '1.1px' }}>SIGNAL LANES</span>
+          </div>
+          {lanes.map((lane, i) => (
+            <div key={lane.code} style={{ ...railCellBase, marginBottom: i < lanes.length - 1 ? laneGap : 0, borderBottom: i < lanes.length - 1 ? `1px solid ${theme.border}` : undefined }}>
+              <span style={{ fontFamily: FONTS.mono, fontSize: FONTS.sizeSm, color: theme.textTitle, letterSpacing: '0.1em', lineHeight: 1.25 }}>{lane.code}</span>
+              <span style={{ fontFamily: FONTS.mono, fontSize: FONTS.sizeXs, color: theme.textCategory, letterSpacing: '0.06em', lineHeight: 1.25 }}>{lane.subtitle}</span>
+              <span style={{ fontFamily: FONTS.mono, fontSize: '7px', color: theme.textDim, letterSpacing: '0.04em', lineHeight: 1.2, marginTop: 1 }}>{lane.scale}</span>
+            </div>
+          ))}
+        </div>
 
-          <text x={24} y={headerTop + 12} fill={COLORS.textCategory} fontFamily={FONTS.mono} fontSize={9} letterSpacing="1.15">SIGNAL LANES</text>
-          <text x={plotLeft + 12} y={headerTop + 12} fill={COLORS.textCategory} fontFamily={FONTS.mono} fontSize={9} letterSpacing="1.15">ROLLING WINDOW</text>
-          <text x={width - 18} y={headerTop + 12} fill={COLORS.textCategory} fontFamily={FONTS.mono} fontSize={9} textAnchor="end" letterSpacing="1.15">CURRENT STATE</text>
+        {/* Center: SVG plot (no text) + HTML tick labels */}
+        <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+          <svg
+            viewBox={`0 0 ${svgViewW} ${svgH}`}
+            preserveAspectRatio="none"
+            style={{ display: 'block', width: '100%', height: svgH, flexShrink: 0 }}
+          >
+            {/* Event band background */}
+            <rect x={0} y={0} width={svgViewW} height={eventBandH} fill="rgba(8,12,18,0.6)" />
 
-          {samples.map((sample) => sample.videoCatchupActive ? (
-            <rect
-              key={`catchup-${sample.atMs}`}
-              x={xForTime(sample.atMs) - catchupBandWidth * 0.5}
-              y={laneTopAt(1) - 2}
-              width={catchupBandWidth}
-              height={laneHeight + 4}
-              fill="rgba(80, 96, 192, 0.08)"
-            />
-          ) : null)}
+            {/* Vertical tick grid lines */}
+            {tickFractions.map((f, i) => (
+              <line
+                key={f}
+                x1={f * svgViewW} y1={0}
+                x2={f * svgViewW} y2={svgH}
+                stroke={theme.border}
+                strokeOpacity={i === tickFractions.length - 1 ? 0.5 : 0.14}
+                strokeDasharray={i === tickFractions.length - 1 ? undefined : '2 8'}
+              />
+            ))}
 
-          {contactMarkers.map((marker, index) => {
-            const x = xForTime(marker.atMs);
-            const laneTop = laneTopAt(marker.laneIndex);
-            const laneMid = laneTop + laneHeight / 2;
-            const markerY = headerTop + 18 + (index % 2 === 0 ? 0 : 10);
-            const color = contactColor(marker.tone);
-            return (
-              <g key={`contact-${marker.atMs}-${index}`}>
-                <line x1={x} y1={markerY + 4} x2={x} y2={laneMid} stroke={color} strokeOpacity={0.22} strokeDasharray="2 5" />
-                <rect x={x - 15} y={markerY - 8} width={30} height={12} rx={2} fill="rgba(11, 14, 20, 0.96)" stroke={color} strokeOpacity={0.56} />
-                <text x={x} y={markerY + 0.4} fill={color} fontFamily={FONTS.mono} fontSize={8} textAnchor="middle" letterSpacing="0.5">{marker.label}</text>
-                <circle cx={x} cy={laneMid} r={2.2} fill={color} />
-              </g>
-            );
-          })}
+            {/* Contact event markers in event band */}
+            {contactMarkers.map((marker, index) => {
+              const x = xForTime(marker.atMs);
+              const laneMid = laneTop(marker.laneIndex) + laneH / 2;
+              const my = 1 + (index % 2) * 9;
+              const color = contactColor(marker.tone);
+              return (
+                <g key={`cm-${marker.atMs}-${index}`}>
+                  <line x1={x} y1={my + 9} x2={x} y2={laneMid} stroke={color} strokeOpacity={0.2} strokeDasharray="2 5" />
+                  <rect x={x - 14} y={my} width={28} height={10} rx={1.5} fill="rgba(8,12,18,0.96)" stroke={color} strokeOpacity={0.56} />
+                  <text x={x} y={my + 7.4} fill={color} fontFamily={FONTS.mono} fontSize={7} textAnchor="middle" letterSpacing="0.3">{marker.label}</text>
+                  <circle cx={x} cy={laneMid} r={2} fill={color} />
+                </g>
+              );
+            })}
 
-          {lanes.map((lane, index) => {
-            const top = laneTopAt(index);
-            const baseline = lane.centered ? top + laneHeight / 2 : top + laneHeight - 3;
-            const linePath = buildLinePath(lane.selector, lane.max, index, lane.centered);
-            const areaPath = lane.centered ? '' : buildAreaPath(lane.selector, lane.max, index);
-            const thresholdY = lane.centered
-              ? top + 3 + ((lane.max - lane.threshold) / (lane.max * 2)) * (laneHeight - 8)
-              : positiveY(lane.threshold, lane.max, top);
-            return (
-              <g key={lane.code}>
-                <rect x={16} y={top} width={leftRailWidth - 16} height={laneHeight} rx={2} fill="rgba(12, 16, 23, 0.96)" stroke={COLORS.border} strokeOpacity={0.18} />
-                <rect x={plotLeft} y={top} width={plotWidth} height={laneHeight} fill="rgba(10, 14, 20, 0.74)" stroke={COLORS.border} strokeOpacity={0.12} />
-                <rect x={width - rightRailWidth} y={top} width={rightRailWidth - 10} height={laneHeight} rx={2} fill="rgba(12, 16, 23, 0.96)" stroke={COLORS.border} strokeOpacity={0.18} />
-                {!lane.centered ? (
-                  <rect x={plotLeft} y={top + 3} width={plotWidth} height={Math.max(0, thresholdY - top - 3)} fill="rgba(200, 146, 42, 0.035)" />
-                ) : null}
-                <line x1={plotLeft} y1={baseline} x2={width - plotRight} y2={baseline} stroke={lane.centered ? lane.color : COLORS.border} strokeOpacity={lane.centered ? 0.46 : 0.18} />
-                <line x1={plotLeft} y1={top + 2} x2={width - plotRight} y2={top + 2} stroke={COLORS.border} strokeOpacity={0.06} />
-                <line x1={plotLeft} y1={top + laneHeight - 2} x2={width - plotRight} y2={top + laneHeight - 2} stroke={COLORS.border} strokeOpacity={0.06} />
-                {areaPath ? <path d={areaPath} fill={lane.fill} /> : null}
-                <path d={linePath} fill="none" stroke={lane.glow} strokeWidth={4.6} strokeLinecap="round" strokeLinejoin="round" />
-                <path d={linePath} fill="none" stroke={lane.color} strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" />
-                <text x={26} y={top + 14} fill={COLORS.textTitle} fontFamily={FONTS.mono} fontSize={10.2} letterSpacing="1.15">{lane.code}</text>
-                <text x={26} y={top + 26} fill={COLORS.textCategory} fontFamily={FONTS.mono} fontSize={8} letterSpacing="0.7">{lane.subtitle}</text>
-                <text x={leftRailWidth - 4} y={top + 14} fill={COLORS.textDim} fontFamily={FONTS.mono} fontSize={8.2} textAnchor="end" letterSpacing="0.6">{lane.scale}</text>
-                <text x={width - 24} y={top + 14} fill={COLORS.textTitle} fontFamily={FONTS.mono} fontSize={10.4} textAnchor="end" letterSpacing="0.5">{lane.detail}</text>
-                <text x={width - 24} y={top + 26} fill={lane.statusColor} fontFamily={FONTS.mono} fontSize={8} textAnchor="end" letterSpacing="0.8">{lane.status}</text>
-                {lane.centered ? (
-                  <text x={plotLeft - 8} y={baseline + 3} fill={COLORS.textDim} fontFamily={FONTS.mono} fontSize={8.2} textAnchor="end">0</text>
-                ) : null}
-              </g>
-            );
-          })}
-        </svg>
+            {/* Lane plots */}
+            {lanes.map((lane, i) => {
+              const top = laneTop(i);
+              const baseline = lane.centered ? top + laneH / 2 : top + laneH - 3;
+              const linePath = buildLinePath(lane.selector, lane.max, i, lane.centered);
+              const areaPath = lane.centered ? '' : buildAreaPath(lane.selector, lane.max, i);
+              return (
+                <g key={lane.code}>
+                  <rect x={0} y={top} width={svgViewW} height={laneH} fill="rgba(8,12,18,0.5)" />
+                  {i < lanes.length - 1 ? <rect x={0} y={top + laneH} width={svgViewW} height={laneGap} fill={theme.bg2} /> : null}
+                  {i === 1 ? samples.map((s) => s.videoCatchupActive ? (
+                    <rect key={`cu-${s.atMs}`} x={xForTime(s.atMs) - catchupBandW * 0.5} y={top} width={catchupBandW} height={laneH} fill="rgba(80,96,192,0.08)" />
+                  ) : null) : null}
+                  <line x1={0} y1={baseline} x2={svgViewW} y2={baseline} stroke={lane.centered ? lane.color : theme.border} strokeOpacity={lane.centered ? 0.38 : 0.1} />
+                  {areaPath ? <path d={areaPath} fill={lane.fill} /> : null}
+                  <path d={linePath} fill="none" stroke={lane.glow} strokeWidth={4.6} strokeLinecap="round" strokeLinejoin="round" />
+                  <path d={linePath} fill="none" stroke={lane.color} strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" />
+                </g>
+              );
+            })}
+          </svg>
+
+          {/* Tick labels — HTML so they render crisply at any container width */}
+          <div style={{ position: 'relative', height: 20, flexShrink: 0, borderTop: `1px solid ${theme.border}` }}>
+            {tickFractions.map((f, i) => (
+              <span key={f} style={{
+                position: 'absolute',
+                left: `${f * 100}%`,
+                transform: i === 0 ? 'none' : i === tickFractions.length - 1 ? 'translateX(-100%)' : 'translateX(-50%)',
+                fontFamily: FONTS.mono,
+                fontSize: '8px',
+                color: theme.textDim,
+                letterSpacing: '0.06em',
+                top: 4,
+                whiteSpace: 'nowrap',
+                pointerEvents: 'none',
+              }}>
+                {i === tickFractions.length - 1 ? 'NOW' : `-${formatRelativeTick(f)}`}
+              </span>
+            ))}
+          </div>
+        </div>
+
+        {/* Right rail — HTML, fixed width */}
+        <div style={{ width: rightRailW, flexShrink: 0, borderLeft: `1px solid ${theme.border}`, display: 'flex', flexDirection: 'column' }}>
+          <div style={{ height: railHeaderH, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'flex-end', padding: `0 ${SPACING.sm}px`, borderBottom: `1px solid ${theme.border}` }}>
+            <span style={{ fontFamily: FONTS.mono, fontSize: '8px', color: theme.textCategory, letterSpacing: '1.1px' }}>CURRENT STATE</span>
+          </div>
+          {lanes.map((lane, i) => (
+            <div key={lane.code} style={{ ...railCellBase, alignItems: 'flex-end', marginBottom: i < lanes.length - 1 ? laneGap : 0, borderBottom: i < lanes.length - 1 ? `1px solid ${theme.border}` : undefined }}>
+              <span style={{ fontFamily: FONTS.mono, fontSize: FONTS.sizeSm, color: theme.textTitle, letterSpacing: '0.04em', textAlign: 'right' }}>{lane.detail}</span>
+              <span style={{ fontFamily: FONTS.mono, fontSize: FONTS.sizeXs, color: lane.statusColor, letterSpacing: '0.08em', textAlign: 'right' }}>{lane.status}</span>
+            </div>
+          ))}
+        </div>
+
       </div>
     </div>
   );
 }
 
 
-function PerformanceEventLine({ event }: { event: PerformanceEvent }): React.ReactElement {
+function PerformanceEventLine({ event, theme }: { event: PerformanceEvent; theme: PerfTheme }): React.ReactElement {
   const color =
     event.tone === 'warn'
       ? COLORS.statusWarn
       : event.tone === 'info'
-        ? COLORS.textPrimary
-        : COLORS.textSecondary;
+        ? theme.textPrimary
+        : theme.textSecondary;
 
   return (
     <div style={perfEventLineStyle}>
-      <span style={clockStyle}>{event.clock}</span>
-      <span style={sourceStyle}>{event.source.toUpperCase()}</span>
+      <span style={{ ...clockStyle, color: theme.textDim }}>{event.clock}</span>
+      <span style={{ ...sourceStyle, color: theme.textCategory }}>{event.source.toUpperCase()}</span>
       <span style={{ ...messageStyle, color }}>{event.text}</span>
     </div>
   );

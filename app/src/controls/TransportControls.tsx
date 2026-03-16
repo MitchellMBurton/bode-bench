@@ -4,9 +4,82 @@
 // ============================================================
 
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { useAudioEngine, useDiagnosticsLog, usePerformanceDiagnosticsStore, useTheaterModeStore } from '../core/session';
-import { COLORS, FONTS, SPACING } from '../theme';
+import { useAudioEngine, useDiagnosticsLog, useDisplayMode, usePerformanceDiagnosticsStore, useTheaterModeStore } from '../core/session';
+import { CANVAS, COLORS, FONTS, SPACING } from '../theme';
+import type { VisualMode } from '../audio/displayMode';
 import type { TransportState } from '../types';
+
+interface TransportTheme {
+  btnBg: string;
+  btnBorder: string;
+  btnColor: string;
+  btnActiveBg: string;
+  btnActiveBorder: string;
+  btnResetBorder: string;
+  btnResetBg: string;
+  loopBg: string;
+  loopBorder: string;
+  loopLabel: string;
+  loopTime: string;
+  loopClear: string;
+  seekTrackBg: string;
+  seekFillColor: string;
+}
+
+function buildTransportTheme(visualMode: VisualMode): TransportTheme {
+  if (visualMode === 'nge') {
+    return {
+      btnBg: 'rgba(4,10,4,0.9)',
+      btnBorder: 'rgba(60,130,30,0.4)',
+      btnColor: 'rgba(160,230,60,0.9)',
+      btnActiveBg: 'rgba(20,50,8,0.95)',
+      btnActiveBorder: 'rgba(120,200,60,0.75)',
+      btnResetBorder: 'rgba(80,160,40,0.5)',
+      btnResetBg: 'rgba(4,10,4,0.9)',
+      loopBg: 'rgba(20,60,10,0.3)',
+      loopBorder: 'rgba(80,200,60,0.3)',
+      loopLabel: 'rgba(140,230,60,0.9)',
+      loopTime: 'rgba(120,200,60,0.7)',
+      loopClear: 'rgba(120,200,60,0.65)',
+      seekTrackBg: 'rgba(4,12,4,0.9)',
+      seekFillColor: 'rgba(100,190,30,0.88)',
+    };
+  }
+  if (visualMode === 'hyper') {
+    return {
+      btnBg: 'rgba(2,5,18,0.9)',
+      btnBorder: 'rgba(40,70,180,0.4)',
+      btnColor: 'rgba(210,236,255,0.9)',
+      btnActiveBg: 'rgba(8,18,52,0.95)',
+      btnActiveBorder: 'rgba(98,200,255,0.75)',
+      btnResetBorder: CANVAS.hyper.chromeBorder,
+      btnResetBg: 'rgba(2,5,18,0.9)',
+      loopBg: 'rgba(10,20,60,0.3)',
+      loopBorder: 'rgba(80,160,255,0.3)',
+      loopLabel: CANVAS.hyper.trace,
+      loopTime: 'rgba(112,180,255,0.75)',
+      loopClear: 'rgba(98,200,255,0.65)',
+      seekTrackBg: 'rgba(4,8,28,0.9)',
+      seekFillColor: 'rgba(78,200,255,0.85)',
+    };
+  }
+  return {
+    btnBg: COLORS.bg3,
+    btnBorder: COLORS.border,
+    btnColor: COLORS.textPrimary,
+    btnActiveBg: COLORS.accentDim,
+    btnActiveBorder: COLORS.accent,
+    btnResetBorder: COLORS.borderActive,
+    btnResetBg: COLORS.bg1,
+    loopBg: 'rgba(40,120,60,0.15)',
+    loopBorder: 'rgba(80,200,120,0.25)',
+    loopLabel: 'rgba(80,200,120,0.80)',
+    loopTime: COLORS.textSecondary,
+    loopClear: 'rgba(80,200,120,0.60)',
+    seekTrackBg: COLORS.bg3,
+    seekFillColor: COLORS.accent,
+  };
+}
 
 const VIDEO_HEIGHT_MIN = 72;
 const VIDEO_HEIGHT_DEFAULT = 160;
@@ -314,6 +387,8 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
   const diagnosticsLog = useDiagnosticsLog();
   const performanceDiagnostics = usePerformanceDiagnosticsStore();
   const theaterModeStore = useTheaterModeStore();
+  const displayMode = useDisplayMode();
+  const tt = buildTransportTheme(displayMode.mode);
   const [transport, setTransport] = useState<TransportState>({
     isPlaying: false,
     currentTime: 0,
@@ -1540,10 +1615,10 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
         <span style={{ ...timeStyle, color: COLORS.textDim }}>{formatTime(transport.duration)}</span>
       </div>
 
-      <div style={seekTrackStyle}>
+      <div style={{ ...seekTrackStyle, background: tt.seekTrackBg }}>
         <div
           ref={seekFillRef}
-          style={{ ...seekFillStyle, width: `${seekFraction * 100}%` }}
+          style={{ ...seekFillStyle, width: `${seekFraction * 100}%`, background: tt.seekFillColor }}
         />
         <input
           ref={seekInputRef}
@@ -1562,13 +1637,13 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
       </div>
 
       {transport.loopStart !== null && transport.loopEnd !== null && (
-        <div style={loopRowStyle}>
-          <span style={loopLabelStyle}>LOOP</span>
-          <span style={loopTimeStyle}>
+        <div style={{ ...loopRowStyle, background: tt.loopBg, borderColor: tt.loopBorder }}>
+          <span style={{ ...loopLabelStyle, color: tt.loopLabel }}>LOOP</span>
+          <span style={{ ...loopTimeStyle, color: tt.loopTime }}>
             {formatTime(transport.loopStart)} {'->'} {formatTime(transport.loopEnd)}
           </span>
           <button
-            style={loopClearStyle}
+            style={{ ...loopClearStyle, color: tt.loopClear }}
             onClick={() => audioEngine.clearLoop()}
             title="Clear loop region"
           >
@@ -1579,7 +1654,7 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
 
       <div style={buttonRowStyle}>
         <button
-          style={btnStyle}
+          style={{ ...btnStyle, background: tt.btnBg, borderColor: tt.btnBorder, color: tt.btnColor }}
           onClick={() => audioEngine.stop()}
           disabled={isLoading || !transport.filename}
           title="Stop - return to start"
@@ -1587,7 +1662,9 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
           STOP
         </button>
         <button
-          style={{ ...btnStyle, ...(transport.isPlaying ? btnActiveStyle : {}) }}
+          style={transport.isPlaying
+            ? { ...btnStyle, background: tt.btnActiveBg, borderColor: tt.btnActiveBorder, color: tt.btnColor }
+            : { ...btnStyle, background: tt.btnBg, borderColor: tt.btnBorder, color: tt.btnColor }}
           onClick={() => transport.isPlaying ? audioEngine.pause() : audioEngine.play()}
           disabled={isLoading || !transport.filename}
           title={transport.isPlaying ? 'Pause' : 'Play'}
@@ -1595,7 +1672,9 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
           {transport.isPlaying ? 'PAUSE' : 'PLAY'}
         </button>
         <button
-          style={{ ...btnStyle, ...(hasLoop ? btnActiveStyle : {}) }}
+          style={hasLoop
+            ? { ...btnStyle, background: tt.btnActiveBg, borderColor: tt.btnActiveBorder, color: tt.btnColor }
+            : { ...btnStyle, background: tt.btnBg, borderColor: tt.btnBorder, color: tt.btnColor }}
           onClick={onToggleLoop}
           disabled={isLoading || !transport.filename}
           title={hasLoop ? 'Clear current loop region' : 'Loop the full file'}
@@ -1603,7 +1682,7 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
           LOOP
         </button>
         <button
-          style={{ ...btnStyle, ...btnResetStyle }}
+          style={{ ...btnStyle, ...btnResetStyle, background: tt.btnResetBg, borderColor: tt.btnResetBorder, color: tt.btnColor }}
           onClick={() => audioEngine.reset()}
           disabled={isLoading || !transport.filename}
           title="Reset - clear file and all visuals"
@@ -1924,11 +2003,6 @@ const btnStyle: React.CSSProperties = {
   lineHeight: 1.2,
   outline: 'none',
   transition: 'background 0.1s, border-color 0.1s',
-};
-
-const btnActiveStyle: React.CSSProperties = {
-  background: COLORS.accentDim,
-  borderColor: COLORS.accent,
 };
 
 const btnResetStyle: React.CSSProperties = {

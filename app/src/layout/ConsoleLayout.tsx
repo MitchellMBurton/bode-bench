@@ -268,7 +268,7 @@ export function ConsoleLayout({
 
   return (
     <LayoutInteractionProvider>
-      <div style={shellStyle}>
+      <div style={{ ...shellStyle, filter: grayscale ? 'grayscale(1) contrast(1.05)' : 'none' }}>
       {/* Global header */}
       <div style={{ ...globalHeaderStyle, borderBottom: `1px solid ${headerBorder}` }}>
         <div style={headerLeftStyle}>
@@ -366,7 +366,6 @@ export function ConsoleLayout({
         minHeight: 0,
         padding: GAP,
         boxSizing: 'border-box',
-        filter: grayscale ? 'grayscale(1) contrast(1.05)' : 'none',
       }}>
         <SplitPane
           direction="column"
