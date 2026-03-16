@@ -948,6 +948,13 @@ export class AudioEngine {
           if (loadVersion !== this.loadVersion) return;
           await stretchNode.dropBuffers();
           if (loadVersion !== this.loadVersion) return;
+          // dropBuffers() resets the worklet's internal state, which clears
+          // the setUpdateInterval callback registered at node creation. Re-register
+          // it here so the watchdog receives heartbeats during decoded playback.
+          await stretchNode.setUpdateInterval(0.1, () => {
+            this.stretchLastProgressAt = this.ctx?.currentTime ?? 0;
+          });
+          if (loadVersion !== this.loadVersion) return;
           await stretchNode.addBuffers(this.prepareStretchBuffers(decodedBuffer));
           if (loadVersion !== this.loadVersion) return;
           stretchEnabledForBuffer = true;
@@ -1559,15 +1566,14 @@ export class AudioEngine {
           return;
         }
 
-        if (
-          this._isPlaying &&
-          this.stretchEnabledForBuffer &&
-          this.ctx &&
-          this.ctx.currentTime >= this.startedAt + STRETCH_WATCHDOG_GRACE_S &&
-          this.ctx.currentTime - this.stretchLastProgressAt > STRETCH_WATCHDOG_TIMEOUT_S
-        ) {
-          this.fallbackToNativePlayback('watchdog');
-          return;
+        if (this._isPlaying && this.stretchEnabledForBuffer && this.ctx) {
+          if (
+            this.ctx.currentTime > this.startedAt + STRETCH_WATCHDOG_GRACE_S &&
+            this.ctx.currentTime - this.stretchLastProgressAt > STRETCH_WATCHDOG_TIMEOUT_S
+          ) {
+            this.fallbackToNativePlayback('watchdog');
+            return;
+          }
         }
 
         if (this._isPlaying && this._loopStart === null && this.currentTime >= this.duration) {
