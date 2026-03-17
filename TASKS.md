@@ -1,12 +1,17 @@
 # Tasks
 
-## Current Milestone
+## Status: ALPHA COMPLETE — v0.1 (2026-03-17)
+
+This repo is preserved as the v0.1 Alpha artifact (tag: `v0.1-alpha`).
+**No further development in this repo.** See `HANDOFF.md` for the continuation plan.
+
+---
+
+## Alpha Milestone
 
 Stable general-purpose session console for local audio and video analysis.
 
-## Current Priority
-
-Core hardening and generalization before major new feature branches.
+## Completed in Alpha
 
 ### Hardening Track
 

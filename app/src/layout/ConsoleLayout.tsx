@@ -275,12 +275,12 @@ export function ConsoleLayout({
       {/* Global header */}
       <div style={{ ...globalHeaderStyle, borderBottom: `1px solid ${headerBorder}` }}>
         <div style={headerLeftStyle}>
-          <span style={{ ...headerSuperStyle, color: chromeCategory }}>BACH CELLO SUITES VISUAL CONSOLE</span>
-          <span style={headerTitleStyle}>SCIENTIFIC LISTENING INSTRUMENT</span>
+          <span style={{ ...headerSuperStyle, color: chromeCategory }}>SCIENTIFIC LISTENING INSTRUMENT</span>
+          <span style={headerTitleStyle}>MEDIA ANALYSIS CONSOLE</span>
         </div>
         <div style={headerRightStyle}>
           <span style={{ ...headerTagStyle, color: chromeCategory }}>DESKTOP-FIRST / SESSION-BASED</span>
-          <span style={{ ...headerTagStyle, color: chromeCategory }}>SUITE NO. 1 PRELUDE MILESTONE</span>
+          <span style={{ ...headerTagStyle, color: chromeCategory }}>v0.1 ALPHA</span>
         </div>
       </div>
 

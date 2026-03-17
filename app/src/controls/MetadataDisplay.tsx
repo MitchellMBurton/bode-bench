@@ -39,7 +39,7 @@ export function MetadataDisplay({ filename, metadata, visualMode }: Props): Reac
           </>
         ) : (
           <>
-            <div style={{ ...composerStyle, color: categoryColor }}>SCIENTIFIC LISTENING INSTRUMENT</div>
+            <div style={{ ...composerStyle, color: categoryColor }}>NO SESSION</div>
             <div style={{ ...titleStyle, color: COLORS.textDim, fontSize: FONTS.sizeMd }}>
               No file loaded
             </div>

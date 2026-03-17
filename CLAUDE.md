@@ -4,7 +4,7 @@
 
 A local-first, desktop-grade scientific listening instrument and media analysis console. Real-time diagnostics, disciplined transport control, and optional structural overlays live together in a four-quadrant workspace.
 
-The repo still contains legacy `Bach Cello Console` naming and Bach-derived sample data, but contributors should treat those as transitional artifacts rather than the product definition.
+**This repo is the v0.1 Alpha artifact.** It is preserved at tag `v0.1-alpha`. Legacy Bach Cello naming has been retired from all user-visible surfaces. Continued development happens in the successor repo (see `HANDOFF.md`).
 
 Read the full project definition in `PROJECT.md`. Read UX doctrine in `UX_PRINCIPLES.md`. Read technical structure in `ARCHITECTURE.md`. Read decision logic in `DECISION_RULES.md`. Read current work in `TASKS.md`.
 
@@ -94,7 +94,7 @@ Prefer fixes in the shared frontend. Keep the Tauri wrapper thin unless there is
 
 ## Current Milestone
 
-Stabilize and generalize the single-session console for arbitrary local audio/video analysis.
+**COMPLETE — v0.1 Alpha.** Single-session console for arbitrary local audio/video analysis is stable and feature-complete. See `HANDOFF.md` for what was built and what comes next.
 
 ## Style Notes
 
