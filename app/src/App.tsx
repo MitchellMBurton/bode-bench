@@ -252,7 +252,7 @@ export default function App(): React.ReactElement {
           help: 'SESSION CONTROLS\n\nLoad a file via drag-drop or the file button. All analysis runs locally — no network required.\n\nVOL: output volume. RATE: playback speed (preserves pitch when pitch mode is on). PITCH: enable real-time pitch shifting on decoded files (< 384 MB).\n\nGREYSCALE: monochrome overlay. NGE: phosphor-green palette. HYPER: cyan/indigo palette.\n\nDiagnostics log captures every transport event and file analysis result.',
           content: (
             <div style={controlPanelStyle}>
-              <MetadataDisplay filename={filename} />
+              <MetadataDisplay filename={filename} visualMode={visualMode} />
               <div style={dividerStyle} />
               <TransportControls />
               <SessionControls

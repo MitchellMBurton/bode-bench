@@ -2,24 +2,31 @@
 // Metadata Display — shows loaded file title + optional score metadata.
 // ============================================================
 
-import { COLORS, FONTS, SPACING } from '../theme';
+import { CANVAS, COLORS, FONTS, SPACING } from '../theme';
+import type { VisualMode } from '../audio/displayMode';
 import type { MovementMetadata } from '../types';
 
 interface Props {
   filename?: string | null;
   metadata?: MovementMetadata | null;
+  visualMode?: VisualMode;
 }
 
-export function MetadataDisplay({ filename, metadata }: Props): React.ReactElement {
+export function MetadataDisplay({ filename, metadata, visualMode }: Props): React.ReactElement {
   // Derive a display title from the filename: strip extension, truncate
   const fileTitle = filename ? stripExtension(filename) : null;
+  const categoryColor = visualMode === 'nge'
+    ? CANVAS.nge.category
+    : visualMode === 'hyper'
+      ? CANVAS.hyper.category
+      : COLORS.textCategory;
 
   return (
     <div style={wrapStyle}>
       <div style={titleBlockStyle}>
         {metadata ? (
           <>
-            <div style={composerStyle}>{metadata.composer}</div>
+            <div style={{ ...composerStyle, color: categoryColor }}>{metadata.composer}</div>
             <div style={titleStyle}>
               Cello Suite No.{metadata.suite} — {metadata.movement}
             </div>
@@ -27,12 +34,12 @@ export function MetadataDisplay({ filename, metadata }: Props): React.ReactEleme
           </>
         ) : fileTitle ? (
           <>
-            <div style={composerStyle}>AUDIO</div>
+            <div style={{ ...composerStyle, color: categoryColor }}>AUDIO</div>
             <div style={titleStyle}>{fileTitle}</div>
           </>
         ) : (
           <>
-            <div style={composerStyle}>BACH CELLO CONSOLE</div>
+            <div style={{ ...composerStyle, color: categoryColor }}>SCIENTIFIC LISTENING INSTRUMENT</div>
             <div style={{ ...titleStyle, color: COLORS.textDim, fontSize: FONTS.sizeMd }}>
               No file loaded
             </div>
@@ -96,11 +103,11 @@ const composerStyle: React.CSSProperties = {
 };
 
 const titleStyle: React.CSSProperties = {
-  fontFamily: FONTS.sans,
-  fontSize: FONTS.sizeXl,
+  fontFamily: FONTS.mono,
+  fontSize: FONTS.sizeMd,
   color: COLORS.textPrimary,
   fontWeight: FONTS.weightMedium,
-  letterSpacing: '0.01em',
+  letterSpacing: '0.04em',
   overflow: 'hidden',
   textOverflow: 'ellipsis',
   whiteSpace: 'nowrap',

@@ -1449,8 +1449,8 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
       <div
         style={{
           ...ingestStyle,
-          borderColor: isDragging ? COLORS.accent : COLORS.border,
-          background: isDragging ? COLORS.accentGlow : COLORS.bg3,
+          borderColor: isDragging ? tt.seekFillColor : tt.btnBorder,
+          background: isDragging ? COLORS.accentGlow : tt.btnBg,
         }}
         onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
         onDragLeave={() => setIsDragging(false)}
@@ -1470,7 +1470,7 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
         {isLoading ? (
           <span style={ingestTextStyle}>DECODING...</span>
         ) : transport.filename ? (
-          <span style={{ ...ingestTextStyle, color: COLORS.textPrimary }}>
+          <span style={{ ...ingestTextStyle, color: tt.btnColor }}>
             {transport.filename}
           </span>
         ) : (
@@ -1482,12 +1482,22 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
         <div
           style={{
             ...loadNoticeStyle,
-            ...(loadNotice.tone === 'warn' ? loadNoticeWarnStyle : loadNoticeInfoStyle),
+            ...(loadNotice.tone === 'warn'
+              ? displayMode.mode === 'nge'
+                ? { borderColor: 'rgba(160,200,40,0.55)', background: 'rgba(10,24,4,0.55)' }
+                : displayMode.mode === 'hyper'
+                  ? { borderColor: 'rgba(98,200,255,0.45)', background: 'rgba(4,10,32,0.55)' }
+                  : loadNoticeWarnStyle
+              : displayMode.mode === 'nge'
+                ? { borderColor: 'rgba(80,160,30,0.35)', background: 'rgba(6,16,4,0.50)' }
+                : displayMode.mode === 'hyper'
+                  ? { borderColor: 'rgba(60,100,220,0.35)', background: 'rgba(4,8,28,0.50)' }
+                  : loadNoticeInfoStyle),
           }}
         >
-          <span style={loadNoticeMessageStyle}>{loadNotice.message}</span>
+          <span style={{ ...loadNoticeMessageStyle, color: tt.btnColor }}>{loadNotice.message}</span>
           <button
-            style={loadNoticeDismissStyle}
+            style={{ ...loadNoticeDismissStyle, borderColor: tt.btnBorder, color: tt.btnColor }}
             onClick={() => setLoadNotice(null)}
             title="Dismiss message"
           >
