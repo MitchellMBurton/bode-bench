@@ -20,10 +20,10 @@ import { shouldSkipFrame } from '../utils/rafGuard';
 import type { AudioFrame } from '../types';
 
 const PANEL_DPR_MAX = 1.5;
-const CORR_BAR_H_CSS = 20; // px (CSS), fixed height for correlation bar
-const DOT_ALPHA = 0.72;     // current frame dot opacity
-const DECAY_FACTOR = 0.18;  // per-frame fade (semi-persistent trail)
-const MAX_TRAIL_FRAMES = 4; // trail depth
+const CORR_BAR_H_CSS = 24; // px (CSS), fixed height for correlation bar
+const DOT_ALPHA = 0.76;     // current frame dot opacity
+const DECAY_FACTOR = 0.13;  // per-frame fade (semi-persistent trail)
+const MAX_TRAIL_FRAMES = 6; // trail depth
 
 // ── Component ─────────────────────────────────────────────────────────────────
 export function GoniometerPanel(): React.ReactElement {
@@ -122,7 +122,7 @@ export function GoniometerPanel(): React.ReactElement {
       const corrH = Math.round(CORR_BAR_H_CSS * dpr);
       const corrY = H - corrH;
 
-      // Label divider line
+      // Divider line above bar
       ctx.fillStyle = hyper ? 'rgba(28,42,88,0.92)' : 'rgba(32,32,48,1)';
       ctx.fillRect(0, corrY, W, 1);
 
@@ -145,7 +145,6 @@ export function GoniometerPanel(): React.ReactElement {
         corrSmoothRef.current = corrVal;
       }
 
-      // Correlation bar fill: map [-1, 1] → [0, W]
       const corrZeroX = W * 0.5;
       const corrNeedleX = corrZeroX + corrVal * corrZeroX;
       const corrColor = corrVal > 0.5
@@ -158,18 +157,15 @@ export function GoniometerPanel(): React.ReactElement {
       ctx.fillStyle = hyper ? 'rgba(14,22,50,1)' : 'rgba(16,16,24,1)';
       ctx.fillRect(0, corrY + 1, W, corrH - 1);
 
-      // Filled region from centre to needle
+      // Fill from centre to needle
+      ctx.fillStyle = corrColor;
+      ctx.globalAlpha = 0.22;
       if (corrVal >= 0) {
-        ctx.fillStyle = corrColor;
-        ctx.globalAlpha = 0.25;
         ctx.fillRect(corrZeroX, corrY + 2, corrNeedleX - corrZeroX, corrH - 4);
-        ctx.globalAlpha = 1;
       } else {
-        ctx.fillStyle = corrColor;
-        ctx.globalAlpha = 0.25;
         ctx.fillRect(corrNeedleX, corrY + 2, corrZeroX - corrNeedleX, corrH - 4);
-        ctx.globalAlpha = 1;
       }
+      ctx.globalAlpha = 1;
 
       // Needle
       ctx.strokeStyle = corrColor;
@@ -179,19 +175,23 @@ export function GoniometerPanel(): React.ReactElement {
       ctx.lineTo(Math.round(corrNeedleX) + 0.5, H - 2);
       ctx.stroke();
 
-      // Centre zero mark
+      // Scale tick marks: centre (0) and ±0.5
       ctx.strokeStyle = gridColor;
       ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(corrZeroX + 0.5, corrY + 2);
-      ctx.lineTo(corrZeroX + 0.5, H - 2);
-      ctx.stroke();
+      ctx.globalAlpha = 0.55;
+      for (const tx of [corrZeroX, corrZeroX - corrZeroX * 0.5, corrZeroX + corrZeroX * 0.5]) {
+        ctx.beginPath();
+        ctx.moveTo(tx + 0.5, corrY + 2);
+        ctx.lineTo(tx + 0.5, H - 2);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
 
-      // Correlation labels
+      // Labels: extremes + live value
       ctx.font = `${6.5 * dpr}px ${FONTS.mono}`;
-      ctx.fillStyle = labelColor;
       ctx.textBaseline = 'middle';
       const corrMidY = corrY + corrH * 0.5;
+      ctx.fillStyle = labelColor;
       ctx.textAlign = 'left';
       ctx.fillText('−1', SPACING.xs * dpr, corrMidY);
       ctx.textAlign = 'right';
@@ -204,56 +204,68 @@ export function GoniometerPanel(): React.ReactElement {
       const gH = corrY - 1;
       if (gH <= 16) return;
 
-      // Square plot area centred
+      // Square plot area centred in available space
       const gSize = Math.min(W, gH);
       const gX0 = Math.round((W - gSize) * 0.5);
       const gY0 = Math.round((gH - gSize) * 0.5);
       const cx = gX0 + gSize * 0.5;
       const cy = gY0 + gSize * 0.5;
-      const halfR = gSize * 0.46; // scale: ±1 amplitude → halfR pixels
+      const halfR = gSize * 0.43; // pulled in slightly from edge to leave room for circle border
+      const d45 = halfR * 0.707;  // halfR × cos(45°) — diagonal axis arm length
 
-      // Clip to goniometer area
+      // Circular clip — all grid and signal stays within the circle
       ctx.save();
       ctx.beginPath();
-      ctx.rect(gX0, gY0, gSize, gSize);
+      ctx.arc(cx, cy, halfR + 1.5 * dpr, 0, Math.PI * 2);
       ctx.clip();
 
-      // Diamond reference (rotated square = goniometer border)
+      // Subtle 50% amplitude ring
       ctx.strokeStyle = gridColor;
       ctx.lineWidth = 1;
+      ctx.globalAlpha = 0.22;
+      ctx.beginPath();
+      ctx.arc(cx, cy, halfR * 0.5, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+
+      // Diamond boundary — ±1 amplitude envelope
       ctx.setLineDash([2 * dpr, 3 * dpr]);
       ctx.beginPath();
-      ctx.moveTo(cx, gY0 + 4);         // top
-      ctx.lineTo(gX0 + gSize - 4, cy); // right
-      ctx.lineTo(cx, gY0 + gSize - 4); // bottom
-      ctx.lineTo(gX0 + 4, cy);         // left
+      ctx.moveTo(cx,         cy - halfR); // top  (M+)
+      ctx.lineTo(cx + halfR, cy);         // right (S+)
+      ctx.lineTo(cx,         cy + halfR); // bottom (M−)
+      ctx.lineTo(cx - halfR, cy);         // left  (S−)
       ctx.closePath();
       ctx.stroke();
 
-      // Axis crosshairs (M=vertical, S=horizontal)
-      ctx.setLineDash([]);
-      ctx.strokeStyle = gridColor;
-      ctx.lineWidth = 1;
+      // L/R diagonal guide lines — dashed, dimmer
+      // Pure L (R=0): s = L/2 > 0, m = L/2 > 0  → plots upper-right
+      // Pure R (L=0): s = −R/2 < 0, m = R/2 > 0 → plots upper-left
+      ctx.globalAlpha = 0.38;
       ctx.beginPath();
-      ctx.moveTo(cx, gY0 + 2); ctx.lineTo(cx, gY0 + gSize - 2); // vertical (M axis)
-      ctx.moveTo(gX0 + 2, cy); ctx.lineTo(gX0 + gSize - 2, cy); // horizontal (S axis)
+      ctx.moveTo(cx - d45, cy + d45); ctx.lineTo(cx + d45, cy - d45); // L: upper-right
+      ctx.moveTo(cx + d45, cy + d45); ctx.lineTo(cx - d45, cy - d45); // R: upper-left
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+      ctx.setLineDash([]);
+
+      // M/S crosshairs (solid)
+      ctx.beginPath();
+      ctx.moveTo(cx, cy - halfR); ctx.lineTo(cx, cy + halfR); // M axis (vertical)
+      ctx.moveTo(cx - halfR, cy); ctx.lineTo(cx + halfR, cy); // S axis (horizontal)
       ctx.stroke();
 
-      // Axis labels
+      // Axis labels: M at top, L upper-right (pure-L direction), R upper-left (pure-R direction)
       ctx.font = `${6 * dpr}px ${FONTS.mono}`;
       ctx.fillStyle = labelColor;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'top';
-      ctx.fillText('M', cx, gY0 + 2);
-      ctx.textBaseline = 'bottom';
-      ctx.fillText('S', cx, gY0 + gSize - 2);
-      ctx.textAlign = 'right';
+      ctx.fillText('M', cx, cy - halfR + 3 * dpr);
       ctx.textBaseline = 'middle';
-      ctx.fillText('L', gX0 + 4, cy - 2 * dpr);
-      ctx.textAlign = 'left';
-      ctx.fillText('R', gX0 + gSize - 4, cy - 2 * dpr);
+      ctx.fillText('L', cx + d45 * 0.68, cy - d45 * 0.68);
+      ctx.fillText('R', cx - d45 * 0.68, cy - d45 * 0.68);
 
-      // Plot trail frames (oldest first, most faded)
+      // ── Trail rendering (oldest first, newest on top) ──────────────────
       const ptr = trailPtrRef.current;
       const trail = trailRef.current;
 
@@ -265,35 +277,51 @@ export function GoniometerPanel(): React.ReactElement {
         const alpha = DOT_ALPHA * Math.pow(1 - DECAY_FACTOR, age);
         if (alpha < 0.01) continue;
 
-        // Parse the raw RGB from traceColor for alpha dots
-        // Use simple colored fillRect dots
-        const r = age === 0 ? 1.5 * dpr : 1 * dpr; // slightly larger for current frame
+        const step = Math.max(1, Math.floor(buf.length / 2 / 512));
+        const rCore = age === 0 ? 1.5 * dpr : 1 * dpr;
 
+        // Glow pass — current frame only, wider and faint
+        if (age === 0) {
+          const rGlow = rCore * 2.0;
+          ctx.globalAlpha = alpha * 0.12;
+          ctx.fillStyle = traceColor;
+          for (let i = 0; i < buf.length; i += step * 2) {
+            const s = (buf[i] - buf[i + 1]) * 0.5;
+            const m = (buf[i] + buf[i + 1]) * 0.5;
+            const px = cx + s * halfR;
+            const py = cy - m * halfR;
+            ctx.fillRect(px - rGlow, py - rGlow, rGlow * 2, rGlow * 2);
+          }
+        }
+
+        // Core pass
         ctx.globalAlpha = alpha;
         ctx.fillStyle = traceColor;
-
-        const step = Math.max(1, Math.floor(buf.length / 2 / 512)); // max 512 dots per frame
         for (let i = 0; i < buf.length; i += step * 2) {
-          const lSample = buf[i];
-          const rSample = buf[i + 1];
-          // M/S goniometer: x = S = L−R (horizontal), y = M = L+R (vertical up)
-          const s = (lSample - rSample) * 0.5;
-          const m = (lSample + rSample) * 0.5;
+          const s = (buf[i] - buf[i + 1]) * 0.5;
+          const m = (buf[i] + buf[i + 1]) * 0.5;
           const px = cx + s * halfR;
-          const py = cy - m * halfR; // Y up = louder
-          ctx.fillRect(px - r, py - r, r * 2, r * 2);
+          const py = cy - m * halfR;
+          ctx.fillRect(px - rCore, py - rCore, rCore * 2, rCore * 2);
         }
         ctx.globalAlpha = 1;
       }
 
       ctx.restore();
 
+      // Circle border — drawn after restore so it sits cleanly on top of the plot
+      ctx.strokeStyle = gridColor;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(cx, cy, halfR + 1.5 * dpr, 0, Math.PI * 2);
+      ctx.stroke();
+
       // Panel label
       ctx.font = `${7 * dpr}px ${FONTS.mono}`;
       ctx.fillStyle = labelColor;
       ctx.textAlign = 'left';
       ctx.textBaseline = 'bottom';
-      ctx.fillText('GONIOMT', SPACING.sm * dpr, corrY - SPACING.xs * dpr);
+      ctx.fillText('GONIOMETER', SPACING.sm * dpr, corrY - SPACING.xs * dpr);
     };
 
     rafRef.current = requestAnimationFrame(draw);

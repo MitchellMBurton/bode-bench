@@ -2,61 +2,26 @@
 // App root - wires layout, panels, controls, and score loader.
 // ============================================================
 
-import { useState, useEffect, useRef, useSyncExternalStore } from 'react';
+import { useState, useEffect, useRef, useSyncExternalStore, useCallback } from 'react';
 import { ConsoleLayout } from './layout/ConsoleLayout';
 import { SplitPane } from './layout/SplitPane';
+import { TheaterPanelShell } from './layout/TheaterPanelShell';
 import { TransportControls } from './controls/TransportControls';
 import { MetadataDisplay } from './controls/MetadataDisplay';
 import { SessionControls } from './controls/SessionControls';
 import { DiagnosticsLog, PerformanceDiagnostics } from './controls/DiagnosticsLog';
+import { RuntimeMetricPill } from './controls/RuntimeMetricPill';
+import { useGlobalHotkeys } from './controls/useGlobalHotkeys';
+import { usePerformanceMonitoring } from './controls/usePerformanceMonitoring';
+import { HotkeyOverlay } from './controls/HotkeyOverlay';
+import { panelsForColumn } from './panels/registry';
 import { WaveformOverviewPanel } from './panels/WaveformOverviewPanel';
-import { OscilloscopePanel } from './panels/OscilloscopePanel';
-import { OscilloscopeScrollPanel } from './panels/OscilloscopeScrollPanel';
-import { FrequencyResponsePanel } from './panels/FrequencyResponsePanel';
-import { WaveformScrollPanel } from './panels/WaveformScrollPanel';
-import { SpectrogramPanel } from './panels/SpectrogramPanel';
-import { LevelsPanel } from './panels/LevelsPanel';
-import { FrequencyBandsPanel } from './panels/FrequencyBandsPanel';
-import { PitchTrackerPanel } from './panels/PitchTrackerPanel';
-import { HarmonicLadderPanel } from './panels/HarmonicLadderPanel';
-import { LoudnessHistoryPanel } from './panels/LoudnessHistoryPanel';
-import { LoudnessMeterPanel } from './panels/LoudnessMeterPanel';
-import { GoniometerPanel } from './panels/GoniometerPanel';
-import { useAudioEngine, useDiagnosticsLog, useDisplayMode, usePerformanceDiagnosticsStore, usePerformanceProfile, useTheaterMode } from './core/session';
+import { useAudioEngine, useDisplayMode, usePerformanceDiagnosticsStore, usePerformanceProfile, useTheaterMode } from './core/session';
 import type { VisualMode } from './audio/displayMode';
 import type { Marker } from './types';
 import type { PerformanceDiagnosticsSnapshot } from './diagnostics/logStore';
-import { CANVAS, COLORS, FONTS, SPACING } from './theme';
-
-const SEEK_STEP = 5;
-const SEEK_STEP_LARGE = 15;
-const GLOBAL_HOTKEY_BLOCK_SELECTOR = [
-  'input',
-  'textarea',
-  'select',
-  'button',
-  'summary',
-  '[contenteditable=""]',
-  '[contenteditable="true"]',
-  '[role="textbox"]',
-  '[role="button"]',
-  '[role="dialog"]',
-  '[aria-modal="true"]',
-  '[data-shell-interactive="true"]',
-  '[data-shell-overlay="true"]',
-].join(', ');
-
-function formatTransportTime(seconds: number): string {
-  const minutes = Math.floor(seconds / 60);
-  const secs = Math.floor(seconds % 60);
-  const tenths = Math.floor((seconds % 1) * 10);
-  return `${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}.${tenths}`;
-}
-
-function formatRuntimeMs(value: number | null, digits = 0): string {
-  if (value === null || !Number.isFinite(value)) return '--';
-  return `${value.toFixed(digits)} ms`;
-}
+import { COLORS, SPACING } from './theme';
+import { formatRuntimeMs } from './utils/format';
 
 function getRuntimeStatus(snapshot: PerformanceDiagnosticsSnapshot): string {
   if (snapshot.videoRecoveryCount > 0 || snapshot.videoStallCount > 0) return 'VIDEO PRESSURE';
@@ -65,15 +30,8 @@ function getRuntimeStatus(snapshot: PerformanceDiagnosticsSnapshot): string {
   return 'CLEAN';
 }
 
-function shouldIgnoreGlobalTransportHotkeys(target: EventTarget | null): boolean {
-  if (!(target instanceof Element)) return false;
-  if ((target as HTMLElement).isContentEditable) return true;
-  return target.closest(GLOBAL_HOTKEY_BLOCK_SELECTOR) !== null;
-}
-
 export default function App(): React.ReactElement {
   const audioEngine = useAudioEngine();
-  const diagnosticsLog = useDiagnosticsLog();
   const displayMode = useDisplayMode();
   const performanceDiagnostics = usePerformanceDiagnosticsStore();
   const performanceProfile = usePerformanceProfile();
@@ -90,6 +48,7 @@ export default function App(): React.ReactElement {
   const [layoutResetToken, setLayoutResetToken] = useState(0);
   const [markers, setMarkers] = useState<Marker[]>([]);
   const markerCountRef = useRef(0);
+  const [hotkeyOverlayOpen, setHotkeyOverlayOpen] = useState(false);
 
   useEffect(() => {
     return audioEngine.onTransport((state) => {
@@ -104,93 +63,25 @@ export default function App(): React.ReactElement {
     markerCountRef.current = 0;
   }), [audioEngine]);
 
-  useEffect(() => {
-    let rafId = 0;
-    let lastAt = 0;
-    const tick = (now: number) => {
-      if (lastAt !== 0) {
-        performanceDiagnostics.noteUiFrame(now - lastAt);
-      }
-      lastAt = now;
-      rafId = requestAnimationFrame(tick);
-    };
-    rafId = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(rafId);
-  }, [performanceDiagnostics]);
+  const deleteMarker = useCallback((id: number) => {
+    setMarkers((prev) => prev.filter((m) => m.id !== id));
+  }, []);
 
-  useEffect(() => {
-    if (typeof PerformanceObserver === 'undefined') return;
-    if (!PerformanceObserver.supportedEntryTypes?.includes('longtask')) return;
-
-    const observer = new PerformanceObserver((list) => {
-      for (const entry of list.getEntries()) {
-        performanceDiagnostics.noteLongTask(entry.duration);
-      }
-    });
-
-    observer.observe({ entryTypes: ['longtask'] });
-    return () => observer.disconnect();
-  }, [performanceDiagnostics]);
+  const clearMarkers = useCallback(() => {
+    setMarkers([]);
+    markerCountRef.current = 0;
+  }, []);
 
   useEffect(() => {
     displayMode.setMode(visualMode);
   }, [displayMode, visualMode]);
 
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.defaultPrevented || shouldIgnoreGlobalTransportHotkeys(e.target)) return;
-
-      switch (e.code) {
-        case 'Space':
-          e.preventDefault();
-          if (audioEngine.duration > 0) {
-            if (audioEngine.isPlaying) { audioEngine.pause(); } else { audioEngine.play(); }
-          }
-          break;
-        case 'ArrowLeft':
-          e.preventDefault();
-          audioEngine.seek(Math.max(0, audioEngine.currentTime - (e.shiftKey ? SEEK_STEP_LARGE : SEEK_STEP)));
-          break;
-        case 'ArrowRight':
-          e.preventDefault();
-          audioEngine.seek(Math.min(audioEngine.duration, audioEngine.currentTime + (e.shiftKey ? SEEK_STEP_LARGE : SEEK_STEP)));
-          break;
-        case 'KeyS':
-          e.preventDefault();
-          audioEngine.stop();
-          break;
-        case 'KeyL':
-          e.preventDefault();
-          if (audioEngine.duration <= 0) break;
-          if (audioEngine.loopStart !== null && audioEngine.loopEnd !== null) {
-            audioEngine.clearLoop();
-            diagnosticsLog.push('loop cleared', 'info', 'transport');
-          } else {
-            audioEngine.setLoop(0, audioEngine.duration);
-            diagnosticsLog.push(`loop file 00:00.0 -> ${formatTransportTime(audioEngine.duration)}`, 'info', 'transport');
-          }
-          break;
-        case 'Escape':
-          e.preventDefault();
-          audioEngine.clearLoop();
-          break;
-        case 'KeyM':
-          e.preventDefault();
-          if (audioEngine.duration > 0) {
-            const t = audioEngine.currentTime;
-            markerCountRef.current += 1;
-            const id = markerCountRef.current;
-            const label = `M${id}`;
-            const newMarker: Marker = { id, time: t, label };
-            setMarkers((prev) => [...prev, newMarker]);
-            diagnosticsLog.push(`marker ${label} @ ${formatTransportTime(t)}`, 'info', 'transport');
-          }
-          break;
-      }
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [audioEngine, diagnosticsLog]);
+  usePerformanceMonitoring();
+  useGlobalHotkeys({
+    setMarkers,
+    markerCountRef,
+    onShowHotkeyOverlay: () => setHotkeyOverlayOpen(true),
+  });
 
   const fileTitle = filename ? filename.replace(/\.[^/.]+$/, '') : null;
   const panelTitle = fileTitle ?? 'NO SESSION';
@@ -249,7 +140,7 @@ export default function App(): React.ReactElement {
         topLeft={{
           category: 'SUITE CONSOLE',
           title: panelTitle,
-          help: 'SESSION CONTROLS\n\nLoad a file via drag-drop or the file button. All analysis runs locally — no network required.\n\nVOL: output volume. RATE: playback speed (preserves pitch when pitch mode is on). PITCH: enable real-time pitch shifting on decoded files (< 384 MB).\n\nGREYSCALE: monochrome overlay. NGE: phosphor-green palette. HYPER: cyan/indigo palette.\n\nDiagnostics log captures every transport event and file analysis result.',
+          help: 'SESSION CONTROLS\n\nLoad a file via drag-drop or the file button. All analysis runs locally — no network required.\n\nVOL: output volume. RATE: playback speed (preserves pitch when pitch mode is on). PITCH: enable real-time pitch shifting on decoded files (< 384 MB).\n\nGREYSCALE: monochrome overlay. NGE: phosphor-green palette. HYPER: cyan/indigo palette.\n\nKEYBOARD SHORTCUTS: Space play/pause, ← → seek 5 s (Shift: 15 s), S stop, L loop file, M mark, Esc clear loop, ? show all shortcuts.\n\nDiagnostics log captures every transport event and file analysis result.',
           content: (
             <div style={controlPanelStyle}>
               <MetadataDisplay filename={filename} visualMode={visualMode} />
@@ -282,21 +173,18 @@ export default function App(): React.ReactElement {
                 resetToken={layoutResetToken}
                 persistKey="console:top-right-stack"
               >
-                {[
-                  <WaveformOverviewPanel key="overview" markers={markers} />,
-                  <WaveformScrollPanel key="wave-scroll" />,
-                  <PitchTrackerPanel key="pitch" />,
-                  <OscilloscopePanel key="osc" />,
-                  <OscilloscopeScrollPanel key="osc-scroll" />,
-                  <FrequencyResponsePanel key="response" />,
-                ]}
+                {panelsForColumn('top-right').map(({ id, component: Panel }) =>
+                  id === 'overview'
+                    ? <WaveformOverviewPanel key={id} markers={markers} onDeleteMarker={deleteMarker} onClearMarkers={clearMarkers} />
+                    : <Panel key={id} />
+                )}
               </SplitPane>
             </TheaterPanelShell>
           ),
         }}
         bottomLeft={{
           category: 'SUPPORT INSTRUMENTATION',
-          title: 'LEVELS / GONIOMT / BANDS / PARTIALS',
+          title: 'LEVELS / GONIOMETER / BANDS / PARTIALS',
           help: 'SUPPORT INSTRUMENTATION\n\nLEVELS — Stereo peak (bright) and RMS (dim) bars in dBFS. Peak hold decays slowly. Colour zones: green (< −12 dB), yellow (−12 to −3 dB), red (> −3 dB).\n\nGONIOMETER — Stereo phase display (M/S Lissajous).\n  Vertical axis = Mid (L+R): strong signal = tall shape\n  Horizontal axis = Side (L−R): wide shape = wide stereo\n  Mono: collapses to vertical line. Out-of-phase: horizontal line.\n  Phase correlation bar: +1 = identical (mono), 0 = uncorrelated, −1 = cancelling.\n  Green (> +0.5) is safe for mono. Red (< 0) will cancel in mono.\n\nFREQ BANDS — Six-band energy display.\n  Sub: 20–80 Hz (subwoofer weight)\n  Lo-Mid: 80–240 Hz (warmth, mud)\n  Mid: 240–900 Hz (body, presence)\n  Hi-Mid: 900–2800 Hz (articulation, harshness)\n  Presence: 2800–8000 Hz (clarity, sibilance)\n  Air: 8–20 kHz (sheen, breath)\n\nHARMONICS — First 10 partials of detected fundamental. Normalised relative to strongest partial (40 dB dynamic window). Fundamental at left; overtones descend in brightness.',
           content: (
             <TheaterPanelShell
@@ -306,17 +194,14 @@ export default function App(): React.ReactElement {
             >
               <SplitPane
                 direction="column"
-                initialSizes={[20, 30, 22, 28]}
-                minSizePx={[56, 80, 60, 56]}
+                initialSizes={[14, 38, 24, 24]}
+                minSizePx={[48, 80, 56, 56]}
                 resetToken={layoutResetToken}
                 persistKey="console:bottom-left-stack"
               >
-                {[
-                  <LevelsPanel key="levels" />,
-                  <GoniometerPanel key="gonio" />,
-                  <FrequencyBandsPanel key="bands" />,
-                  <HarmonicLadderPanel key="ladder" />,
-                ]}
+                {panelsForColumn('bottom-left').map(({ id, component: Panel }) => (
+                  <Panel key={id} />
+                ))}
               </SplitPane>
             </TheaterPanelShell>
           ),
@@ -333,116 +218,28 @@ export default function App(): React.ReactElement {
             >
               <SplitPane
                 direction="column"
-                initialSizes={[10, 18, 72]}
-                minSizePx={[48, 64, 96]}
+                initialSizes={[11, 20, 69]}
+                minSizePx={[44, 60, 96]}
                 resetToken={layoutResetToken}
                 persistKey="console:bottom-right-stack"
               >
-                {[
-                  <LoudnessHistoryPanel key="loudness" />,
-                  <LoudnessMeterPanel key="lufs" />,
-                  <SpectrogramPanel key="spectrogram" />,
-                ]}
+                {panelsForColumn('bottom-right').map(({ id, component: Panel }) => (
+                  <Panel key={id} />
+                ))}
               </SplitPane>
             </TheaterPanelShell>
           ),
         }}
       />
       {showScanLines && <div style={scanLineStyle} />}
+      <HotkeyOverlay
+        open={hotkeyOverlayOpen}
+        onClose={() => setHotkeyOverlayOpen(false)}
+        visualMode={visualMode}
+      />
     </>
   );
 }
-
-
-function RuntimeMetricPill({
-  label,
-  value,
-  tone,
-  visualMode = 'default',
-}: {
-  label: string;
-  value: string;
-  tone: 'dim' | 'info' | 'warn';
-  visualMode?: VisualMode;
-}): React.ReactElement {
-  const nge = visualMode === 'nge';
-  const hyper = visualMode === 'hyper';
-
-  const pillBg = nge ? 'rgba(4,10,4,0.85)' : hyper ? 'rgba(2,5,18,0.85)' : COLORS.bg1;
-  const labelColor = nge ? 'rgba(80,160,50,0.55)' : hyper ? CANVAS.hyper.category : COLORS.textCategory;
-
-  const borderColor =
-    tone === 'warn'
-      ? COLORS.statusWarn
-      : tone === 'info'
-        ? nge ? CANVAS.nge.chromeBorder : hyper ? CANVAS.hyper.chromeBorder : COLORS.borderHighlight
-        : nge ? 'rgba(60,130,30,0.38)' : hyper ? 'rgba(40,70,180,0.38)' : COLORS.border;
-  const textColor =
-    tone === 'warn'
-      ? COLORS.textPrimary
-      : tone === 'info'
-        ? nge ? CANVAS.nge.trace : hyper ? CANVAS.hyper.trace : COLORS.textPrimary
-        : nge ? 'rgba(120,200,60,0.75)' : hyper ? 'rgba(112,180,255,0.65)' : COLORS.textSecondary;
-
-  return (
-    <span style={{ ...runtimeMetricPillStyle, borderColor, background: pillBg }}>
-      <span style={{ ...runtimeMetricLabelStyle, color: labelColor }}>{label}</span>
-      <span style={{ ...runtimeMetricValueStyle, color: textColor }}>{value}</span>
-    </span>
-  );
-}
-
-function TheaterPanelShell({
-  active,
-  title,
-  detail,
-  children,
-}: {
-  active: boolean;
-  title: string;
-  detail: string;
-  children: React.ReactNode;
-}): React.ReactElement {
-  return (
-    <div style={theaterShellStyle}>
-      <div style={theaterShellContentStyle}>{children}</div>
-      {active ? (
-        <div style={theaterStandbyOverlayStyle}>
-          <div style={theaterStandbyTitleStyle}>{title}</div>
-          <div style={theaterStandbyDetailStyle}>{detail}</div>
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-
-const runtimeMetricPillStyle: React.CSSProperties = {
-  display: 'inline-flex',
-  alignItems: 'center',
-  gap: SPACING.xs,
-  padding: `2px ${SPACING.sm}px`,
-  borderWidth: 1,
-  borderStyle: 'solid',
-  borderColor: COLORS.border,
-  borderRadius: 2,
-  background: COLORS.bg1,
-  minWidth: 0,
-};
-
-const runtimeMetricLabelStyle: React.CSSProperties = {
-  fontFamily: FONTS.mono,
-  fontSize: FONTS.sizeXs,
-  color: COLORS.textCategory,
-  letterSpacing: '0.12em',
-};
-
-const runtimeMetricValueStyle: React.CSSProperties = {
-  fontFamily: FONTS.mono,
-  fontSize: FONTS.sizeXs,
-  letterSpacing: '0.06em',
-  color: COLORS.textSecondary,
-};
 
 const controlPanelStyle: React.CSSProperties = {
   display: 'flex',
@@ -458,48 +255,6 @@ const dividerStyle: React.CSSProperties = {
   flexShrink: 0,
 };
 
-const theaterShellStyle: React.CSSProperties = {
-  position: 'relative',
-  width: '100%',
-  height: '100%',
-  overflow: 'hidden',
-};
-
-const theaterShellContentStyle: React.CSSProperties = {
-  width: '100%',
-  height: '100%',
-};
-
-const theaterStandbyOverlayStyle: React.CSSProperties = {
-  position: 'absolute',
-  inset: 0,
-  display: 'flex',
-  flexDirection: 'column',
-  justifyContent: 'center',
-  alignItems: 'center',
-  gap: SPACING.sm,
-  padding: SPACING.lg,
-  background: 'linear-gradient(180deg, rgba(10,12,18,0.88), rgba(14,16,22,0.94))',
-  textAlign: 'center',
-  pointerEvents: 'auto',
-};
-
-const theaterStandbyTitleStyle: React.CSSProperties = {
-  fontFamily: FONTS.mono,
-  fontSize: FONTS.sizeMd,
-  color: COLORS.textPrimary,
-  letterSpacing: '0.14em',
-};
-
-const theaterStandbyDetailStyle: React.CSSProperties = {
-  fontFamily: FONTS.mono,
-  fontSize: FONTS.sizeSm,
-  color: COLORS.textSecondary,
-  letterSpacing: '0.04em',
-  maxWidth: 440,
-  lineHeight: 1.6,
-};
-
 const scanLineStyle: React.CSSProperties = {
   position: 'fixed',
   inset: 0,
@@ -511,4 +266,3 @@ const scanLineStyle: React.CSSProperties = {
   mixBlendMode: 'overlay',
   willChange: 'background-position',
 };
-

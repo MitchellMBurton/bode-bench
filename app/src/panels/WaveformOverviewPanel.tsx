@@ -511,9 +511,11 @@ function drawBadge(
 
 interface WaveformOverviewPanelProps {
   markers?: Marker[];
+  onDeleteMarker?: (id: number) => void;
+  onClearMarkers?: () => void;
 }
 
-export function WaveformOverviewPanel({ markers = [] }: WaveformOverviewPanelProps): React.ReactElement {
+export function WaveformOverviewPanel({ markers = [], onDeleteMarker, onClearMarkers }: WaveformOverviewPanelProps): React.ReactElement {
   const frameBus = useFrameBus();
   const audioEngine = useAudioEngine();
   const displayMode = useDisplayMode();
@@ -522,6 +524,10 @@ export function WaveformOverviewPanel({ markers = [] }: WaveformOverviewPanelPro
   const [scrubStyle, setScrubStyle] = useState<ScrubStyle>(() => audioEngine.scrubStyle);
   const markersRef = useRef<Marker[]>(markers);
   markersRef.current = markers;
+  const onDeleteMarkerRef = useRef(onDeleteMarker);
+  onDeleteMarkerRef.current = onDeleteMarker;
+  const onClearMarkersRef = useRef(onClearMarkers);
+  onClearMarkersRef.current = onClearMarkers;
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const peakEnvRef = useRef<Float32Array | null>(null);
   const rmsEnvRef = useRef<Float32Array | null>(null);
@@ -2462,6 +2468,17 @@ export function WaveformOverviewPanel({ markers = [] }: WaveformOverviewPanelPro
             </button>
           ))}
         </div>
+        {markers.length > 0 && onClearMarkersRef.current && (
+          <button
+            type="button"
+            style={clearMarkersButtonStyle}
+            onClick={() => onClearMarkersRef.current?.()}
+            data-shell-interactive="true"
+            title={`Clear all ${markers.length} marker(s)`}
+          >
+            CLEAR {markers.length} MARKER{markers.length !== 1 ? 'S' : ''}
+          </button>
+        )}
       </div>
       <canvas
         ref={canvasRef}
@@ -2478,7 +2495,21 @@ export function WaveformOverviewPanel({ markers = [] }: WaveformOverviewPanelPro
           const duration = Math.max(0, transportRef.current.duration || audioEngine.duration);
           if (duration <= 0) return;
 
-          const layout = buildTimelineLayout(canvas.width, canvas.height, Math.min(devicePixelRatio, PANEL_DPR_MAX));
+          const dprVal = Math.min(devicePixelRatio, PANEL_DPR_MAX);
+          const layout = buildTimelineLayout(canvas.width, canvas.height, dprVal);
+
+          // Marker click-to-delete: check session strip before entering gesture logic
+          if (onDeleteMarkerRef.current && y >= layout.session.y && y <= layout.session.y + layout.session.h) {
+            const HIT_PX = 8 * dprVal;
+            for (const mk of markersRef.current) {
+              const mx = Math.round(timeToX(mk.time, 0, duration, layout.session));
+              if (Math.abs(x - mx) <= HIT_PX) {
+                onDeleteMarkerRef.current(mk.id);
+                return;
+              }
+            }
+          }
+
           const hit = hitTestTimeline(x, y, layout, duration);
           const currentView = normalizeViewRange(
             viewRangeRef.current.start,
@@ -2754,6 +2785,19 @@ const scrubButtonActiveStyle: React.CSSProperties = {
   color: COLORS.textPrimary,
   background: COLORS.accentDim,
   borderColor: COLORS.borderHighlight,
+};
+
+const clearMarkersButtonStyle: React.CSSProperties = {
+  fontFamily: FONTS.mono,
+  fontSize: FONTS.sizeXs,
+  color: COLORS.textSecondary,
+  background: 'none',
+  border: 'none',
+  padding: '2px 4px',
+  cursor: 'pointer',
+  letterSpacing: '0.08em',
+  lineHeight: 1.2,
+  flexShrink: 0,
 };
 
 const canvasStyle: React.CSSProperties = {

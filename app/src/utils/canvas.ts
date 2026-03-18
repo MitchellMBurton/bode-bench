@@ -60,11 +60,6 @@ export function dbToFraction(db: number): number {
   return Math.max(0, Math.min(1, (db - CANVAS.dbMin) / (CANVAS.dbMax - CANVAS.dbMin)));
 }
 
-/** Map a 0–1 fraction to canvas height (top=0). */
-export function fractionToY(fraction: number, height: number): number {
-  return height * (1 - fraction);
-}
-
 /** Draw a simple horizontal dB scale on the right edge of a canvas. */
 export function drawDbScale(
   ctx: CanvasRenderingContext2D,
@@ -111,30 +106,6 @@ export function xToFreq(x: number, width: number, minHz = 20, maxHz = 20000): nu
 export function formatHz(hz: number): string {
   if (hz >= 1000) return `${(hz / 1000).toFixed(hz >= 10000 ? 1 : 2)} kHz`;
   return `${Math.round(hz)} Hz`;
-}
-
-/** Map an FFT bin index to frequency (Hz). */
-export function binToHz(bin: number, fftSize: number, sampleRate: number): number {
-  return (bin * sampleRate) / fftSize;
-}
-
-/** Spectro colour map: NGE phosphor — void → dark green → mid green → lime → white-green.
- *  Matches the phosphor terminal aesthetic of the NGE display mode. */
-export function spectroColorNge(db: number): string {
-  const t = Math.max(0, Math.min(1, (db - CANVAS.dbMin) / (CANVAS.dbMax - CANVAS.dbMin)));
-  if (t < 0.25) {
-    const s = t / 0.25;
-    return `rgb(${Math.round(3 + s * 7)},${Math.round(10 + s * 32)},${Math.round(3 + s * 7)})`;
-  } else if (t < 0.5) {
-    const s = (t - 0.25) / 0.25;
-    return `rgb(${Math.round(10 + s * 16)},${Math.round(42 + s * 54)},${Math.round(10 + s * 6)})`;
-  } else if (t < 0.75) {
-    const s = (t - 0.5) / 0.25;
-    return `rgb(${Math.round(26 + s * 70)},${Math.round(96 + s * 96)},${Math.round(16 + s * 16)})`;
-  } else {
-    const s = (t - 0.75) / 0.25;
-    return `rgb(${Math.round(96 + s * 104)},${Math.round(192 + s * 48)},${Math.round(32 + s * 32)})`;
-  }
 }
 
 /** Spectro colour map: NGE thermal — void → indigo → teal → amber → white-gold.

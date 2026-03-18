@@ -27,10 +27,10 @@ const PREVIEW_LINE_PX = 2;
 
 const DEFAULT_MIN_PX = 48;
 const COMPRESSED_MIN_PX = 24;
-const EMPTY_SIZES: number[] = [];
+const EMPTY_SIZES: readonly number[] = [];
 const persistedPaneFractions = new Map<string, number[]>();
 
-function normalize(sizes: number[]): number[] {
+function normalize(sizes: readonly number[]): number[] {
   const total = sizes.reduce((a, b) => a + b, 0);
   if (total === 0) return sizes.map(() => 1 / sizes.length);
   return sizes.map(s => s / total);
@@ -42,7 +42,7 @@ interface SplitPaneState {
 
 type SplitPaneAction =
   | { readonly type: 'apply'; readonly fracs: number[] }
-  | { readonly type: 'reset'; readonly initialSizes: number[] };
+  | { readonly type: 'reset'; readonly initialSizes: readonly number[] };
 
 function splitPaneReducer(state: SplitPaneState, action: SplitPaneAction): SplitPaneState {
   switch (action.type) {
@@ -55,7 +55,7 @@ function splitPaneReducer(state: SplitPaneState, action: SplitPaneAction): Split
   }
 }
 
-function readInitialFracs(initialSizes: number[], persistKey?: string): number[] {
+function readInitialFracs(initialSizes: readonly number[], persistKey?: string): number[] {
   if (!persistKey) return normalize(initialSizes);
 
   const stored = persistedPaneFractions.get(persistKey);
@@ -70,7 +70,7 @@ function readInitialFracs(initialSizes: number[], persistKey?: string): number[]
   return normalize(stored);
 }
 
-function getRequestedMinSizes(paneCount: number, minSizePx: number[]): number[] {
+function getRequestedMinSizes(paneCount: number, minSizePx: readonly number[]): number[] {
   return Array.from({ length: paneCount }, (_, index) => {
     const requested = minSizePx[index] ?? DEFAULT_MIN_PX;
     return Math.max(0, requested);
@@ -200,13 +200,13 @@ export interface SplitPaneProps {
    * they don't need to sum to any specific number.
    * e.g. [1, 2, 1] → 25 / 50 / 25 % of available space.
    */
-  initialSizes: number[];
+  initialSizes: readonly number[];
 
   /** Minimum pixel size per pane (indexed parallel to children). Defaults to 48 px. */
-  minSizePx?: number[];
+  minSizePx?: readonly number[];
 
   /** Maximum pixel size per pane (optional). */
-  maxSizePx?: number[];
+  maxSizePx?: readonly number[];
 
   /** Increment to reset pane fractions back to initialSizes without remounting children. */
   resetToken?: number;

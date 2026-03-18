@@ -143,9 +143,10 @@ export interface NoteEvent {
   readonly beat: number;
 }
 
-/** Metadata for a single movement. */
+/** Metadata for a single structural section (movement, track, chapter, etc.). */
 export interface MovementMetadata {
-  readonly suite: number;
+  /** Optional series or collection number. For Bach suites: 1–6. Omit for single works. */
+  readonly suite?: number;
   readonly movement: string;
   readonly key: string;
   readonly tempoMarking: string;

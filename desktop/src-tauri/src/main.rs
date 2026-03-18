@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-  bach_cello_console_lib::run();
+  scientific_listening_instrument_lib::run();
 }

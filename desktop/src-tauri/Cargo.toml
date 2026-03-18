@@ -1,18 +1,18 @@
 [package]
-name = "bach-cello-console"
+name = "scientific-listening-instrument"
 version = "0.1.1"
-description = "Local-first scientific listening instrument for Bach's cello suites"
+description = "Local-first scientific listening instrument and media analysis console"
 authors = ["Mitchell Burton"]
 license = ""
-repository = "https://github.com/MitchellMBurton/bach-cello-console"
-homepage = "https://github.com/MitchellMBurton/bach-cello-console"
+repository = ""
+homepage = ""
 edition = "2021"
 rust-version = "1.77.2"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [lib]
-name = "bach_cello_console_lib"
+name = "scientific_listening_instrument_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

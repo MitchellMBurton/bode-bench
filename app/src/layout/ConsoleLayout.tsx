@@ -91,9 +91,10 @@ function readRuntimeTrayHeight(): number {
 
 interface ChromePanelProps extends PanelDef {
   visualMode?: VisualMode;
+  onFullscreen?: () => void;
 }
 
-function ChromePanel({ category, title, stat, help, content, visualMode }: ChromePanelProps): React.ReactElement {
+function ChromePanel({ category, title, stat, help, content, visualMode, onFullscreen }: ChromePanelProps): React.ReactElement {
   const nge = visualMode === 'nge';
   const hyper = visualMode === 'hyper';
   const chromeBorder = nge
@@ -126,6 +127,16 @@ function ChromePanel({ category, title, stat, help, content, visualMode }: Chrom
         </div>
         {stat && <span style={{ ...chromeStatStyle, color: chromeStat }}>{stat}</span>}
         {help && <PanelHelp text={help} visualMode={visualMode} />}
+        {onFullscreen && (
+          <button
+            onClick={onFullscreen}
+            style={fullscreenBtnStyle}
+            title="Expand quadrant to fullscreen"
+            aria-label="Fullscreen"
+          >
+            ⛶
+          </button>
+        )}
       </div>
       <div style={chromeContentStyle}>
         {content}
@@ -149,6 +160,16 @@ export function ConsoleLayout({
 }: Props): React.ReactElement {
   const [runtimeTrayHeight, setRuntimeTrayHeight] = useState(() => readRuntimeTrayHeight());
   const runtimeTrayResizeRef = useRef<{ startY: number; startHeight: number; pointerId: number } | null>(null);
+  const [fullscreenQuadrant, setFullscreenQuadrant] = useState<'tl' | 'tr' | 'bl' | 'br' | null>(null);
+
+  useEffect(() => {
+    if (!fullscreenQuadrant) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { e.preventDefault(); setFullscreenQuadrant(null); }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [fullscreenQuadrant]);
   const nge = visualMode === 'nge';
   const hyper = visualMode === 'hyper';
   const headerBorder = nge
@@ -372,8 +393,8 @@ export function ConsoleLayout({
       }}>
         <SplitPane
           direction="column"
-          initialSizes={[64, 36]}
-          minSizePx={[200, 200]}
+          initialSizes={[56, 44]}
+          minSizePx={[200, 180]}
           resetToken={layoutResetToken}
           persistKey="console:root"
         >
@@ -382,14 +403,14 @@ export function ConsoleLayout({
             <SplitPane
               key="top"
               direction="row"
-              initialSizes={[...LEFT_COLUMN_DEFAULT]}
+              initialSizes={LEFT_COLUMN_DEFAULT}
               minSizePx={[240, 320]}
               resetToken={layoutResetToken}
               persistKey="console:top-row"
             >
               {[
-                <ChromePanel key="tl" {...topLeft} visualMode={visualMode} />,
-                <ChromePanel key="tr" {...topRight} visualMode={visualMode} />,
+                <ChromePanel key="tl" {...topLeft} visualMode={visualMode} onFullscreen={() => setFullscreenQuadrant('tl')} />,
+                <ChromePanel key="tr" {...topRight} visualMode={visualMode} onFullscreen={() => setFullscreenQuadrant('tr')} />,
               ]}
             </SplitPane>,
 
@@ -397,19 +418,39 @@ export function ConsoleLayout({
             <SplitPane
               key="bottom"
               direction="row"
-              initialSizes={[...LEFT_COLUMN_DEFAULT]}
+              initialSizes={LEFT_COLUMN_DEFAULT}
               minSizePx={[240, 320]}
               resetToken={layoutResetToken}
               persistKey="console:bottom-row"
             >
               {[
-                <ChromePanel key="bl" {...bottomLeft} visualMode={visualMode} />,
-                <ChromePanel key="br" {...bottomRight} visualMode={visualMode} />,
+                <ChromePanel key="bl" {...bottomLeft} visualMode={visualMode} onFullscreen={() => setFullscreenQuadrant('bl')} />,
+                <ChromePanel key="br" {...bottomRight} visualMode={visualMode} onFullscreen={() => setFullscreenQuadrant('br')} />,
               ]}
             </SplitPane>,
           ]}
         </SplitPane>
       </div>
+
+      {/* Quadrant fullscreen overlay */}
+      {fullscreenQuadrant !== null && (() => {
+        const quadrantMap = { tl: topLeft, tr: topRight, bl: bottomLeft, br: bottomRight } as const;
+        const def = quadrantMap[fullscreenQuadrant];
+        const ngeFS = visualMode === 'nge';
+        const hyperFS = visualMode === 'hyper';
+        const fsBorder = ngeFS ? CANVAS.nge.chromeBorderActive : hyperFS ? CANVAS.hyper.chromeBorderActive : COLORS.borderHighlight;
+        const fsCategory = ngeFS ? CANVAS.nge.category : hyperFS ? CANVAS.hyper.category : COLORS.textCategory;
+        return (
+          <div style={fullscreenOverlayStyle} data-shell-overlay="true">
+            <div style={{ ...fullscreenHeaderStyle, borderBottom: `1px solid ${fsBorder}` }}>
+              <span style={{ ...fullscreenHeaderCategoryStyle, color: fsCategory }}>{def.category}</span>
+              <span style={fullscreenHeaderTitleStyle}>{def.title}</span>
+              <button style={fullscreenCloseBtnStyle} onClick={() => setFullscreenQuadrant(null)} title="Exit fullscreen (Escape)" aria-label="Exit fullscreen">✕</button>
+            </div>
+            <div style={fullscreenContentStyle}>{def.content}</div>
+          </div>
+        );
+      })()}
       </div>
     </LayoutInteractionProvider>
   );
@@ -620,6 +661,72 @@ const runtimeResizeHintStyle: React.CSSProperties = {
   letterSpacing: '0.10em',
   textTransform: 'uppercase',
   marginLeft: 'auto',
+};
+
+const fullscreenOverlayStyle: React.CSSProperties = {
+  position: 'fixed',
+  inset: 0,
+  zIndex: 200,
+  background: COLORS.bg0,
+  display: 'flex',
+  flexDirection: 'column',
+};
+
+const fullscreenHeaderStyle: React.CSSProperties = {
+  height: CHROME_H,
+  flexShrink: 0,
+  display: 'flex',
+  alignItems: 'center',
+  padding: `0 ${SPACING.md}px`,
+  gap: SPACING.sm,
+  boxSizing: 'border-box',
+};
+
+const fullscreenHeaderCategoryStyle: React.CSSProperties = {
+  fontFamily: FONTS.mono,
+  fontSize: FONTS.sizeXs,
+  letterSpacing: '0.12em',
+  textTransform: 'uppercase',
+};
+
+const fullscreenHeaderTitleStyle: React.CSSProperties = {
+  fontFamily: FONTS.mono,
+  fontSize: FONTS.sizeMd,
+  color: COLORS.textTitle,
+  flex: 1,
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+};
+
+const fullscreenCloseBtnStyle: React.CSSProperties = {
+  background: 'none',
+  border: 'none',
+  cursor: 'pointer',
+  fontFamily: FONTS.mono,
+  fontSize: FONTS.sizeMd,
+  color: COLORS.textSecondary,
+  padding: '0 4px',
+  lineHeight: 1,
+  flexShrink: 0,
+};
+
+const fullscreenContentStyle: React.CSSProperties = {
+  flex: 1,
+  minHeight: 0,
+  overflow: 'hidden',
+};
+
+const fullscreenBtnStyle: React.CSSProperties = {
+  background: 'none',
+  border: 'none',
+  padding: '0 4px',
+  cursor: 'pointer',
+  fontFamily: FONTS.mono,
+  fontSize: 10,
+  color: 'rgba(160,140,80,0.30)',
+  lineHeight: 1,
+  flexShrink: 0,
 };
 
 const chromeStyle: React.CSSProperties = {

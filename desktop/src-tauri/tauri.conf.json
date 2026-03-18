@@ -1,8 +1,8 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "Bach Cello Console",
+  "productName": "Scientific Listening Instrument",
   "version": "0.1.1",
-  "identifier": "com.mitchellmburton.bachcelloconsole",
+  "identifier": "com.mitchellmburton.scientific-listening-instrument",
   "build": {
     "frontendDist": "../../app/dist",
     "devUrl": "http://localhost:5173",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "Bach Cello Console",
+        "title": "Scientific Listening Instrument",
         "width": 1600,
         "height": 1100,
         "minWidth": 1280,
@@ -28,10 +28,10 @@
   "bundle": {
     "active": true,
     "publisher": "Mitchell Burton",
-    "homepage": "https://github.com/MitchellMBurton/bach-cello-console",
+    "homepage": "",
     "category": "Music",
-    "shortDescription": "Scientific listening instrument for Bach's cello suites.",
-    "longDescription": "A local-first desktop analysis console for scientific listening, waveform inspection, spectral study, loudness tracking, and session-based exploration of Bach's cello suites.",
+    "shortDescription": "Local-first scientific listening instrument and media analysis console.",
+    "longDescription": "A local-first desktop analysis console for scientific listening, waveform inspection, spectral study, loudness tracking, and session-based exploration of arbitrary local audio and video.",
     "copyright": "Copyright (c) 2026 Mitchell Burton",
     "targets": [
       "nsis"
