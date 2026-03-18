@@ -163,6 +163,35 @@ export const CANVAS = {
     ],
   },
 
+  // ── EVA palette — NERV command centre / Entry Plug aesthetic ───
+  // Purple-void backgrounds, bold NERV orange signal, red warnings,
+  // purple chrome. The warm-on-dark palette of Tokyo-3's control room.
+  eva: {
+    bg:              '#08041a',
+    bg2:             '#0f0a24',
+    trace:           '#ff7b00',
+    grid:            'rgba(120,50,200,0.18)',
+    label:           'rgba(255,140,40,0.48)',
+    text:            'rgba(255,180,80,0.82)',
+    glow:            'rgba(255,120,0,0.14)',
+    chromeBorder:    '#160c30',
+    chromeBorderActive: '#4a1a90',
+    category:        'rgba(170,90,255,0.65)',
+    stat:            '#ff6a00',
+    persistenceFill: 'rgba(8,4,26,0.88)',
+    spectroAxis:     '#4a1a90',
+    spectroPalette: [
+      '#08041a',
+      '#200840',
+      '#580030',
+      '#b82000',
+      '#ff6a00',
+      '#ffa020',
+      '#ffe060',
+      '#fffaf0',
+    ],
+  },
+
   // Frequency bands — standard audio engineering terminology
   frequencyBands: [
     { label: 'Sub', range: '20-80 Hz', centerHz: 40, lowHz: 20, highHz: 80 },

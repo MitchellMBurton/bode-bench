@@ -37,9 +37,16 @@ const PARTIAL_COLORS_HYPER = [
   '#085088', '#043870', '#022458', '#011040', '#000828',
 ];
 
+// EVA: NERV orange (fundamental) → deep purple (overtones)
+const PARTIAL_COLORS_EVA = [
+  '#ff7b00', '#e06800', '#c05400', '#a04000', '#803000',
+  '#602060', '#481880', '#301090', '#200860', '#100440',
+];
+
 function getPartialColors(mode: VisualMode): readonly string[] {
   if (mode === 'nge') return PARTIAL_COLORS_NGE;
   if (mode === 'hyper') return PARTIAL_COLORS_HYPER;
+  if (mode === 'eva') return PARTIAL_COLORS_EVA;
   return PARTIAL_COLORS_DEFAULT;
 }
 
@@ -68,6 +75,14 @@ function buildLadderColors(mode: VisualMode): LadderColors {
     f0Color: CANVAS.hyper.trace,
     labelColor: CANVAS.hyper.label,
     dimColor: 'rgba(84,132,255,0.45)',
+  };
+  if (mode === 'eva') return {
+    bg: CANVAS.eva.bg2,
+    track: '#08041a',
+    separator: '#160c30',
+    f0Color: CANVAS.eva.trace,
+    labelColor: CANVAS.eva.label,
+    dimColor: 'rgba(170,90,255,0.45)',
   };
   return {
     bg: COLORS.bg2,

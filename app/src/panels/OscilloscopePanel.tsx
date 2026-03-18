@@ -27,6 +27,13 @@ const HYPER_GRID = CANVAS.hyper.grid;
 const HYPER_LABEL = CANVAS.hyper.label;
 const HYPER_TEXT = CANVAS.hyper.text;
 const HYPER_GLOW = CANVAS.hyper.glow;
+const EVA_BG = CANVAS.eva.bg2;
+const EVA_TRACE = CANVAS.eva.trace;
+const EVA_GRID = CANVAS.eva.grid;
+const EVA_LABEL = CANVAS.eva.label;
+const EVA_TEXT = CANVAS.eva.text;
+const EVA_GLOW = CANVAS.eva.glow;
+const EVA_PERSISTENCE_FILL = CANVAS.eva.persistenceFill;
 
 // Allocate once at module level — reused every frame
 const TD_BUF = new Float32Array(CANVAS.fftSize);
@@ -70,14 +77,15 @@ export function OscilloscopePanel(): React.ReactElement {
       const dpr = Math.min(devicePixelRatio, PANEL_DPR_MAX);
       const nge = displayMode.nge;
       const hyper = displayMode.hyper;
-      const backgroundFill = nge ? NGE_BG : hyper ? HYPER_BG : COLORS.bg2;
-      const persistenceFill = nge ? NGE_PERSISTENCE_FILL : hyper ? CANVAS.hyper.persistenceFill : COLORS.bg2;
-      const gridColor = nge ? NGE_GRID : hyper ? HYPER_GRID : COLORS.waveformGrid;
-      const amplitudeTextColor = hyper ? HYPER_TEXT : COLORS.textDim;
-      const traceColor = nge ? NGE_TRACE : hyper ? HYPER_TRACE : COLORS.waveform;
+      const eva = displayMode.eva;
+      const backgroundFill = nge ? NGE_BG : hyper ? HYPER_BG : eva ? EVA_BG : COLORS.bg2;
+      const persistenceFill = nge ? NGE_PERSISTENCE_FILL : hyper ? CANVAS.hyper.persistenceFill : eva ? EVA_PERSISTENCE_FILL : COLORS.bg2;
+      const gridColor = nge ? NGE_GRID : hyper ? HYPER_GRID : eva ? EVA_GRID : COLORS.waveformGrid;
+      const amplitudeTextColor = hyper ? HYPER_TEXT : eva ? EVA_TEXT : COLORS.textDim;
+      const traceColor = nge ? NGE_TRACE : hyper ? HYPER_TRACE : eva ? EVA_TRACE : COLORS.waveform;
 
-      // Background — hard clear in normal mode, phosphor persistence in NGE
-      if (nge || hyper) {
+      // Background — hard clear in normal mode, phosphor persistence in NGE/EVA
+      if (nge || hyper || eva) {
         // Fade previous trace: partially transparent fill lets old traces glow
         ctx.fillStyle = persistenceFill;
       } else {
@@ -137,13 +145,15 @@ export function OscilloscopePanel(): React.ReactElement {
           ? 'rgba(144,200,64,0.25)'
           : hyper
             ? 'rgba(98,232,255,0.25)'
-            : COLORS.waveformGrid;
+            : eva
+              ? 'rgba(255,123,0,0.25)'
+              : COLORS.waveformGrid;
         ctx.lineWidth = CANVAS.oscLineWidth * dpr;
         ctx.beginPath();
         ctx.moveTo(padX, midY);
         ctx.lineTo(padX + drawW, midY);
         ctx.stroke();
-        drawLabel(ctx, W, dpr, nge ? 'nge' : hyper ? 'hyper' : 'default');
+        drawLabel(ctx, W, dpr, nge ? 'nge' : hyper ? 'hyper' : eva ? 'eva' : 'default');
         return;
       }
 
@@ -172,13 +182,13 @@ export function OscilloscopePanel(): React.ReactElement {
 
       // NGE: bright phosphor green-amber; normal: instrument amber
       ctx.strokeStyle = traceColor;
-      ctx.lineWidth = nge || hyper ? 1.2 * dpr : CANVAS.oscLineWidth * dpr;
+      ctx.lineWidth = nge || hyper || eva ? 1.2 * dpr : CANVAS.oscLineWidth * dpr;
       ctx.lineJoin = 'round';
 
-      if (nge || hyper) {
+      if (nge || hyper || eva) {
         // Glow pass — wide soft stroke underneath
         ctx.save();
-        ctx.strokeStyle = nge ? 'rgba(140,210,40,0.18)' : HYPER_GLOW;
+        ctx.strokeStyle = nge ? 'rgba(140,210,40,0.18)' : hyper ? HYPER_GLOW : EVA_GLOW;
         ctx.lineWidth = 5 * dpr;
         ctx.beginPath();
         for (let i = 0; i < samples; i++) {
@@ -198,7 +208,7 @@ export function OscilloscopePanel(): React.ReactElement {
       }
       ctx.stroke();
 
-      drawLabel(ctx, W, dpr, nge ? 'nge' : hyper ? 'hyper' : 'default');
+      drawLabel(ctx, W, dpr, nge ? 'nge' : hyper ? 'hyper' : eva ? 'eva' : 'default');
     };
 
     rafRef.current = requestAnimationFrame(draw);
@@ -220,10 +230,10 @@ function drawLabel(
   ctx: CanvasRenderingContext2D,
   W: number,
   dpr: number,
-  mode: 'default' | 'nge' | 'hyper' = 'default',
+  mode: 'default' | 'nge' | 'hyper' | 'eva' = 'default',
 ): void {
   ctx.font = `${9 * dpr}px ${FONTS.mono}`;
-  ctx.fillStyle = mode === 'nge' ? NGE_LABEL : mode === 'hyper' ? HYPER_LABEL : COLORS.textDim;
+  ctx.fillStyle = mode === 'nge' ? NGE_LABEL : mode === 'hyper' ? HYPER_LABEL : mode === 'eva' ? EVA_LABEL : COLORS.textDim;
   ctx.textAlign = 'right';
   ctx.textBaseline = 'top';
   ctx.fillText('OSCILLOSCOPE', W - 8 * dpr, 6 * dpr);

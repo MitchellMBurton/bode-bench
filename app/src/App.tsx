@@ -85,7 +85,7 @@ export default function App(): React.ReactElement {
 
   const fileTitle = filename ? filename.replace(/\.[^/.]+$/, '') : null;
   const panelTitle = fileTitle ?? 'NO SESSION';
-  const showScanLines = visualMode === 'nge' || visualMode === 'hyper';
+  const showScanLines = visualMode === 'nge' || visualMode === 'hyper' || visualMode === 'eva';
   const runtimeStatus = getRuntimeStatus(perfSnapshot);
 
   return (

@@ -57,6 +57,21 @@ function buildPerfTheme(visualMode: VisualMode): PerfTheme {
       fillInfo: 'linear-gradient(90deg, rgba(64,128,40,0.8), rgba(160,216,64,0.88))',
     };
   }
+  if (visualMode === 'eva') {
+    return {
+      bg0: CANVAS.eva.bg,
+      bg1: '#0f0a24',
+      bg2: CANVAS.eva.bg2,
+      border: CANVAS.eva.chromeBorder,
+      textCategory: CANVAS.eva.category,
+      textTitle: CANVAS.eva.label,
+      textPrimary: CANVAS.eva.trace,
+      textSecondary: 'rgba(255,140,40,0.45)',
+      textDim: 'rgba(120,50,200,0.18)',
+      levelTrack: '#0a0618',
+      fillInfo: 'linear-gradient(90deg, rgba(120,50,200,0.8), rgba(255,123,0,0.88))',
+    };
+  }
   return {
     bg0: COLORS.bg0,
     bg1: COLORS.bg1,
@@ -129,6 +144,26 @@ function buildLogTheme(visualMode: VisualMode): LogTheme {
       sourceColor: CANVAS.hyper.category,
       toneInfo: CANVAS.hyper.trace,
       toneDim: 'rgba(112,180,255,0.45)',
+    };
+  }
+  if (visualMode === 'eva') {
+    return {
+      wrapBorder: 'rgba(120,50,200,0.35)',
+      headerBg: CANVAS.eva.bg,
+      headerBorder: CANVAS.eva.chromeBorder,
+      scrollBg: '#060318',
+      buttonBg: 'rgba(8,4,26,0.9)',
+      buttonBorder: 'rgba(120,50,200,0.35)',
+      buttonColor: 'rgba(170,90,255,0.5)',
+      buttonActiveBg: 'rgba(20,10,50,0.95)',
+      buttonActiveBorder: 'rgba(255,123,0,0.7)',
+      buttonActiveColor: 'rgba(255,180,80,0.98)',
+      headerLabel: CANVAS.eva.category,
+      headerMeta: 'rgba(120,50,200,0.45)',
+      clockColor: 'rgba(120,50,200,0.4)',
+      sourceColor: CANVAS.eva.category,
+      toneInfo: CANVAS.eva.trace,
+      toneDim: 'rgba(255,140,40,0.45)',
     };
   }
   return {

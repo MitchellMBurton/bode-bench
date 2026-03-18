@@ -40,6 +40,15 @@ function buildLevelsColors(mode: VisualMode): LevelsColors {
     peakHold: 'rgba(78,200,255,0.55)',
     label: 'rgba(84,132,255,0.5)',
   };
+  if (mode === 'eva') return {
+    bg: CANVAS.eva.bg2,
+    track: '#08041a',
+    levelGreen: '#ff7b00',
+    levelYellow: '#ffa020',
+    levelRed: '#ff2020',
+    peakHold: 'rgba(255,140,40,0.55)',
+    label: CANVAS.eva.label,
+  };
   return {
     bg: COLORS.bg2,
     track: COLORS.levelTrack,

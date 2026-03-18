@@ -32,6 +32,12 @@ const HYPER_GRID = CANVAS.hyper.grid;
 const HYPER_LABEL = CANVAS.hyper.label;
 const HYPER_BG_RGB = hexToRgb(HYPER_BG);
 const HYPER_TRACE_RGB = hexToRgb(HYPER_TRACE);
+const EVA_BG = CANVAS.eva.bg2;
+const EVA_TRACE = CANVAS.eva.trace;
+const EVA_GRID = CANVAS.eva.grid;
+const EVA_LABEL = CANVAS.eva.label;
+const EVA_BG_RGB = hexToRgb(EVA_BG);
+const EVA_TRACE_RGB = hexToRgb(EVA_TRACE);
 
 function getVisualPalette(mode: VisualMode): {
   bgFill: string;
@@ -60,6 +66,17 @@ function getVisualPalette(mode: VisualMode): {
       labelColor: HYPER_LABEL,
       bgRgb: HYPER_BG_RGB,
       traceRgb: HYPER_TRACE_RGB,
+    };
+  }
+
+  if (mode === 'eva') {
+    return {
+      bgFill: EVA_BG,
+      traceColor: EVA_TRACE,
+      gridColor: EVA_GRID,
+      labelColor: EVA_LABEL,
+      bgRgb: EVA_BG_RGB,
+      traceRgb: EVA_TRACE_RGB,
     };
   }
 

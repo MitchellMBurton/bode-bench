@@ -3,7 +3,7 @@
 // Read in RAF draw loops; no React re-renders needed.
 // ============================================================
 
-export type VisualMode = 'default' | 'nge' | 'hyper';
+export type VisualMode = 'default' | 'nge' | 'hyper' | 'eva';
 
 export class DisplayModeStore {
   private currentMode: VisualMode = 'default';
@@ -18,6 +18,10 @@ export class DisplayModeStore {
 
   get hyper(): boolean {
     return this.currentMode === 'hyper';
+  }
+
+  get eva(): boolean {
+    return this.currentMode === 'eva';
   }
 
   setMode(mode: VisualMode): void {

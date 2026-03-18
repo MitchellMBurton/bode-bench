@@ -1374,26 +1374,27 @@ export function WaveformOverviewPanel({ markers = [], onDeleteMarker, onClearMar
       const layout = buildTimelineLayout(width, height, dpr);
       const nge = displayMode.nge;
       const hyper = displayMode.hyper;
-      const backgroundFill = nge ? CANVAS.nge.bg2 : hyper ? CANVAS.hyper.bg2 : COLORS.bg2;
-      const gridColor = nge ? 'rgba(22,54,18,1)' : hyper ? 'rgba(28,42,88,0.92)' : COLORS.bg3;
-      const textColor = nge ? CANVAS.nge.label : hyper ? CANVAS.hyper.label : COLORS.textDim;
-      const waveformFill = nge ? 'rgba(160,216,64,0.18)' : hyper ? 'rgba(98,232,255,0.22)' : 'rgba(200, 146, 42, 0.22)';
-      const waveformStroke = nge ? CANVAS.nge.trace : hyper ? CANVAS.hyper.trace : COLORS.waveform;
-      const waveformShadow = nge ? 'rgba(160,216,64,0.35)' : hyper ? 'rgba(255,92,188,0.32)' : 'rgba(200, 146, 42, 0.35)';
-      const playFillWave = nge ? 'rgba(80, 160, 50, 0.07)' : hyper ? 'rgba(98,232,255,0.07)' : 'rgba(80, 96, 192, 0.07)';
-      const playCursor = hyper ? 'rgba(255,92,188,0.92)' : COLORS.accent;
-      const learnedWaveHint = nge ? 'rgba(160,216,64,0.12)' : hyper ? 'rgba(98,232,255,0.10)' : 'rgba(160, 170, 240, 0.10)';
-      const learnedWaveLine = nge ? 'rgba(160,216,64,0.32)' : hyper ? 'rgba(255,92,188,0.32)' : 'rgba(200, 210, 255, 0.26)';
-      const controlFill = nge ? 'rgba(12,20,12,0.96)' : hyper ? 'rgba(10,14,28,0.96)' : 'rgba(14,16,25,0.98)';
-      const controlTrack = nge ? 'rgba(40,72,28,0.86)' : hyper ? 'rgba(36,46,90,0.85)' : 'rgba(48,56,86,0.82)';
-      const viewWindowFill = hyper ? 'rgba(96,150,255,0.26)' : 'rgba(126, 130, 240, 0.24)';
-      const viewWindowStroke = hyper ? 'rgba(120,210,255,0.9)' : COLORS.borderHighlight;
+      const eva = displayMode.eva;
+      const backgroundFill = nge ? CANVAS.nge.bg2 : hyper ? CANVAS.hyper.bg2 : eva ? CANVAS.eva.bg2 : COLORS.bg2;
+      const gridColor = nge ? 'rgba(22,54,18,1)' : hyper ? 'rgba(28,42,88,0.92)' : eva ? 'rgba(74,26,144,0.35)' : COLORS.bg3;
+      const textColor = nge ? CANVAS.nge.label : hyper ? CANVAS.hyper.label : eva ? CANVAS.eva.label : COLORS.textDim;
+      const waveformFill = nge ? 'rgba(160,216,64,0.18)' : hyper ? 'rgba(98,232,255,0.22)' : eva ? 'rgba(255,123,0,0.22)' : 'rgba(200, 146, 42, 0.22)';
+      const waveformStroke = nge ? CANVAS.nge.trace : hyper ? CANVAS.hyper.trace : eva ? CANVAS.eva.trace : COLORS.waveform;
+      const waveformShadow = nge ? 'rgba(160,216,64,0.35)' : hyper ? 'rgba(255,92,188,0.32)' : eva ? 'rgba(255,123,0,0.35)' : 'rgba(200, 146, 42, 0.35)';
+      const playFillWave = nge ? 'rgba(80, 160, 50, 0.07)' : hyper ? 'rgba(98,232,255,0.07)' : eva ? 'rgba(255,123,0,0.07)' : 'rgba(80, 96, 192, 0.07)';
+      const playCursor = hyper ? 'rgba(255,92,188,0.92)' : eva ? 'rgba(255,123,0,0.92)' : COLORS.accent;
+      const learnedWaveHint = nge ? 'rgba(160,216,64,0.12)' : hyper ? 'rgba(98,232,255,0.10)' : eva ? 'rgba(255,123,0,0.10)' : 'rgba(160, 170, 240, 0.10)';
+      const learnedWaveLine = nge ? 'rgba(160,216,64,0.32)' : hyper ? 'rgba(255,92,188,0.32)' : eva ? 'rgba(255,123,0,0.32)' : 'rgba(200, 210, 255, 0.26)';
+      const controlFill = nge ? 'rgba(12,20,12,0.96)' : hyper ? 'rgba(10,14,28,0.96)' : eva ? 'rgba(8,4,26,0.96)' : 'rgba(14,16,25,0.98)';
+      const controlTrack = nge ? 'rgba(40,72,28,0.86)' : hyper ? 'rgba(36,46,90,0.85)' : eva ? 'rgba(74,26,144,0.55)' : 'rgba(48,56,86,0.82)';
+      const viewWindowFill = hyper ? 'rgba(96,150,255,0.26)' : eva ? 'rgba(255,123,0,0.26)' : 'rgba(126, 130, 240, 0.24)';
+      const viewWindowStroke = hyper ? 'rgba(120,210,255,0.9)' : eva ? 'rgba(255,160,40,0.9)' : COLORS.borderHighlight;
       const loopFill = 'rgba(80, 200, 120, 0.16)';
       const loopStroke = 'rgba(80, 200, 120, 0.74)';
-      const handleBackFill = hyper ? 'rgba(8,12,20,0.96)' : 'rgba(8, 10, 16, 0.94)';
-      const handleGripFill = hyper ? 'rgba(186,222,255,0.92)' : 'rgba(214, 220, 255, 0.92)';
-      const unknownFill = nge ? 'rgba(160,216,64,0.04)' : hyper ? 'rgba(98,232,255,0.04)' : 'rgba(120, 134, 200, 0.05)';
-      const unknownLine = nge ? 'rgba(160,216,64,0.12)' : hyper ? 'rgba(98,232,255,0.14)' : 'rgba(130, 142, 212, 0.14)';
+      const handleBackFill = hyper ? 'rgba(8,12,20,0.96)' : eva ? 'rgba(8,4,26,0.96)' : 'rgba(8, 10, 16, 0.94)';
+      const handleGripFill = hyper ? 'rgba(186,222,255,0.92)' : eva ? 'rgba(255,180,80,0.92)' : 'rgba(214, 220, 255, 0.92)';
+      const unknownFill = nge ? 'rgba(160,216,64,0.04)' : hyper ? 'rgba(98,232,255,0.04)' : eva ? 'rgba(255,123,0,0.04)' : 'rgba(120, 134, 200, 0.05)';
+      const unknownLine = nge ? 'rgba(160,216,64,0.12)' : hyper ? 'rgba(98,232,255,0.14)' : eva ? 'rgba(255,123,0,0.14)' : 'rgba(130, 142, 212, 0.14)';
       const badgeX = width - SPACING.sm * dpr;
       const transport = transportRef.current;
       const duration = Math.max(0, transport.duration);
@@ -1486,7 +1487,7 @@ export function WaveformOverviewPanel({ markers = [], onDeleteMarker, onClearMar
           ctx.fillRect(rect.x, rect.y, playX - rect.x, rect.h);
         }
 
-        ctx.strokeStyle = hyper ? 'rgba(16, 22, 36, 0.92)' : 'rgba(12, 12, 18, 0.92)';
+        ctx.strokeStyle = hyper ? 'rgba(16, 22, 36, 0.92)' : eva ? 'rgba(22, 12, 48, 0.92)' : 'rgba(12, 12, 18, 0.92)';
         ctx.lineWidth = Math.max(2 * dpr, 1.5);
         ctx.beginPath();
         ctx.moveTo(playX, rect.y);
@@ -1558,7 +1559,7 @@ export function WaveformOverviewPanel({ markers = [], onDeleteMarker, onClearMar
       const drawMarkers = (rect: TimelineRect, start: number, end: number): void => {
         const mks = markersRef.current;
         if (!mks.length) return;
-        const markerColor = nge ? 'rgba(200,240,80,0.82)' : hyper ? 'rgba(255,200,80,0.88)' : 'rgba(220,190,80,0.88)';
+        const markerColor = nge ? 'rgba(200,240,80,0.82)' : hyper ? 'rgba(255,200,80,0.88)' : eva ? 'rgba(255,160,40,0.88)' : 'rgba(220,190,80,0.88)';
         const markerBg = 'rgba(6,6,10,0.72)';
         ctx.save();
         ctx.beginPath();
@@ -2269,7 +2270,7 @@ export function WaveformOverviewPanel({ markers = [], onDeleteMarker, onClearMar
         return coveredColumns;
       };
 
-      ctx.strokeStyle = hyper ? 'rgba(32,52,110,0.92)' : COLORS.border;
+      ctx.strokeStyle = hyper ? 'rgba(32,52,110,0.92)' : eva ? 'rgba(74,26,144,0.92)' : COLORS.border;
       ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.moveTo(0, layout.view.y - 0.5);
@@ -2407,7 +2408,7 @@ export function WaveformOverviewPanel({ markers = [], onDeleteMarker, onClearMar
         drawBadge(ctx, `DR ${dr.toFixed(1)} dB`, drColor, badgeX, layout.session.y + 4 * dpr, dpr);
         drawBadge(ctx, clipText, clipColor, badgeX, layout.session.y + 19 * dpr, dpr);
       } else if (isStreamedOverview) {
-        const liveColor = hyper ? CANVAS.hyper.trace : COLORS.borderHighlight;
+        const liveColor = hyper ? CANVAS.hyper.trace : eva ? CANVAS.eva.trace : COLORS.borderHighlight;
         drawBadge(ctx, 'COARSE MAP', liveColor, badgeX, layout.session.y + 4 * dpr, dpr);
         drawBadge(ctx, `${Math.round(learnedRatio * 100)}% MAPPED`, COLORS.textTitle, badgeX, layout.session.y + 19 * dpr, dpr);
       }

@@ -48,6 +48,19 @@ function buildSessionTheme(visualMode: VisualMode): SessionTheme {
       buttonColor: 'rgba(112,180,255,0.5)',
     };
   }
+  if (visualMode === 'eva') {
+    return {
+      separator: 'rgba(120,50,200,0.28)',
+      labelColor: CANVAS.eva.label,
+      trackBg: 'rgba(8,4,26,0.9)',
+      fillAccent: 'rgba(255,123,0,0.8)',
+      fillPitch: 'rgba(255,123,0,0.8)',
+      valueColor: 'rgba(255,180,80,0.88)',
+      buttonBg: CANVAS.eva.bg,
+      buttonBorder: CANVAS.eva.chromeBorderActive,
+      buttonColor: 'rgba(170,90,255,0.5)',
+    };
+  }
   return {
     separator: COLORS.border,
     labelColor: COLORS.textSecondary,
@@ -205,6 +218,7 @@ export function SessionControls({
 
   const isNge = visualMode === 'nge';
   const isHyper = visualMode === 'hyper';
+  const isEva = visualMode === 'eva';
   const t = buildSessionTheme(visualMode);
 
   const thSeparator: React.CSSProperties = { ...separatorStyle, background: t.separator };
@@ -340,6 +354,17 @@ export function SessionControls({
         >
           HYPER
         </button>
+
+        <button
+          style={{ ...thButton, ...(isEva ? evaActiveStyle : {}) }}
+          onClick={() => {
+            const nextMode = isEva ? 'default' : 'eva';
+            onVisualMode(nextMode);
+          }}
+          title="EVA NERV command mode"
+        >
+          EVA
+        </button>
       </div>
     </div>
   );
@@ -464,4 +489,10 @@ const hyperActiveStyle: React.CSSProperties = {
   borderColor: 'rgba(112,208,255,0.72)',
   color: 'rgba(210,236,255,0.98)',
   boxShadow: '0 0 10px rgba(98,232,255,0.18)',
+};
+
+const evaActiveStyle: React.CSSProperties = {
+  background: '#3a1070',
+  color: '#ff7b00',
+  borderColor: '#4a1a90',
 };

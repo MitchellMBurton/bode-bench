@@ -97,26 +97,35 @@ interface ChromePanelProps extends PanelDef {
 function ChromePanel({ category, title, stat, help, content, visualMode, onFullscreen }: ChromePanelProps): React.ReactElement {
   const nge = visualMode === 'nge';
   const hyper = visualMode === 'hyper';
+  const eva = visualMode === 'eva';
   const chromeBorder = nge
     ? CANVAS.nge.chromeBorder
     : hyper
       ? CANVAS.hyper.chromeBorder
-      : COLORS.border;
+      : eva
+        ? CANVAS.eva.chromeBorder
+        : COLORS.border;
   const chromeBorderInner = nge
     ? CANVAS.nge.chromeBorderActive
     : hyper
       ? CANVAS.hyper.chromeBorderActive
-      : COLORS.border;
+      : eva
+        ? CANVAS.eva.chromeBorderActive
+        : COLORS.border;
   const chromeCategory = nge
     ? CANVAS.nge.category
     : hyper
       ? CANVAS.hyper.category
-      : COLORS.textCategory;
+      : eva
+        ? CANVAS.eva.category
+        : COLORS.textCategory;
   const chromeStat = nge
     ? CANVAS.nge.stat
     : hyper
       ? CANVAS.hyper.stat
-      : COLORS.waveform;
+      : eva
+        ? CANVAS.eva.stat
+        : COLORS.waveform;
 
   return (
     <div style={{ ...chromeStyle, border: `1px solid ${chromeBorder}` }}>
@@ -172,41 +181,56 @@ export function ConsoleLayout({
   }, [fullscreenQuadrant]);
   const nge = visualMode === 'nge';
   const hyper = visualMode === 'hyper';
+  const eva = visualMode === 'eva';
   const headerBorder = nge
     ? CANVAS.nge.chromeBorderActive
     : hyper
       ? CANVAS.hyper.chromeBorderActive
-      : COLORS.headerBorder;
+      : eva
+        ? CANVAS.eva.chromeBorderActive
+        : COLORS.headerBorder;
   const chromeCategory = nge
     ? CANVAS.nge.category
     : hyper
       ? CANVAS.hyper.category
-      : COLORS.textCategory;
+      : eva
+        ? CANVAS.eva.category
+        : COLORS.textCategory;
   const toolbarBorder = nge
     ? CANVAS.nge.chromeBorder
     : hyper
       ? CANVAS.hyper.chromeBorder
-      : COLORS.border;
+      : eva
+        ? CANVAS.eva.chromeBorder
+        : COLORS.border;
   const toolbarText = nge
     ? 'rgba(80,160,50,0.5)'
     : hyper
       ? 'rgba(112,180,255,0.62)'
-      : COLORS.textCategory;
+      : eva
+        ? 'rgba(170,90,255,0.55)'
+        : COLORS.textCategory;
   const toolbarButtonText = nge
     ? 'rgba(160,230,60,0.92)'
     : hyper
       ? 'rgba(222,238,255,0.96)'
-      : COLORS.textPrimary;
+      : eva
+        ? 'rgba(255,180,80,0.96)'
+        : COLORS.textPrimary;
   const toolbarButtonBorder = nge
     ? '#2c6b18'
     : hyper
       ? 'rgba(112,180,255,0.72)'
-      : COLORS.borderActive;
+      : eva
+        ? CANVAS.eva.chromeBorderActive
+        : COLORS.borderActive;
   const toolbarButtonBg = nge
     ? 'rgba(8,18,8,0.9)'
     : hyper
       ? 'rgba(8,14,32,0.92)'
-      : COLORS.bg1;
+      : eva
+        ? 'rgba(15,10,36,0.92)'
+        : COLORS.bg1;
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -438,8 +462,9 @@ export function ConsoleLayout({
         const def = quadrantMap[fullscreenQuadrant];
         const ngeFS = visualMode === 'nge';
         const hyperFS = visualMode === 'hyper';
-        const fsBorder = ngeFS ? CANVAS.nge.chromeBorderActive : hyperFS ? CANVAS.hyper.chromeBorderActive : COLORS.borderHighlight;
-        const fsCategory = ngeFS ? CANVAS.nge.category : hyperFS ? CANVAS.hyper.category : COLORS.textCategory;
+        const evaFS = visualMode === 'eva';
+        const fsBorder = ngeFS ? CANVAS.nge.chromeBorderActive : hyperFS ? CANVAS.hyper.chromeBorderActive : evaFS ? CANVAS.eva.chromeBorderActive : COLORS.borderHighlight;
+        const fsCategory = ngeFS ? CANVAS.nge.category : hyperFS ? CANVAS.hyper.category : evaFS ? CANVAS.eva.category : COLORS.textCategory;
         return (
           <div style={fullscreenOverlayStyle} data-shell-overlay="true">
             <div style={{ ...fullscreenHeaderStyle, borderBottom: `1px solid ${fsBorder}` }}>
@@ -746,7 +771,7 @@ const chromeHeaderStyle: React.CSSProperties = {
   borderBottom: `1px solid ${COLORS.border}`,
   display: 'flex',
   alignItems: 'center',
-  justifyContent: 'space-between',
+  gap: SPACING.sm,
   padding: `0 ${SPACING.md}px`,
   boxSizing: 'border-box',
 };
@@ -755,6 +780,9 @@ const chromeLabelGroupStyle: React.CSSProperties = {
   display: 'flex',
   alignItems: 'baseline',
   gap: SPACING.sm,
+  flex: 1,
+  minWidth: 0,
+  overflow: 'hidden',
 };
 
 const chromeCategoryStyle: React.CSSProperties = {

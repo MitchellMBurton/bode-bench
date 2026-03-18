@@ -27,6 +27,7 @@ const HOTKEY_TABLE: readonly { key: string; description: string }[] = [
 export function HotkeyOverlay({ open, onClose, visualMode }: Props): React.ReactElement | null {
   const nge = visualMode === 'nge';
   const hyper = visualMode === 'hyper';
+  const eva = visualMode === 'eva';
 
   // Close on Escape
   useEffect(() => {
@@ -44,17 +45,23 @@ export function HotkeyOverlay({ open, onClose, visualMode }: Props): React.React
     ? CANVAS.nge.chromeBorderActive
     : hyper
       ? CANVAS.hyper.chromeBorderActive
-      : COLORS.borderHighlight;
+      : eva
+        ? CANVAS.eva.chromeBorderActive
+        : COLORS.borderHighlight;
   const headerColor = nge
     ? CANVAS.nge.category
     : hyper
       ? CANVAS.hyper.category
-      : COLORS.textCategory;
+      : eva
+        ? CANVAS.eva.category
+        : COLORS.textCategory;
   const keyColor = nge
     ? CANVAS.nge.trace
     : hyper
       ? CANVAS.hyper.trace
-      : COLORS.textPrimary;
+      : eva
+        ? CANVAS.eva.trace
+        : COLORS.textPrimary;
 
   return (
     <div

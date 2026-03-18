@@ -16,10 +16,12 @@ const PANEL_DPR_MAX = 1.25;
 const BAND_COLORS_DEFAULT = CANVAS.bandColors;
 const BAND_COLORS_NGE = ['#0d2a0a', '#0f4a0e', '#1a6a18', '#2a8a20', '#50aa20', '#80d028'] as const;
 const BAND_COLORS_HYPER = ['#0c1460', '#0a2272', '#0a3888', '#0c529a', '#1068a8', '#1888b8'] as const;
+const BAND_COLORS_EVA = ['#200840', '#3a0860', '#580030', '#8a1800', '#cc4a00', '#ff7b00'] as const;
 
 function getBandColors(mode: VisualMode): readonly string[] {
   if (mode === 'nge') return BAND_COLORS_NGE;
   if (mode === 'hyper') return BAND_COLORS_HYPER;
+  if (mode === 'eva') return BAND_COLORS_EVA;
   return BAND_COLORS_DEFAULT;
 }
 
@@ -32,6 +34,7 @@ interface BandsColors {
 function buildBandsColors(mode: VisualMode): BandsColors {
   if (mode === 'nge') return { bg: CANVAS.nge.bg2, track: '#030a03', label: 'rgba(80,160,50,0.5)' };
   if (mode === 'hyper') return { bg: CANVAS.hyper.bg2, track: '#030918', label: 'rgba(84,132,255,0.5)' };
+  if (mode === 'eva') return { bg: CANVAS.eva.bg2, track: '#08041a', label: CANVAS.eva.label };
   return { bg: COLORS.bg2, track: COLORS.levelTrack, label: COLORS.textDim };
 }
 

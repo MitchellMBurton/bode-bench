@@ -17,22 +17,29 @@ export function PanelHelp({ text, visualMode }: Props): React.ReactElement {
 
   const nge = visualMode === 'nge';
   const hyper = visualMode === 'hyper';
+  const eva = visualMode === 'eva';
 
   const btnColor = nge
     ? 'rgba(140,210,40,0.32)'
     : hyper
       ? 'rgba(98,232,255,0.32)'
-      : 'rgba(160,140,80,0.30)';
+      : eva
+        ? 'rgba(255,123,0,0.32)'
+        : 'rgba(160,140,80,0.30)';
   const btnHoverColor = nge
     ? 'rgba(140,210,40,0.70)'
     : hyper
       ? 'rgba(98,232,255,0.70)'
-      : 'rgba(200,175,100,0.70)';
+      : eva
+        ? 'rgba(255,123,0,0.70)'
+        : 'rgba(200,175,100,0.70)';
   const popoverBorder = nge
     ? CANVAS.nge.chromeBorderActive
     : hyper
       ? CANVAS.hyper.chromeBorderActive
-      : COLORS.border;
+      : eva
+        ? CANVAS.eva.chromeBorderActive
+        : COLORS.border;
 
   const toggle = useCallback(() => setOpen((v) => !v), []);
 

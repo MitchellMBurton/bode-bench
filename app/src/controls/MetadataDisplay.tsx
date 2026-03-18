@@ -15,11 +15,14 @@ interface Props {
 export function MetadataDisplay({ filename, metadata, visualMode }: Props): React.ReactElement {
   // Derive a display title from the filename: strip extension, truncate
   const fileTitle = filename ? stripExtension(filename) : null;
+  const eva = visualMode === 'eva';
   const categoryColor = visualMode === 'nge'
     ? CANVAS.nge.category
     : visualMode === 'hyper'
       ? CANVAS.hyper.category
-      : COLORS.textCategory;
+      : eva
+        ? CANVAS.eva.category
+        : COLORS.textCategory;
 
   return (
     <div style={wrapStyle}>

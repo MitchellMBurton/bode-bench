@@ -63,6 +63,24 @@ function buildTransportTheme(visualMode: VisualMode): TransportTheme {
       seekFillColor: 'rgba(78,200,255,0.85)',
     };
   }
+  if (visualMode === 'eva') {
+    return {
+      btnBg: '#0f0a24',
+      btnBorder: '#2a1050',
+      btnColor: 'rgba(255,180,80,0.82)',
+      btnActiveBg: '#3a1070',
+      btnActiveBorder: '#4a1a90',
+      btnResetBorder: CANVAS.eva.chromeBorder,
+      btnResetBg: '#0f0a24',
+      loopBg: 'rgba(60,20,100,0.3)',
+      loopBorder: 'rgba(170,90,255,0.3)',
+      loopLabel: CANVAS.eva.trace,
+      loopTime: 'rgba(255,140,40,0.75)',
+      loopClear: 'rgba(255,123,0,0.65)',
+      seekTrackBg: '#1a0c30',
+      seekFillColor: '#ff7b00',
+    };
+  }
   return {
     btnBg: COLORS.bg3,
     btnBorder: COLORS.border,
