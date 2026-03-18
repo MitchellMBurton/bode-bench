@@ -17,27 +17,22 @@ const LIVE_GAIN_ATTACK = 0.18;
 const LIVE_GAIN_RELEASE = 0.05;
 const LIVE_GAIN_MAX = 28; // cinema audio peaks at −24 LUFS needs up to ~29 dB of visual gain
 const NGE_BG = '#131a13';
-const NGE_PERSISTENCE_FILL = 'rgba(19,26,19,0.85)';
 const NGE_TRACE = '#a0d840';
 const NGE_GRID = 'rgba(144,200,64,0.22)';
 const NGE_LABEL = 'rgba(140,210,40,0.5)';
 const HYPER_BG = CANVAS.hyper.bg2;
-const HYPER_PERSISTENCE_FILL = CANVAS.hyper.persistenceFill;
 const HYPER_TRACE = CANVAS.hyper.trace;
 const HYPER_GRID = CANVAS.hyper.grid;
 const HYPER_LABEL = CANVAS.hyper.label;
-const RED_BG = CANVAS.red.bg2;
-const RED_PERSISTENCE_FILL = CANVAS.red.persistenceFill;
+const RED_BG = '#1d090a';
 const RED_TRACE = CANVAS.red.trace;
 const RED_GRID = CANVAS.red.grid;
 const RED_LABEL = CANVAS.red.label;
 const OPTIC_BG = CANVAS.optic.bg2;
-const OPTIC_PERSISTENCE_FILL = CANVAS.optic.persistenceFill;
 const OPTIC_TRACE = CANVAS.optic.trace;
 const OPTIC_GRID = CANVAS.optic.grid;
 const OPTIC_LABEL = CANVAS.optic.label;
 const EVA_BG = CANVAS.eva.bg2;
-const EVA_PERSISTENCE_FILL = CANVAS.eva.persistenceFill;
 const EVA_TRACE = CANVAS.eva.trace;
 const EVA_GRID = CANVAS.eva.grid;
 const EVA_LABEL = CANVAS.eva.label;
@@ -57,7 +52,6 @@ const TD_BUF = new Float32Array(CANVAS.fftSize);
 
 function getVisualPalette(mode: VisualMode): {
   backgroundFill: string;
-  persistenceFill: string;
   traceColor: string;
   gridColor: string;
   labelColor: string;
@@ -67,7 +61,6 @@ function getVisualPalette(mode: VisualMode): {
   if (mode === 'nge') {
     return {
       backgroundFill: NGE_BG,
-      persistenceFill: NGE_PERSISTENCE_FILL,
       traceColor: NGE_TRACE,
       gridColor: NGE_GRID,
       labelColor: NGE_LABEL,
@@ -79,7 +72,6 @@ function getVisualPalette(mode: VisualMode): {
   if (mode === 'hyper') {
     return {
       backgroundFill: HYPER_BG,
-      persistenceFill: HYPER_PERSISTENCE_FILL,
       traceColor: HYPER_TRACE,
       gridColor: HYPER_GRID,
       labelColor: HYPER_LABEL,
@@ -91,7 +83,6 @@ function getVisualPalette(mode: VisualMode): {
   if (mode === 'red') {
     return {
       backgroundFill: RED_BG,
-      persistenceFill: RED_PERSISTENCE_FILL,
       traceColor: RED_TRACE,
       gridColor: RED_GRID,
       labelColor: RED_LABEL,
@@ -103,7 +94,6 @@ function getVisualPalette(mode: VisualMode): {
   if (mode === 'optic') {
     return {
       backgroundFill: OPTIC_BG,
-      persistenceFill: OPTIC_PERSISTENCE_FILL,
       traceColor: OPTIC_TRACE,
       gridColor: OPTIC_GRID,
       labelColor: OPTIC_LABEL,
@@ -115,7 +105,6 @@ function getVisualPalette(mode: VisualMode): {
   if (mode === 'eva') {
     return {
       backgroundFill: EVA_BG,
-      persistenceFill: EVA_PERSISTENCE_FILL,
       traceColor: EVA_TRACE,
       gridColor: EVA_GRID,
       labelColor: EVA_LABEL,
@@ -126,7 +115,6 @@ function getVisualPalette(mode: VisualMode): {
 
   return {
     backgroundFill: COLORS.bg2,
-    persistenceFill: COLORS.bg2,
     traceColor: COLORS.waveform,
     gridColor: COLORS.waveformGrid,
     labelColor: COLORS.textDim,
@@ -394,7 +382,6 @@ export function WaveformScrollPanel(): React.ReactElement {
       const halfH = drawH / 2;
       const {
         backgroundFill,
-        persistenceFill,
         traceColor,
         gridColor,
         labelColor,
@@ -466,7 +453,7 @@ export function WaveformScrollPanel(): React.ReactElement {
           if (scrollPx > 0) {
             scrollCarryRef.current -= scrollPx * LIVE_SAMPLES_PER_PX;
             octx.drawImage(offscreen, -scrollPx, 0);
-            octx.fillStyle = persistenceFill;
+            octx.fillStyle = backgroundFill;
             octx.fillRect(width - scrollPx, 0, scrollPx, height);
             audioEngine.getTimeDomainData(TD_BUF);
             const livePeak = frame ? Math.max(frame.peakLeft, frame.peakRight) : LIVE_GAIN_PEAK_FLOOR;
@@ -481,7 +468,7 @@ export function WaveformScrollPanel(): React.ReactElement {
           if (scrollPx > 0 && peaks) {
             scrollCarryRef.current -= scrollPx;
             octx.drawImage(offscreen, -scrollPx, 0);
-            octx.fillStyle = persistenceFill;
+            octx.fillStyle = backgroundFill;
             octx.fillRect(width - scrollPx, 0, scrollPx, height);
 
             const binSamples = audioEngine.waveformBinSamples;
