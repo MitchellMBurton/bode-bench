@@ -9,9 +9,8 @@ import { useCallback, useEffect, useRef } from 'react';
 import { useAudioEngine, useDisplayMode, useFrameBus, useScrollSpeed, useTheaterMode } from '../core/session';
 import { COLORS, FONTS, SPACING, CANVAS } from '../theme';
 import { shouldSkipFrame } from '../utils/rafGuard';
-import type { AudioFrame } from '../types';
 
-const PANEL_DPR_MAX = 1.5;
+const PANEL_DPR_MAX = 1.25;
 const HISTORY_MAX = 1200;
 const BASE_PX_PER_FRAME = CANVAS.timelineScrollPx;
 const PAD_V_PX = 8;
@@ -46,7 +45,10 @@ export function LoudnessHistoryPanel(): React.ReactElement {
   const scrollSpeed = useScrollSpeed();
   const theaterMode = useTheaterMode();
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const historyRef = useRef<number[]>([]);
+  // Circular buffer — avoids O(n) Array.shift() on every frame
+  const histBufRef = useRef(new Float64Array(HISTORY_MAX));
+  const histPtrRef = useRef(0); // total writes
+  const histLenRef = useRef(0); // current count, capped at HISTORY_MAX
   const hoverReadoutRef = useRef<HTMLDivElement>(null);
   const drawDimRef = useRef({ H: 0, padV: 0 });
 
@@ -69,7 +71,6 @@ export function LoudnessHistoryPanel(): React.ReactElement {
     const readout = hoverReadoutRef.current;
     if (readout) readout.style.display = 'none';
   }, []);
-  const currentRef = useRef<AudioFrame | null>(null);
   const lastFileIdRef = useRef(-1);
   const rafRef = useRef<number | null>(null);
   const lastDataTimeRef = useRef(0);
@@ -77,18 +78,21 @@ export function LoudnessHistoryPanel(): React.ReactElement {
   useEffect(() => frameBus.subscribe((frame) => {
     if (frame.fileId !== lastFileIdRef.current) {
       lastFileIdRef.current = frame.fileId;
-      historyRef.current = [];
+      histBufRef.current.fill(0);
+      histPtrRef.current = 0;
+      histLenRef.current = 0;
     }
     const rms = Math.max(frame.rmsLeft, frame.rmsRight);
-    historyRef.current.push(rmsToDb(rms));
-    if (historyRef.current.length > HISTORY_MAX) historyRef.current.shift();
-    currentRef.current = frame;
+    histBufRef.current[histPtrRef.current % HISTORY_MAX] = rmsToDb(rms);
+    histPtrRef.current++;
+    histLenRef.current = Math.min(histLenRef.current + 1, HISTORY_MAX);
     lastDataTimeRef.current = performance.now();
   }), [frameBus]);
 
   useEffect(() => audioEngine.onReset(() => {
-    historyRef.current = [];
-    currentRef.current = null;
+    histBufRef.current.fill(0);
+    histPtrRef.current = 0;
+    histLenRef.current = 0;
     lastFileIdRef.current = -1;
     lastDataTimeRef.current = performance.now();
   }), [audioEngine]);
@@ -113,7 +117,7 @@ export function LoudnessHistoryPanel(): React.ReactElement {
 
     const draw = () => {
       rafRef.current = requestAnimationFrame(draw);
-      if (shouldSkipFrame()) return;
+      if (shouldSkipFrame(canvas)) return;
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
 
@@ -161,16 +165,18 @@ export function LoudnessHistoryPanel(): React.ReactElement {
       const subOffset = -subProg * pxPerFrame;
 
       // History — newest at right, scrolling left smoothly
-      const history = historyRef.current;
+      const hBuf = histBufRef.current;
+      const hLen = histLenRef.current;
+      const hPtr = histPtrRef.current;
 
-      if (history.length > 1) {
+      if (hLen > 1) {
         // Collect visible points
         const points: [number, number][] = [];
-        for (let i = 0; i < history.length; i++) {
-          const x = W - (history.length - 1 - i) * pxPerFrame + subOffset;
+        for (let i = 0; i < hLen; i++) {
+          const x = W - (hLen - 1 - i) * pxPerFrame + subOffset;
           if (x < -pxPerFrame) continue;
           if (x > W + pxPerFrame) continue;
-          const y = dbToY(history[i], H, padV);
+          const y = dbToY(hBuf[(hPtr - hLen + i + HISTORY_MAX) % HISTORY_MAX], H, padV);
           points.push([Math.max(0, Math.min(W, x)), y]);
         }
 
@@ -203,7 +209,7 @@ export function LoudnessHistoryPanel(): React.ReactElement {
           ctx.fillStyle = traceColor;
           ctx.fill();
         }
-      } else if (history.length === 0) {
+      } else if (hLen === 0) {
         // Empty state: flat dim line
         const y = Math.round(dbToY(-40, H, padV)) + 0.5;
         ctx.strokeStyle = hyper ? 'rgba(24,34,70,1)' : eva ? 'rgba(22,12,48,1)' : COLORS.bg3;
@@ -212,7 +218,7 @@ export function LoudnessHistoryPanel(): React.ReactElement {
       }
 
       // Current level readout
-      const db = history.length > 0 ? history[history.length - 1] : DB_MIN;
+      const db = hLen > 0 ? hBuf[(hPtr - 1 + HISTORY_MAX) % HISTORY_MAX] : DB_MIN;
       const hasSignal = db > DB_MIN + 2;
       if (hasSignal) {
         const col = db > -6 ? COLORS.statusErr : db > -18 ? traceColor : textColor;

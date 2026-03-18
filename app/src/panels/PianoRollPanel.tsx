@@ -69,7 +69,7 @@ export function PianoRollPanel({ noteEvents }: Props): React.ReactElement {
 
     const draw = () => {
       rafRef.current = requestAnimationFrame(draw);
-      if (shouldSkipFrame()) return;
+      if (shouldSkipFrame(canvas)) return;
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
 

@@ -728,7 +728,7 @@ export class AudioEngine {
     let totalSamples = 0;
     let clipCount = 0;
     let cancelled = false;
-    let timer: ReturnType<typeof setTimeout> | null = null;
+    let timer: number | null = null;
 
     const finalize = (): void => {
       if (cancelled) return;
@@ -1741,12 +1741,27 @@ export class AudioEngine {
 
     const { f0, confidence } = this.detectF0(tdL, this.ctx.sampleRate);
 
+    // Phase correlation: r = Σ(L·R) / √(Σ(L²)·Σ(R²))
+    // Reuses peak/rms loop accumulators for L²/R² sums
+    let sumLR = 0;
+    const sumL2 = rmsL * rmsL * tdL.length; // rmsL² × N = Σ(L²)
+    const sumR2 = rmsR * rmsR * tdR.length;
+    for (let i = 0; i < tdL.length; i++) {
+      sumLR += tdL[i] * tdR[i];
+    }
+    const corrDenom = Math.sqrt(sumL2 * sumR2);
+    const phaseCorrelation = corrDenom > 0 ? sumLR / corrDenom : 0;
+
+    // Zero-copy: pass pre-allocated analyser buffers directly.
+    // Safe because frameBus.publish() is synchronous — all subscribers
+    // read array data during the callback, before the next extractFrame()
+    // overwrites these buffers. Do NOT store these arrays across frames.
     const frame: AudioFrame = {
       currentTime: this.currentTime,
-      timeDomain: new Float32Array(tdL),
-      timeDomainRight: new Float32Array(tdR),
-      frequencyDb: new Float32Array(this.frequencyData),
-      frequencyDbRight: new Float32Array(this.frequencyDataR),
+      timeDomain: tdL,
+      timeDomainRight: tdR,
+      frequencyDb: this.frequencyData,
+      frequencyDbRight: this.frequencyDataR,
       peakLeft: Math.min(peakL, 1),
       peakRight: Math.min(peakR, 1),
       rmsLeft: Math.min(rmsL, 1),
@@ -1759,6 +1774,7 @@ export class AudioEngine {
       spectralCentroid,
       f0Hz: f0,
       f0Confidence: confidence,
+      phaseCorrelation,
     };
 
     this.frameBus.publish(frame);

@@ -80,12 +80,13 @@ export function LevelsPanel(): React.ReactElement {
   useLayoutEffect(() => { colorsRef.current = currentColors; });
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const frameRef = useRef<AudioFrame | null>(null);
+  const dirtyRef = useRef(true);
   const rafRef = useRef<number | null>(null);
   const peakL = useRef<PeakHolder>({ fraction: 0, heldAt: 0 });
   const peakR = useRef<PeakHolder>({ fraction: 0, heldAt: 0 });
 
   useEffect(() => {
-    const unsub = frameBus.subscribe((f) => { frameRef.current = f; });
+    const unsub = frameBus.subscribe((f) => { frameRef.current = f; dirtyRef.current = true; });
     return unsub;
   }, [frameBus]);
 
@@ -94,6 +95,7 @@ export function LevelsPanel(): React.ReactElement {
       frameRef.current = null;
       peakL.current = { fraction: 0, heldAt: 0 };
       peakR.current = { fraction: 0, heldAt: 0 };
+      dirtyRef.current = true;
     });
   }, [audioEngine]);
 
@@ -107,6 +109,7 @@ export function LevelsPanel(): React.ReactElement {
         const dpr = Math.min(devicePixelRatio, PANEL_DPR_MAX);
         canvas.width = Math.round(width * dpr);
         canvas.height = Math.round(height * dpr);
+        dirtyRef.current = true;
       }
     });
     ro.observe(canvas);
@@ -118,9 +121,12 @@ export function LevelsPanel(): React.ReactElement {
       };
     }
 
+    dirtyRef.current = true;
+
     const draw = () => {
       rafRef.current = requestAnimationFrame(draw);
-      if (shouldSkipFrame()) return;
+      if (!dirtyRef.current || shouldSkipFrame(canvas)) return;
+      dirtyRef.current = false;
       const frame = frameRef.current;
       const ctx = canvas.getContext('2d');
       if (!ctx) return;

@@ -185,7 +185,7 @@ export function OscilloscopeScrollPanel(): React.ReactElement {
 
     const draw = () => {
       rafRef.current = requestAnimationFrame(draw);
-      if (shouldSkipFrame()) return;
+      if (shouldSkipFrame(canvas)) return;
       const ctx = canvas.getContext('2d');
       const octx = offscreen.getContext('2d');
       if (!ctx || !octx) return;

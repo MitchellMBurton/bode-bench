@@ -103,6 +103,7 @@ export function FrequencyResponsePanel(): React.ReactElement {
   const theaterMode = useTheaterMode();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const frameRef = useRef<AudioFrame | null>(null);
+  const dirtyRef = useRef(true);
   const rafRef = useRef<number | null>(null);
   const smoothLeftRef = useRef<Float32Array | null>(null);
   const smoothRightRef = useRef<Float32Array | null>(null);
@@ -147,6 +148,7 @@ export function FrequencyResponsePanel(): React.ReactElement {
   useEffect(() => {
     return frameBus.subscribe((frame) => {
       frameRef.current = frame;
+      dirtyRef.current = true;
     });
   }, [frameBus]);
 
@@ -157,6 +159,7 @@ export function FrequencyResponsePanel(): React.ReactElement {
       smoothRightRef.current = null;
       targetLeftRef.current = null;
       targetRightRef.current = null;
+      dirtyRef.current = true;
     });
   }, [audioEngine]);
 
@@ -170,6 +173,7 @@ export function FrequencyResponsePanel(): React.ReactElement {
         const dpr = Math.min(devicePixelRatio, PANEL_DPR_MAX);
         canvas.width = Math.round(width * dpr);
         canvas.height = Math.round(height * dpr);
+        dirtyRef.current = true;
       }
     });
     ro.observe(canvas);
@@ -181,9 +185,12 @@ export function FrequencyResponsePanel(): React.ReactElement {
       };
     }
 
+    dirtyRef.current = true;
+
     const draw = () => {
       rafRef.current = requestAnimationFrame(draw);
-      if (shouldSkipFrame()) return;
+      if (!dirtyRef.current || shouldSkipFrame(canvas)) return;
+      dirtyRef.current = false;
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
 

@@ -331,7 +331,7 @@ function computeEnvelopeAndClipMapAsync(
   let envPeak = 0;
   let col = 0;
   let cancelled = false;
-  let timer: ReturnType<typeof setTimeout> | null = null;
+  let timer: number | null = null;
 
   const finish = (): void => {
     if (cancelled) return;
@@ -1364,7 +1364,7 @@ export function WaveformOverviewPanel({ markers = [], onDeleteMarker, onClearMar
 
     const draw = () => {
       rafRef.current = requestAnimationFrame(draw);
-      if (shouldSkipFrame()) return;
+      if (shouldSkipFrame(canvas)) return;
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
 

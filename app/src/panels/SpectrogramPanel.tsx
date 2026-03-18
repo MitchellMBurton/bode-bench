@@ -187,6 +187,7 @@ export function SpectrogramPanel(): React.ReactElement {
   const offscreenRef = useRef<HTMLCanvasElement | null>(null);
   const historyRef = useRef<Int16Array | null>(null);
   const frameRef = useRef<AudioFrame | null>(null);
+  const dirtyRef = useRef(true);
   const rafRef = useRef<number | null>(null);
   const dimRef = useRef({ W: 0, H: 0, axisW: 0, spectroW: 0, spectroH: 0, padY: 0 });
   const lastFileIdRef = useRef(-1);
@@ -242,6 +243,7 @@ export function SpectrogramPanel(): React.ReactElement {
   useEffect(() => {
     return frameBus.subscribe((frame) => {
       frameRef.current = frame;
+      dirtyRef.current = true;
     });
   }, [frameBus]);
 
@@ -251,6 +253,7 @@ export function SpectrogramPanel(): React.ReactElement {
       lastFrameRef.current = null;
       scrollCarryRef.current = 0;
       clearHistory(historyRef.current);
+      dirtyRef.current = true;
 
       const offscreen = offscreenRef.current;
       const history = historyRef.current;
@@ -308,6 +311,7 @@ export function SpectrogramPanel(): React.ReactElement {
         }
         offscreenRef.current = offscreen;
         scrollCarryRef.current = 0;
+        dirtyRef.current = true;
       }
     });
     ro.observe(canvas);
@@ -319,9 +323,11 @@ export function SpectrogramPanel(): React.ReactElement {
       };
     }
 
+    dirtyRef.current = true;
+
     const draw = () => {
       rafRef.current = requestAnimationFrame(draw);
-      if (shouldSkipFrame()) return;
+      if (!dirtyRef.current || shouldSkipFrame(canvas)) return;
       const frame = frameRef.current;
       const ctx = canvas.getContext('2d');
       const offscreen = offscreenRef.current;
@@ -444,6 +450,8 @@ export function SpectrogramPanel(): React.ReactElement {
       ctx.textAlign = 'right';
       ctx.textBaseline = 'top';
       ctx.fillText('SPECTROGRAM', W - 8 * dpr, 6 * dpr);
+
+      dirtyRef.current = false;
     };
 
     rafRef.current = requestAnimationFrame(draw);

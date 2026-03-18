@@ -9,7 +9,6 @@ import { useCallback, useEffect, useRef } from 'react';
 import { useAudioEngine, useDisplayMode, useFrameBus, useScrollSpeed, useTheaterMode } from '../core/session';
 import { COLORS, FONTS, SPACING, CANVAS } from '../theme';
 import { shouldSkipFrame } from '../utils/rafGuard';
-import type { AudioFrame } from '../types';
 
 const PANEL_DPR_MAX = 1.5;
 const HISTORY_MAX = 1200;
@@ -64,8 +63,6 @@ function f0ToLabel(f0: number): { name: string; hz: string; tuning: string } {
   return { name: `${name}${octave}`, hz: `${Math.round(f0)} Hz`, tuning: `${sign}${cents} ct` };
 }
 
-interface Entry { f0: number | null; confidence: number }
-
 export function PitchTrackerPanel(): React.ReactElement {
   const frameBus = useFrameBus();
   const audioEngine = useAudioEngine();
@@ -73,8 +70,13 @@ export function PitchTrackerPanel(): React.ReactElement {
   const scrollSpeed = useScrollSpeed();
   const theaterMode = useTheaterMode();
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const historyRef = useRef<Entry[]>([]);
-  const currentRef = useRef<AudioFrame | null>(null);
+  // Circular buffer — parallel typed arrays (NaN = no pitch)
+  const histF0Ref = useRef(new Float64Array(HISTORY_MAX));
+  const histConfRef = useRef(new Float64Array(HISTORY_MAX));
+  const histPtrRef = useRef(0);
+  const histLenRef = useRef(0);
+  const liveF0Ref = useRef<number | null>(null);
+  const liveConfRef = useRef(0);
   const lastFileIdRef = useRef(-1);
   const rafRef = useRef<number | null>(null);
   const lastDataTimeRef = useRef(0);
@@ -111,15 +113,22 @@ export function PitchTrackerPanel(): React.ReactElement {
   useEffect(() => frameBus.subscribe((frame) => {
     if (frame.fileId !== lastFileIdRef.current) {
       lastFileIdRef.current = frame.fileId;
-      historyRef.current = [];
+      histF0Ref.current.fill(NaN);
+      histConfRef.current.fill(0);
+      histPtrRef.current = 0;
+      histLenRef.current = 0;
       lastStableMidiRef.current = null;
       currentRunMidiRef.current = null;
       stableRunCountRef.current = 0;
       intervalLabelRef.current = null;
     }
-    historyRef.current.push({ f0: frame.f0Hz, confidence: frame.f0Confidence });
-    if (historyRef.current.length > HISTORY_MAX) historyRef.current.shift();
-    currentRef.current = frame;
+    const slot = histPtrRef.current % HISTORY_MAX;
+    histF0Ref.current[slot] = frame.f0Hz ?? NaN;
+    histConfRef.current[slot] = frame.f0Confidence;
+    histPtrRef.current++;
+    histLenRef.current = Math.min(histLenRef.current + 1, HISTORY_MAX);
+    liveF0Ref.current = frame.f0Hz;
+    liveConfRef.current = frame.f0Confidence;
     lastDataTimeRef.current = performance.now();
 
     // Interval tracking: detect when a stable note begins
@@ -148,8 +157,12 @@ export function PitchTrackerPanel(): React.ReactElement {
   }), [frameBus]);
 
   useEffect(() => audioEngine.onReset(() => {
-    historyRef.current = [];
-    currentRef.current = null;
+    histF0Ref.current.fill(NaN);
+    histConfRef.current.fill(0);
+    histPtrRef.current = 0;
+    histLenRef.current = 0;
+    liveF0Ref.current = null;
+    liveConfRef.current = 0;
     lastFileIdRef.current = -1;
     lastDataTimeRef.current = performance.now();
     lastStableMidiRef.current = null;
@@ -178,7 +191,7 @@ export function PitchTrackerPanel(): React.ReactElement {
 
     const draw = () => {
       rafRef.current = requestAnimationFrame(draw);
-      if (shouldSkipFrame()) return;
+      if (shouldSkipFrame(canvas)) return;
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
 
@@ -235,9 +248,12 @@ export function PitchTrackerPanel(): React.ReactElement {
       const subOffset = -subProg * pxPerFrame;
 
       // F0 trace — newest at right, scrolling left
-      const history = historyRef.current;
+      const hF0 = histF0Ref.current;
+      const hConf = histConfRef.current;
+      const hLen = histLenRef.current;
+      const hPtr = histPtrRef.current;
 
-      if (history.length > 1) {
+      if (hLen > 1) {
         ctx.lineWidth = 1.5 * dpr;
         ctx.lineJoin = 'round';
         ctx.lineCap = 'round';
@@ -247,14 +263,16 @@ export function PitchTrackerPanel(): React.ReactElement {
         ctx.beginPath();
         let penDown = false;
 
-        for (let i = 0; i < history.length; i++) {
-          const x = W - (history.length - 1 - i) * pxPerFrame + subOffset;
+        for (let i = 0; i < hLen; i++) {
+          const x = W - (hLen - 1 - i) * pxPerFrame + subOffset;
           if (x < 0) { penDown = false; continue; }
           if (x > W + pxPerFrame) continue;
 
-          const e = history[i];
-          if (!e.f0 || e.confidence < 0.45) { penDown = false; prevX = x; prevY = -1; continue; }
-          const y = f0ToY(e.f0, H, padV);
+          const slot = (hPtr - hLen + i + HISTORY_MAX) % HISTORY_MAX;
+          const f0 = hF0[slot];
+          const conf = hConf[slot];
+          if (isNaN(f0) || conf < 0.45) { penDown = false; prevX = x; prevY = -1; continue; }
+          const y = f0ToY(f0, H, padV);
 
           if (!penDown || prevX < 0) {
             ctx.moveTo(x, y);
@@ -290,13 +308,14 @@ export function PitchTrackerPanel(): React.ReactElement {
       }
 
       // Live note readout — left side
-      const cur = currentRef.current;
-      const hasNote = cur?.f0Hz !== null && (cur?.f0Confidence ?? 0) > 0.45;
+      const curF0 = liveF0Ref.current;
+      const curConf = liveConfRef.current;
+      const hasNote = curF0 !== null && curConf > 0.45;
 
       ctx.textAlign = 'left';
       ctx.textBaseline = 'top';
-      if (hasNote && cur?.f0Hz) {
-        const { name, hz, tuning } = f0ToLabel(cur.f0Hz);
+      if (hasNote && curF0) {
+        const { name, hz, tuning } = f0ToLabel(curF0);
         ctx.font = `${11 * dpr}px ${FONTS.mono}`;
         ctx.fillStyle = traceColor;
         ctx.fillText(name, SPACING.sm * dpr, SPACING.xs * dpr);
@@ -317,7 +336,7 @@ export function PitchTrackerPanel(): React.ReactElement {
 
         // ── Tuning bar ──────────────────────────────────────────────────
         // Draw at bottom of panel, above the F0 TRACK label
-        const midi = 69 + 12 * Math.log2(cur.f0Hz / 440);
+        const midi = 69 + 12 * Math.log2(curF0 / 440);
         const cents = Math.round((midi - Math.round(midi)) * 100);
         const barW = Math.min(W * 0.55, 80 * dpr);
         const barH2 = 6 * dpr;

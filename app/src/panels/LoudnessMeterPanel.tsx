@@ -10,9 +10,8 @@ import { useEffect, useRef } from 'react';
 import { useAudioEngine, useDisplayMode, useFrameBus, useScrollSpeed } from '../core/session';
 import { COLORS, FONTS, SPACING, CANVAS } from '../theme';
 import { shouldSkipFrame } from '../utils/rafGuard';
-import type { AudioFrame } from '../types';
 
-const PANEL_DPR_MAX = 1.5;
+const PANEL_DPR_MAX = 1.25;
 const HISTORY_MAX = 1200;
 const BASE_PX_PER_FRAME = CANVAS.timelineScrollPx;
 const MS_PER_DATA_FRAME = 1000 / 20;
@@ -106,8 +105,10 @@ export function LoudnessMeterPanel(): React.ReactElement {
   const kMsPtr = useRef(0);
   const kMsLen = useRef(0);
 
-  // Scrolling momentary LUFS history (display)
-  const historyRef = useRef<number[]>([]);
+  // Scrolling momentary LUFS history (circular buffer)
+  const histBufRef = useRef(new Float64Array(HISTORY_MAX));
+  const histPtrRef = useRef(0);
+  const histLenRef = useRef(0);
   const lastDataTimeRef = useRef(0);
 
   // All frames for two-pass integrated gating
@@ -121,7 +122,6 @@ export function LoudnessMeterPanel(): React.ReactElement {
   const tpHoldRef = useRef(LUFS_FLOOR);
 
   const lastFileIdRef = useRef(-1);
-  const currentRef = useRef<AudioFrame | null>(null);
 
   // ── Two-pass EBU R128 integrated ─────────────────────────────────────────
   function recomputeIntegrated() {
@@ -151,14 +151,15 @@ export function LoudnessMeterPanel(): React.ReactElement {
     kMsBuf.current.fill(0);
     kMsPtr.current = 0;
     kMsLen.current = 0;
-    historyRef.current = [];
+    histBufRef.current.fill(0);
+    histPtrRef.current = 0;
+    histLenRef.current = 0;
     allMsRef.current = new Float32Array(MAX_STORED_FRAMES);
     allMsCountRef.current = 0;
     recomputeCounterRef.current = 0;
     intLufsCachedRef.current = LUFS_FLOOR;
     intHasRef.current = false;
     tpHoldRef.current = LUFS_FLOOR;
-    currentRef.current = null;
     lastFileIdRef.current = -1;
     lastDataTimeRef.current = performance.now();
   }
@@ -188,8 +189,9 @@ export function LoudnessMeterPanel(): React.ReactElement {
       momMs += kMsBuf.current[((kMsPtr.current - 1 - i) % SHORT_TERM_FRAMES + SHORT_TERM_FRAMES) % SHORT_TERM_FRAMES];
     }
     const momentaryLufs = momN > 0 ? msToLufs(momMs / momN) : LUFS_FLOOR;
-    historyRef.current.push(momentaryLufs);
-    if (historyRef.current.length > HISTORY_MAX) historyRef.current.shift();
+    histBufRef.current[histPtrRef.current % HISTORY_MAX] = momentaryLufs;
+    histPtrRef.current++;
+    histLenRef.current = Math.min(histLenRef.current + 1, HISTORY_MAX);
 
     // Store for two-pass gating
     const idx = allMsCountRef.current;
@@ -211,7 +213,6 @@ export function LoudnessMeterPanel(): React.ReactElement {
       if (peakDb > tpHoldRef.current) tpHoldRef.current = peakDb;
     }
 
-    currentRef.current = frame;
     lastDataTimeRef.current = performance.now();
   }), [frameBus]);
 
@@ -239,7 +240,7 @@ export function LoudnessMeterPanel(): React.ReactElement {
 
     const draw = () => {
       rafRef.current = requestAnimationFrame(draw);
-      if (shouldSkipFrame()) return;
+      if (shouldSkipFrame(canvas)) return;
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
 
@@ -299,14 +300,16 @@ export function LoudnessMeterPanel(): React.ReactElement {
       const subProg = Math.min(1, elapsed / MS_PER_DATA_FRAME);
       const subOffset = -subProg * pxPerFrame;
       const baseY = H - padV;
-      const history = historyRef.current;
+      const hBuf = histBufRef.current;
+      const hLen = histLenRef.current;
+      const hPtr = histPtrRef.current;
 
-      if (history.length > 1) {
+      if (hLen > 1) {
         const points: [number, number][] = [];
-        for (let i = 0; i < history.length; i++) {
-          const x = W - (history.length - 1 - i) * pxPerFrame + subOffset;
+        for (let i = 0; i < hLen; i++) {
+          const x = W - (hLen - 1 - i) * pxPerFrame + subOffset;
           if (x < -pxPerFrame || x > W + pxPerFrame) continue;
-          const lufs = Math.max(LUFS_BOT, history[i]);
+          const lufs = Math.max(LUFS_BOT, hBuf[(hPtr - hLen + i + HISTORY_MAX) % HISTORY_MAX]);
           points.push([Math.max(0, Math.min(W, x)), lufsToY(lufs, H, padV)]);
         }
 
@@ -339,7 +342,7 @@ export function LoudnessMeterPanel(): React.ReactElement {
           ctx.fillStyle = nge ? traceColor : hyper ? traceColor : 'rgba(150,170,240,1)';
           ctx.fill();
         }
-      } else if (history.length === 0) {
+      } else if (hLen === 0) {
         const y = Math.round(lufsToY(-30, H, padV)) + 0.5;
         ctx.strokeStyle = hyper ? 'rgba(24,34,70,1)' : eva ? 'rgba(22,12,48,1)' : COLORS.bg3;
         ctx.lineWidth = 1;
@@ -366,7 +369,7 @@ export function LoudnessMeterPanel(): React.ReactElement {
       }
 
       // ── Numeric readouts — top left ──────────────────────────────────────
-      const curLufs = history.length > 0 ? history[history.length - 1] : LUFS_FLOOR;
+      const curLufs = hLen > 0 ? hBuf[(hPtr - 1 + HISTORY_MAX) % HISTORY_MAX] : LUFS_FLOOR;
       const hasSignal = curLufs > LUFS_FLOOR + 4;
 
       ctx.textAlign = 'left';

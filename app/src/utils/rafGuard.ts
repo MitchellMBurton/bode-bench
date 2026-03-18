@@ -11,24 +11,32 @@
 // Audio playback and the engine analysis loop are unaffected — only canvas
 // draw work is suppressed.
 
+const FG_FPS = 30;
+const FG_FRAME_INTERVAL_MS = 1000 / FG_FPS;
 const BG_FPS = 4;
 const BG_FRAME_INTERVAL_MS = 1000 / BG_FPS;
 
-let lastBgFrameAt = 0;
+const lastFrameAtByTarget = new WeakMap<object, number>();
 
 /**
  * Returns true when the panel draw function should return early without
  * painting. Always call requestAnimationFrame(draw) *before* calling this so
  * the loop keeps rescheduling itself.
+ *
+ * Foreground: capped at 30fps per canvas — analysis data arrives at 20fps so
+ * 60fps wastes half the draws. 30fps keeps sub-frame interpolation smooth
+ * while halving canvas compositing cost.
+ * Background: throttled to 4fps.
+ * Hidden: skipped entirely.
  */
-export function shouldSkipFrame(): boolean {
+export function shouldSkipFrame(target: object): boolean {
   if (document.hidden) return true;
 
-  if (!document.hasFocus()) {
-    const now = performance.now();
-    if (now - lastBgFrameAt < BG_FRAME_INTERVAL_MS) return true;
-    lastBgFrameAt = now;
-  }
+  const now = performance.now();
+  const interval = document.hasFocus() ? FG_FRAME_INTERVAL_MS : BG_FRAME_INTERVAL_MS;
+  const lastFrameAt = lastFrameAtByTarget.get(target) ?? 0;
+  if (now - lastFrameAt < interval) return true;
+  lastFrameAtByTarget.set(target, now);
 
   return false;
 }

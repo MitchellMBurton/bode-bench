@@ -17,7 +17,6 @@ import { useEffect, useRef } from 'react';
 import { useAudioEngine, useDisplayMode, useFrameBus, useTheaterMode } from '../core/session';
 import { COLORS, FONTS, SPACING, CANVAS } from '../theme';
 import { shouldSkipFrame } from '../utils/rafGuard';
-import type { AudioFrame } from '../types';
 
 const PANEL_DPR_MAX = 1.5;
 const CORR_BAR_H_CSS = 24; // px (CSS), fixed height for correlation bar
@@ -33,7 +32,7 @@ export function GoniometerPanel(): React.ReactElement {
   const theaterMode = useTheaterMode();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rafRef = useRef<number | null>(null);
-  const currentRef = useRef<AudioFrame | null>(null);
+  const dirtyRef = useRef(true);
   const lastFileIdRef = useRef(-1);
 
   // Trail: ring buffer of recent frame sample pairs [L, R][]
@@ -64,15 +63,17 @@ export function GoniometerPanel(): React.ReactElement {
     trailRef.current[ptr] = buf;
     trailPtrRef.current++;
 
-    currentRef.current = frame;
+    // Smooth the pre-computed correlation here (20fps) instead of in the 60fps draw loop
+    corrSmoothRef.current = corrSmoothRef.current * 0.7 + frame.phaseCorrelation * 0.3;
+    dirtyRef.current = true;
   }), [frameBus]);
 
   useEffect(() => audioEngine.onReset(() => {
-    currentRef.current = null;
     lastFileIdRef.current = -1;
     trailRef.current = Array(MAX_TRAIL_FRAMES).fill(null);
     trailPtrRef.current = 0;
     corrSmoothRef.current = 0;
+    dirtyRef.current = true;
   }), [audioEngine]);
 
   // ── Resize observer ───────────────────────────────────────────────────────
@@ -84,6 +85,7 @@ export function GoniometerPanel(): React.ReactElement {
         const dpr = Math.min(devicePixelRatio, PANEL_DPR_MAX);
         canvas.width = Math.round(e.contentRect.width * dpr);
         canvas.height = Math.round(e.contentRect.height * dpr);
+        dirtyRef.current = true;
       }
     });
     ro.observe(canvas);
@@ -95,9 +97,12 @@ export function GoniometerPanel(): React.ReactElement {
     const canvas = canvasRef.current;
     if (!canvas || theaterMode) return;
 
+    dirtyRef.current = true;
+
     const draw = () => {
       rafRef.current = requestAnimationFrame(draw);
-      if (shouldSkipFrame()) return;
+      if (!dirtyRef.current || shouldSkipFrame(canvas)) return;
+      dirtyRef.current = false;
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
 
@@ -127,24 +132,8 @@ export function GoniometerPanel(): React.ReactElement {
       ctx.fillStyle = hyper ? 'rgba(28,42,88,0.92)' : eva ? 'rgba(22,12,48,1)' : 'rgba(32,32,48,1)';
       ctx.fillRect(0, corrY, W, 1);
 
-      // Compute phase correlation from current frame
-      const frame = currentRef.current;
-      let corrVal = corrSmoothRef.current;
-      if (frame) {
-        const L = frame.timeDomain;
-        const R = frame.timeDomainRight;
-        let sumLR = 0, sumL2 = 0, sumR2 = 0;
-        const n = Math.min(L.length, R.length);
-        for (let i = 0; i < n; i++) {
-          sumLR += L[i] * R[i];
-          sumL2 += L[i] * L[i];
-          sumR2 += R[i] * R[i];
-        }
-        const denom = Math.sqrt(sumL2 * sumR2);
-        const rawCorr = denom > 0 ? sumLR / denom : 0;
-        corrVal = corrSmoothRef.current * 0.7 + rawCorr * 0.3;
-        corrSmoothRef.current = corrVal;
-      }
+      // Read smoothed phase correlation (updated in frame callback at 20fps)
+      const corrVal = corrSmoothRef.current;
 
       const corrZeroX = W * 0.5;
       const corrNeedleX = corrZeroX + corrVal * corrZeroX;

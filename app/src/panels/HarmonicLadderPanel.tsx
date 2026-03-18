@@ -11,7 +11,7 @@ import { shouldSkipFrame } from '../utils/rafGuard';
 import type { AudioFrame } from '../types';
 import type { VisualMode } from '../audio/displayMode';
 
-const PANEL_DPR_MAX = 1.5;
+const PANEL_DPR_MAX = 1.25;
 const NUM_PARTIALS = 10;
 // Exponential smoothing — faster attack, slow decay
 const SMOOTH_ATTACK = 0.4;
@@ -130,14 +130,16 @@ export function HarmonicLadderPanel(): React.ReactElement {
     partialColorsRef.current = currentPartialColors;
   });
   const frameRef = useRef<AudioFrame | null>(null);
+  const dirtyRef = useRef(true);
   const smoothedRef = useRef<Float32Array>(new Float32Array(NUM_PARTIALS).fill(Number(CANVAS.dbMin)));
   const rafRef = useRef<number | null>(null);
 
-  useEffect(() => frameBus.subscribe((frame) => { frameRef.current = frame; }), [frameBus]);
+  useEffect(() => frameBus.subscribe((frame) => { frameRef.current = frame; dirtyRef.current = true; }), [frameBus]);
 
   useEffect(() => audioEngine.onReset(() => {
     frameRef.current = null;
     smoothedRef.current.fill(Number(CANVAS.dbMin));
+    dirtyRef.current = true;
   }), [audioEngine]);
 
   useEffect(() => {
@@ -148,6 +150,7 @@ export function HarmonicLadderPanel(): React.ReactElement {
         const dpr = Math.min(devicePixelRatio, PANEL_DPR_MAX);
         canvas.width = Math.round(e.contentRect.width * dpr);
         canvas.height = Math.round(e.contentRect.height * dpr);
+        dirtyRef.current = true;
       }
     });
     ro.observe(canvas);
@@ -164,9 +167,12 @@ export function HarmonicLadderPanel(): React.ReactElement {
       };
     }
 
+    dirtyRef.current = true;
+
     const draw = () => {
       rafRef.current = requestAnimationFrame(draw);
-      if (shouldSkipFrame()) return;
+      if (!dirtyRef.current || shouldSkipFrame(canvas)) return;
+      dirtyRef.current = false;
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
 

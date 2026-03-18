@@ -45,6 +45,9 @@ export interface AudioFrame {
   readonly f0Hz: number | null;
   /** Autocorrelation confidence for f0Hz in range 0–1. Values below ~0.4 indicate noise/silence. */
   readonly f0Confidence: number;
+  /** Phase correlation between L and R channels: Σ(L·R) / √(Σ(L²)·Σ(R²)).
+   *  Range −1 (out-of-phase) to +1 (mono). Computed per frame in engine. */
+  readonly phaseCorrelation: number;
 }
 
 /** File-level quality analysis computed once from the decoded AudioBuffer on load. */
