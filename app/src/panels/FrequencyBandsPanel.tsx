@@ -17,12 +17,14 @@ const BAND_COLORS_DEFAULT = CANVAS.bandColors;
 const BAND_COLORS_NGE = ['#0d2a0a', '#0f4a0e', '#1a6a18', '#2a8a20', '#50aa20', '#80d028'] as const;
 const BAND_COLORS_HYPER = ['#0c1460', '#0a2272', '#0a3888', '#0c529a', '#1068a8', '#1888b8'] as const;
 const BAND_COLORS_EVA = ['#200840', '#3a0860', '#580030', '#8a1800', '#cc4a00', '#ff7b00'] as const;
+const BAND_COLORS_RED = CANVAS.red.bandColors;
 const BAND_COLORS_OPTIC = CANVAS.optic.bandColors;
 
 function getBandColors(mode: VisualMode): readonly string[] {
   if (mode === 'nge') return BAND_COLORS_NGE;
   if (mode === 'hyper') return BAND_COLORS_HYPER;
   if (mode === 'eva') return BAND_COLORS_EVA;
+  if (mode === 'red') return BAND_COLORS_RED;
   if (mode === 'optic') return BAND_COLORS_OPTIC;
   return BAND_COLORS_DEFAULT;
 }
@@ -37,6 +39,7 @@ function buildBandsColors(mode: VisualMode): BandsColors {
   if (mode === 'nge') return { bg: CANVAS.nge.bg2, track: '#030a03', label: 'rgba(80,160,50,0.5)' };
   if (mode === 'hyper') return { bg: CANVAS.hyper.bg2, track: '#030918', label: 'rgba(84,132,255,0.5)' };
   if (mode === 'eva') return { bg: CANVAS.eva.bg2, track: '#08041a', label: CANVAS.eva.label };
+  if (mode === 'red') return { bg: CANVAS.red.bg2, track: '#120405', label: CANVAS.red.label };
   if (mode === 'optic') return { bg: CANVAS.optic.bg2, track: '#dce8f0', label: CANVAS.optic.label };
   return { bg: COLORS.bg2, track: COLORS.levelTrack, label: COLORS.textDim };
 }

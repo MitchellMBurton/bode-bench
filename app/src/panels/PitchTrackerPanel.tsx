@@ -24,6 +24,11 @@ const HYPER_TRACE_SOFT = 'rgba(98,232,255,0.84)';
 const HYPER_GLOW = 'rgba(98,232,255,0.34)';
 const HYPER_LABEL = CANVAS.hyper.label;
 const HYPER_TEXT = CANVAS.hyper.text;
+const RED_TRACE = CANVAS.red.trace;
+const RED_TRACE_SOFT = 'rgba(255,110,92,0.84)';
+const RED_GLOW = 'rgba(255,90,74,0.30)';
+const RED_LABEL = CANVAS.red.label;
+const RED_TEXT = CANVAS.red.text;
 const OPTIC_TRACE = CANVAS.optic.trace;
 const OPTIC_TRACE_SOFT = 'rgba(21,151,212,0.84)';
 const OPTIC_GLOW = 'rgba(74,192,255,0.30)';
@@ -206,20 +211,21 @@ export function PitchTrackerPanel(): React.ReactElement {
       const nge = displayMode.nge;
       const hyper = displayMode.hyper;
       const optic = displayMode.optic;
+      const red = displayMode.red;
       const eva = displayMode.eva;
       const padV = PAD_V_PX * dpr;
       drawDimRef.current = { H, padV };
-      const traceColor = nge ? NGE_TRACE : hyper ? HYPER_TRACE : optic ? OPTIC_TRACE : eva ? EVA_TRACE : COLORS.waveform;
-      const traceStroke = nge ? NGE_TRACE_SOFT : hyper ? HYPER_TRACE_SOFT : optic ? OPTIC_TRACE_SOFT : eva ? EVA_TRACE_SOFT : 'rgba(200,146,42,0.80)';
-      const glowColor = nge ? NGE_GLOW : hyper ? HYPER_GLOW : optic ? OPTIC_GLOW : eva ? EVA_GLOW : 'rgba(200,146,42,0.30)';
-      const labelColor = nge ? NGE_LABEL : hyper ? HYPER_LABEL : optic ? OPTIC_LABEL : eva ? EVA_LABEL : COLORS.textDim;
-      const noteTextColor = hyper ? HYPER_TEXT : optic ? OPTIC_TEXT : eva ? EVA_TEXT : COLORS.textSecondary;
+      const traceColor = nge ? NGE_TRACE : hyper ? HYPER_TRACE : optic ? OPTIC_TRACE : red ? RED_TRACE : eva ? EVA_TRACE : COLORS.waveform;
+      const traceStroke = nge ? NGE_TRACE_SOFT : hyper ? HYPER_TRACE_SOFT : optic ? OPTIC_TRACE_SOFT : red ? RED_TRACE_SOFT : eva ? EVA_TRACE_SOFT : 'rgba(200,146,42,0.80)';
+      const glowColor = nge ? NGE_GLOW : hyper ? HYPER_GLOW : optic ? OPTIC_GLOW : red ? RED_GLOW : eva ? EVA_GLOW : 'rgba(200,146,42,0.30)';
+      const labelColor = nge ? NGE_LABEL : hyper ? HYPER_LABEL : optic ? OPTIC_LABEL : red ? RED_LABEL : eva ? EVA_LABEL : COLORS.textDim;
+      const noteTextColor = hyper ? HYPER_TEXT : optic ? OPTIC_TEXT : red ? RED_TEXT : eva ? EVA_TEXT : COLORS.textSecondary;
 
-      ctx.fillStyle = hyper ? CANVAS.hyper.bg2 : optic ? CANVAS.optic.bg2 : eva ? CANVAS.eva.bg : COLORS.bg1;
+      ctx.fillStyle = hyper ? CANVAS.hyper.bg2 : optic ? CANVAS.optic.bg2 : red ? CANVAS.red.bg2 : eva ? CANVAS.eva.bg : COLORS.bg1;
       ctx.fillRect(0, 0, W, H);
 
       // Top border
-      ctx.fillStyle = hyper ? 'rgba(32,52,110,0.92)' : optic ? 'rgba(159,199,223,0.84)' : eva ? 'rgba(74,26,144,0.92)' : COLORS.border;
+      ctx.fillStyle = hyper ? 'rgba(32,52,110,0.92)' : optic ? 'rgba(159,199,223,0.84)' : red ? 'rgba(124,40,39,0.84)' : eva ? 'rgba(74,26,144,0.92)' : COLORS.border;
       ctx.fillRect(0, 0, W, 1);
 
       // Grid lines — labels on right
@@ -233,6 +239,8 @@ export function PitchTrackerPanel(): React.ReactElement {
           ? (isC ? 'rgba(88,124,255,0.78)' : 'rgba(24,34,70,0.92)')
           : optic
             ? (isC ? 'rgba(123,182,212,0.78)' : 'rgba(191,218,233,0.92)')
+          : red
+            ? (isC ? 'rgba(156,52,46,0.78)' : 'rgba(64,16,18,0.92)')
           : eva
             ? (isC ? 'rgba(120,50,200,0.78)' : 'rgba(40,16,80,0.92)')
             : (isC ? 'rgba(50,50,72,1)' : 'rgba(32,32,48,1)');
@@ -243,6 +251,8 @@ export function PitchTrackerPanel(): React.ReactElement {
           ? (isC ? HYPER_TEXT : HYPER_LABEL)
           : optic
             ? (isC ? OPTIC_TEXT : OPTIC_LABEL)
+          : red
+            ? (isC ? RED_TEXT : RED_LABEL)
           : eva
             ? (isC ? EVA_TEXT : EVA_LABEL)
             : (isC ? COLORS.textSecondary : COLORS.textDim);
@@ -308,6 +318,8 @@ export function PitchTrackerPanel(): React.ReactElement {
             ? 'rgba(140,210,40,0.5)'
             : hyper
               ? 'rgba(255,92,188,0.5)'
+              : red
+                ? 'rgba(255,90,74,0.46)'
               : eva
                 ? 'rgba(255,120,0,0.5)'
                 : 'rgba(200,146,42,0.5)';
@@ -340,7 +352,7 @@ export function PitchTrackerPanel(): React.ReactElement {
         const intervalLabel = intervalLabelRef.current;
         if (intervalLabel) {
           ctx.font = `${7 * dpr}px ${FONTS.mono}`;
-          ctx.fillStyle = nge ? 'rgba(160,216,64,0.55)' : hyper ? 'rgba(98,232,255,0.55)' : optic ? 'rgba(29,169,199,0.58)' : eva ? 'rgba(255,140,40,0.55)' : 'rgba(200,175,100,0.55)';
+          ctx.fillStyle = nge ? 'rgba(160,216,64,0.55)' : hyper ? 'rgba(98,232,255,0.55)' : optic ? 'rgba(29,169,199,0.58)' : red ? 'rgba(255,136,120,0.58)' : eva ? 'rgba(255,140,40,0.55)' : 'rgba(200,175,100,0.55)';
           ctx.fillText(intervalLabel, SPACING.sm * dpr, (SPACING.xs + 35) * dpr);
         }
 
@@ -355,11 +367,11 @@ export function PitchTrackerPanel(): React.ReactElement {
 
         // Background zones
         const zoneW = barW / 2; // half = 50 cents
-        ctx.fillStyle = nge ? 'rgba(80,40,10,0.45)' : optic ? 'rgba(228,124,103,0.22)' : eva ? 'rgba(80,20,60,0.45)' : 'rgba(70,18,18,0.45)';
+        ctx.fillStyle = nge ? 'rgba(80,40,10,0.45)' : optic ? 'rgba(228,124,103,0.22)' : red ? 'rgba(92,18,18,0.45)' : eva ? 'rgba(80,20,60,0.45)' : 'rgba(70,18,18,0.45)';
         ctx.fillRect(barX, barY, barW, barH2);
-        ctx.fillStyle = nge ? 'rgba(90,90,10,0.40)' : optic ? 'rgba(255,208,130,0.24)' : eva ? 'rgba(90,30,80,0.40)' : 'rgba(90,70,10,0.40)';
+        ctx.fillStyle = nge ? 'rgba(90,90,10,0.40)' : optic ? 'rgba(255,208,130,0.24)' : red ? 'rgba(124,40,24,0.40)' : eva ? 'rgba(90,30,80,0.40)' : 'rgba(90,70,10,0.40)';
         ctx.fillRect(barX + zoneW * 0.5, barY, zoneW, barH2);
-        ctx.fillStyle = nge ? 'rgba(20,80,10,0.45)' : optic ? 'rgba(122,223,206,0.28)' : eva ? 'rgba(40,10,100,0.45)' : 'rgba(14,80,28,0.45)';
+        ctx.fillStyle = nge ? 'rgba(20,80,10,0.45)' : optic ? 'rgba(122,223,206,0.28)' : red ? 'rgba(150,52,26,0.45)' : eva ? 'rgba(40,10,100,0.45)' : 'rgba(14,80,28,0.45)';
         ctx.fillRect(barX + zoneW * 0.8, barY, zoneW * 0.4, barH2);
 
         // Centre tick
@@ -369,9 +381,9 @@ export function PitchTrackerPanel(): React.ReactElement {
         // Needle — clamp to ±50 ct
         const needleX = barX + zoneW + (Math.max(-50, Math.min(50, cents)) / 50) * zoneW;
         const needleColor = Math.abs(cents) <= 10
-          ? (nge ? '#a0d840' : optic ? '#1da9c7' : eva ? '#ff7b00' : 'rgba(60,220,90,1)')
+          ? (nge ? '#a0d840' : optic ? '#1da9c7' : red ? '#ff8e7a' : eva ? '#ff7b00' : 'rgba(60,220,90,1)')
           : Math.abs(cents) <= 25
-            ? (nge ? '#d0c040' : optic ? '#c99b4f' : eva ? '#ffa020' : 'rgba(210,180,40,1)')
+            ? (nge ? '#d0c040' : optic ? '#c99b4f' : red ? '#ffb067' : eva ? '#ffa020' : 'rgba(210,180,40,1)')
             : COLORS.statusErr;
         ctx.fillStyle = needleColor;
         ctx.fillRect(Math.round(needleX) - dpr, barY - 2 * dpr, dpr * 2.5, barH2 + 4 * dpr);

@@ -15,22 +15,26 @@ interface Props {
 export function MetadataDisplay({ filename, metadata, visualMode }: Props): React.ReactElement {
   // Derive a display title from the filename: strip extension, truncate
   const fileTitle = filename ? stripExtension(filename) : null;
+  const metadataTitle = metadata ? formatMetadataTitle(metadata) : null;
   const optic = visualMode === 'optic';
+  const red = visualMode === 'red';
   const eva = visualMode === 'eva';
   const categoryColor = visualMode === 'nge'
     ? CANVAS.nge.category
     : optic
       ? CANVAS.optic.category
+    : red
+      ? CANVAS.red.category
     : visualMode === 'hyper'
       ? CANVAS.hyper.category
       : eva
         ? CANVAS.eva.category
         : COLORS.textCategory;
-  const titleColor = optic ? CANVAS.optic.text : titleStyle.color;
-        const subtitleColor = optic ? 'rgba(58,89,108,0.82)' : subtitleStyle.color;
-        const dividerColor = optic ? 'rgba(109,146,165,0.64)' : dividerStyle.background;
-        const metaLabelColor = optic ? 'rgba(78,110,128,0.78)' : metaLabelStyle.color;
-        const metaValueColor = optic ? 'rgba(29,56,72,0.92)' : metaValueStyle.color;
+  const titleColor = optic ? CANVAS.optic.text : red ? CANVAS.red.text : titleStyle.color;
+  const subtitleColor = optic ? 'rgba(58,89,108,0.82)' : red ? 'rgba(255,186,172,0.78)' : subtitleStyle.color;
+  const dividerColor = optic ? 'rgba(109,146,165,0.64)' : red ? 'rgba(124,40,39,0.56)' : dividerStyle.background;
+  const metaLabelColor = optic ? 'rgba(78,110,128,0.78)' : red ? 'rgba(214,108,96,0.74)' : metaLabelStyle.color;
+  const metaValueColor = optic ? 'rgba(29,56,72,0.92)' : red ? 'rgba(255,208,200,0.90)' : metaValueStyle.color;
 
   return (
     <div style={wrapStyle}>
@@ -38,9 +42,7 @@ export function MetadataDisplay({ filename, metadata, visualMode }: Props): Reac
         {metadata ? (
           <>
             <div style={{ ...composerStyle, color: categoryColor }}>{metadata.composer}</div>
-            <div style={{ ...titleStyle, color: titleColor }}>
-              Cello Suite No.{metadata.suite} — {metadata.movement}
-            </div>
+            <div style={{ ...titleStyle, color: titleColor }}>{metadataTitle}</div>
             <div style={{ ...subtitleStyle, color: subtitleColor }}>{metadata.instrument}</div>
           </>
         ) : fileTitle ? (
@@ -51,7 +53,7 @@ export function MetadataDisplay({ filename, metadata, visualMode }: Props): Reac
         ) : (
           <>
             <div style={{ ...composerStyle, color: categoryColor }}>NO SESSION</div>
-            <div style={{ ...titleStyle, color: optic ? 'rgba(87,118,136,0.86)' : COLORS.textDim, fontSize: FONTS.sizeMd }}>
+            <div style={{ ...titleStyle, color: optic ? 'rgba(87,118,136,0.86)' : red ? 'rgba(214,108,96,0.74)' : COLORS.textDim, fontSize: FONTS.sizeMd }}>
               No file loaded
             </div>
           </>
@@ -80,6 +82,12 @@ function MetaRow({ label, value, labelColor, valueColor }: { label: string; valu
       <span style={{ ...metaValueStyle, color: valueColor ?? metaValueStyle.color }}>{value}</span>
     </div>
   );
+}
+
+function formatMetadataTitle(metadata: MovementMetadata): string {
+  if (metadata.collectionTitle) return `${metadata.collectionTitle} — ${metadata.movement}`;
+  if (typeof metadata.suite === 'number') return `Suite No. ${metadata.suite} — ${metadata.movement}`;
+  return metadata.movement;
 }
 
 function stripExtension(name: string): string {

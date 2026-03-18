@@ -98,6 +98,7 @@ def parse_score(xml_path: Path, tempo_bpm: float = 72.0) -> dict:
     result = {
         "version": 1,
         "metadata": {
+            "collectionTitle": "Cello Suite No. 1",
             "suite": 1,
             "movement": "Prelude",
             "key": "G major",
@@ -148,6 +149,7 @@ def generate_stub() -> dict:
     return {
         "version": 1,
         "metadata": {
+            "collectionTitle": "Cello Suite No. 1",
             "suite": 1,
             "movement": "Prelude",
             "key": "G major",

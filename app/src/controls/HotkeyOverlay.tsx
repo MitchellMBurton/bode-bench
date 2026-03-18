@@ -26,6 +26,7 @@ const HOTKEY_TABLE: readonly { key: string; description: string }[] = [
 
 export function HotkeyOverlay({ open, onClose, visualMode }: Props): React.ReactElement | null {
   const optic = visualMode === 'optic';
+  const red = visualMode === 'red';
   const nge = visualMode === 'nge';
   const hyper = visualMode === 'hyper';
   const eva = visualMode === 'eva';
@@ -46,6 +47,8 @@ export function HotkeyOverlay({ open, onClose, visualMode }: Props): React.React
     ? CANVAS.nge.chromeBorderActive
     : optic
       ? CANVAS.optic.chromeBorderActive
+    : red
+      ? CANVAS.red.chromeBorderActive
     : hyper
       ? CANVAS.hyper.chromeBorderActive
       : eva
@@ -55,6 +58,8 @@ export function HotkeyOverlay({ open, onClose, visualMode }: Props): React.React
     ? CANVAS.nge.category
     : optic
       ? CANVAS.optic.category
+    : red
+      ? CANVAS.red.category
     : hyper
       ? CANVAS.hyper.category
       : eva
@@ -64,6 +69,8 @@ export function HotkeyOverlay({ open, onClose, visualMode }: Props): React.React
     ? CANVAS.nge.trace
     : optic
       ? CANVAS.optic.trace
+    : red
+      ? CANVAS.red.trace
     : hyper
       ? CANVAS.hyper.trace
       : eva
@@ -72,25 +79,47 @@ export function HotkeyOverlay({ open, onClose, visualMode }: Props): React.React
 
   return (
     <div
-      style={{ ...backdropStyle, background: optic ? 'rgba(224, 233, 240, 0.62)' : backdropStyle.background }}
+      style={{
+        ...backdropStyle,
+        background: optic
+          ? 'rgba(224, 233, 240, 0.62)'
+          : red
+            ? 'rgba(18, 4, 5, 0.76)'
+            : backdropStyle.background,
+      }}
       data-shell-overlay="true"
       onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div style={{ ...cardStyle, borderColor: cardBorder, background: optic ? 'rgba(248,251,253,0.98)' : cardStyle.background, boxShadow: optic ? '0 10px 28px rgba(79, 134, 163, 0.16)' : cardStyle.boxShadow }}>
+      <div
+        style={{
+          ...cardStyle,
+          borderColor: cardBorder,
+          background: optic
+            ? 'rgba(248,251,253,0.98)'
+            : red
+              ? 'rgba(16,4,5,0.98)'
+              : cardStyle.background,
+          boxShadow: optic
+            ? '0 10px 28px rgba(79, 134, 163, 0.16)'
+            : red
+              ? '0 10px 28px rgba(120, 16, 10, 0.28)'
+              : cardStyle.boxShadow,
+        }}
+      >
         {/* Header */}
         <div style={headerRowStyle}>
           <span style={{ ...headerLabelStyle, color: headerColor }}>KEYBOARD SHORTCUTS</span>
-          <button style={{ ...closeBtnStyle, color: optic ? CANVAS.optic.text : closeBtnStyle.color }} onClick={onClose} aria-label="Close">✕</button>
+          <button style={{ ...closeBtnStyle, color: optic ? CANVAS.optic.text : red ? CANVAS.red.text : closeBtnStyle.color }} onClick={onClose} aria-label="Close">✕</button>
         </div>
         {/* Divider */}
-        <div style={{ ...dividerStyle, background: optic ? 'rgba(109,146,165,0.64)' : dividerStyle.background }} />
+        <div style={{ ...dividerStyle, background: optic ? 'rgba(109,146,165,0.64)' : red ? 'rgba(124,40,39,0.56)' : dividerStyle.background }} />
         {/* Shortcut table */}
         <table style={tableStyle}>
           <tbody>
             {HOTKEY_TABLE.map(({ key, description }) => (
               <tr key={key}>
                 <td style={{ ...keyColStyle, color: keyColor }}>{key}</td>
-                <td style={{ ...descColStyle, color: optic ? 'rgba(41,73,92,0.84)' : descColStyle.color }}>{description}</td>
+                <td style={{ ...descColStyle, color: optic ? 'rgba(41,73,92,0.84)' : red ? 'rgba(255,208,200,0.82)' : descColStyle.color }}>{description}</td>
               </tr>
             ))}
           </tbody>

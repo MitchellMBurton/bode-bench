@@ -24,8 +24,9 @@ The current app is a strong prototype, but the core is still tightly coupled aro
 - UI components call engine methods directly
 - ingest is browser `File` / object-URL based
 - score loading exists, but runtime validation is minimal and the score path is not a first-class app service
-- build health is not currently clean
-- there is no automated test or packaging path
+- build health is currently clean in the frontend path
+- automated tests exist, but coverage is still narrow
+- desktop packaging exists, but the release path is still alpha-grade rather than hardened for general distribution
 
 That is normal for the current stage. It is not the right base for desktop packaging and queued web processing.
 

@@ -45,6 +45,24 @@ function buildTransportTheme(visualMode: VisualMode): TransportTheme {
       seekFillColor: '#117aa5',
     };
   }
+  if (visualMode === 'red') {
+    return {
+      btnBg: 'rgba(12,3,4,0.92)',
+      btnBorder: 'rgba(124,40,39,0.62)',
+      btnColor: CANVAS.red.text,
+      btnActiveBg: 'rgba(34,10,11,0.96)',
+      btnActiveBorder: CANVAS.red.chromeBorderActive,
+      btnResetBorder: CANVAS.red.chromeBorder,
+      btnResetBg: 'rgba(12,3,4,0.92)',
+      loopBg: 'rgba(120,24,22,0.22)',
+      loopBorder: 'rgba(255,90,74,0.36)',
+      loopLabel: CANVAS.red.trace,
+      loopTime: 'rgba(255,186,172,0.78)',
+      loopClear: 'rgba(255,132,116,0.72)',
+      seekTrackBg: '#1d090a',
+      seekFillColor: '#ff5a4a',
+    };
+  }
   if (visualMode === 'nge') {
     return {
       btnBg: 'rgba(4,10,4,0.9)',
@@ -1489,6 +1507,8 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
           background: isDragging
             ? displayMode.mode === 'optic'
               ? 'rgba(97,176,214,0.18)'
+              : displayMode.mode === 'red'
+                ? 'rgba(255,90,74,0.16)'
               : COLORS.accentGlow
             : tt.btnBg,
         }}
@@ -1525,6 +1545,8 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
             ...(loadNotice.tone === 'warn'
               ? displayMode.mode === 'optic'
                 ? { borderColor: 'rgba(79,134,163,0.58)', background: 'rgba(231,240,246,0.90)' }
+                : displayMode.mode === 'red'
+                ? { borderColor: 'rgba(156,52,46,0.58)', background: 'rgba(36,8,9,0.90)' }
                 : displayMode.mode === 'nge'
                 ? { borderColor: 'rgba(160,200,40,0.55)', background: 'rgba(10,24,4,0.55)' }
                 : displayMode.mode === 'hyper'
@@ -1532,6 +1554,8 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
                   : loadNoticeWarnStyle
               : displayMode.mode === 'optic'
                 ? { borderColor: 'rgba(109,146,165,0.60)', background: 'rgba(243,248,251,0.92)' }
+                : displayMode.mode === 'red'
+                ? { borderColor: 'rgba(124,40,39,0.60)', background: 'rgba(22,6,7,0.92)' }
                 : displayMode.mode === 'nge'
                 ? { borderColor: 'rgba(80,160,30,0.35)', background: 'rgba(6,16,4,0.50)' }
                 : displayMode.mode === 'hyper'

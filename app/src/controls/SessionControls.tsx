@@ -35,6 +35,19 @@ function buildSessionTheme(visualMode: VisualMode): SessionTheme {
       buttonColor: CANVAS.optic.category,
     };
   }
+  if (visualMode === 'red') {
+    return {
+      separator: 'rgba(140,30,28,0.28)',
+      labelColor: CANVAS.red.label,
+      trackBg: 'rgba(12,3,4,0.92)',
+      fillAccent: 'rgba(255,90,74,0.86)',
+      fillPitch: 'rgba(255,132,106,0.82)',
+      valueColor: CANVAS.red.text,
+      buttonBg: 'rgba(12,3,4,0.92)',
+      buttonBorder: 'rgba(124,40,39,0.62)',
+      buttonColor: CANVAS.red.category,
+    };
+  }
   if (visualMode === 'nge') {
     return {
       separator: 'rgba(60,140,30,0.28)',
@@ -231,6 +244,7 @@ export function SessionControls({
 
   const isNge = visualMode === 'nge';
   const isOptic = visualMode === 'optic';
+  const isRed = visualMode === 'red';
   const isHyper = visualMode === 'hyper';
   const isEva = visualMode === 'eva';
   const t = buildSessionTheme(visualMode);
@@ -248,6 +262,13 @@ export function SessionControls({
         borderColor: CANVAS.optic.chromeBorderActive,
         color: CANVAS.optic.text,
       }
+    : isRed
+      ? {
+          ...toggleActiveStyle,
+          background: 'rgba(34,10,11,0.96)',
+          borderColor: CANVAS.red.chromeBorderActive,
+          color: CANVAS.red.text,
+        }
     : toggleActiveStyle;
 
   return (
@@ -364,6 +385,17 @@ export function SessionControls({
           title="White-light optics mode"
         >
           OPTIC
+        </button>
+
+        <button
+          style={{ ...thButton, ...(isRed ? redActiveStyle : {}) }}
+          onClick={() => {
+            const nextMode = isRed ? 'default' : 'red';
+            onVisualMode(nextMode);
+          }}
+          title="Dark red instrument mode"
+        >
+          RED
         </button>
 
         <button
@@ -516,6 +548,13 @@ const opticActiveStyle: React.CSSProperties = {
   borderColor: '#4f86a3',
   color: '#13394f',
   boxShadow: '0 0 0 1px rgba(79,134,163,0.12)',
+};
+
+const redActiveStyle: React.CSSProperties = {
+  background: 'rgba(34,10,11,0.98)',
+  borderColor: '#7c2827',
+  color: '#ffd0c8',
+  boxShadow: '0 0 10px rgba(255,90,74,0.18)',
 };
 
 const ngeActiveStyle: React.CSSProperties = {

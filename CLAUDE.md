@@ -4,7 +4,7 @@
 
 A local-first, desktop-grade scientific listening instrument and media analysis console. Real-time diagnostics, disciplined transport control, and optional structural overlays live together in a four-quadrant workspace.
 
-**This repo is the v0.1 Alpha artifact.** It is preserved at tag `v0.1-alpha`. Legacy Bach Cello naming has been retired from all user-visible surfaces. Continued development happens in the successor repo (see `HANDOFF.md`).
+**This repo is the v0.1 Alpha artifact.** It is preserved at tag `v0.1-alpha`. Legacy Bach Cello naming has been retired from the live frontend and diagnostics exports, while repository and installer naming remain transitional in this preserved alpha artifact. Continued development happens in the successor repo (see `HANDOFF.md`).
 
 Read the full project definition in `PROJECT.md`. Read UX doctrine in `UX_PRINCIPLES.md`. Read technical structure in `ARCHITECTURE.md`. Read decision logic in `DECISION_RULES.md`. Read current work in `TASKS.md`.
 

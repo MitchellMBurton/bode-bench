@@ -521,6 +521,7 @@ export function WaveformOverviewPanel({ markers = [], onDeleteMarker, onClearMar
   const audioEngine = useAudioEngine();
   const displayMode = useDisplayMode();
   const optic = displayMode.optic;
+  const red = displayMode.red;
   const performanceProfile = usePerformanceProfile();
   const theaterMode = useTheaterMode();
   const [scrubStyle, setScrubStyle] = useState<ScrubStyle>(() => audioEngine.scrubStyle);
@@ -1377,28 +1378,29 @@ export function WaveformOverviewPanel({ markers = [], onDeleteMarker, onClearMar
       const nge = displayMode.nge;
       const hyper = displayMode.hyper;
       const optic = displayMode.optic;
+      const red = displayMode.red;
       const eva = displayMode.eva;
-      const backgroundFill = nge ? CANVAS.nge.bg2 : hyper ? CANVAS.hyper.bg2 : optic ? CANVAS.optic.bg2 : eva ? CANVAS.eva.bg2 : COLORS.bg2;
-      const gridColor = nge ? 'rgba(22,54,18,1)' : hyper ? 'rgba(28,42,88,0.92)' : optic ? 'rgba(169,186,197,0.96)' : eva ? 'rgba(74,26,144,0.35)' : COLORS.bg3;
-      const textColor = nge ? CANVAS.nge.label : hyper ? CANVAS.hyper.label : optic ? CANVAS.optic.label : eva ? CANVAS.eva.label : COLORS.textDim;
-      const waveformFill = nge ? 'rgba(160,216,64,0.18)' : hyper ? 'rgba(98,232,255,0.22)' : optic ? 'rgba(18,118,164,0.14)' : eva ? 'rgba(255,123,0,0.22)' : 'rgba(200, 146, 42, 0.22)';
-      const waveformStroke = nge ? CANVAS.nge.trace : hyper ? CANVAS.hyper.trace : optic ? CANVAS.optic.trace : eva ? CANVAS.eva.trace : COLORS.waveform;
-      const waveformShadow = nge ? 'rgba(160,216,64,0.35)' : hyper ? 'rgba(255,92,188,0.32)' : optic ? 'rgba(18,124,173,0.18)' : eva ? 'rgba(255,123,0,0.35)' : 'rgba(200, 146, 42, 0.35)';
-      const playFillWave = nge ? 'rgba(80, 160, 50, 0.07)' : hyper ? 'rgba(98,232,255,0.07)' : optic ? 'rgba(18,118,164,0.05)' : eva ? 'rgba(255,123,0,0.07)' : 'rgba(80, 96, 192, 0.07)';
-      const playCursor = hyper ? 'rgba(255,92,188,0.92)' : optic ? 'rgba(29,169,199,0.90)' : eva ? 'rgba(255,123,0,0.92)' : COLORS.accent;
-      const learnedWaveHint = nge ? 'rgba(160,216,64,0.12)' : hyper ? 'rgba(98,232,255,0.10)' : optic ? 'rgba(89,129,153,0.06)' : eva ? 'rgba(255,123,0,0.10)' : 'rgba(160, 170, 240, 0.10)';
-      const learnedWaveLine = nge ? 'rgba(160,216,64,0.32)' : hyper ? 'rgba(255,92,188,0.32)' : optic ? 'rgba(89,129,153,0.16)' : eva ? 'rgba(255,123,0,0.32)' : 'rgba(200, 210, 255, 0.26)';
-      const controlFill = nge ? 'rgba(12,20,12,0.96)' : hyper ? 'rgba(10,14,28,0.96)' : optic ? 'rgba(242,247,250,0.98)' : eva ? 'rgba(8,4,26,0.96)' : 'rgba(14,16,25,0.98)';
-      const controlTrack = nge ? 'rgba(40,72,28,0.86)' : hyper ? 'rgba(36,46,90,0.85)' : optic ? 'rgba(201,214,223,0.96)' : eva ? 'rgba(74,26,144,0.55)' : 'rgba(48,56,86,0.82)';
-      const viewWindowFill = hyper ? 'rgba(96,150,255,0.26)' : optic ? 'rgba(71,126,158,0.20)' : eva ? 'rgba(255,123,0,0.26)' : 'rgba(126, 130, 240, 0.24)';
-      const viewWindowStroke = hyper ? 'rgba(120,210,255,0.9)' : optic ? 'rgba(47,105,136,0.84)' : eva ? 'rgba(255,160,40,0.9)' : COLORS.borderHighlight;
+      const backgroundFill = nge ? CANVAS.nge.bg2 : hyper ? CANVAS.hyper.bg2 : optic ? CANVAS.optic.bg2 : red ? CANVAS.red.bg2 : eva ? CANVAS.eva.bg2 : COLORS.bg2;
+      const gridColor = nge ? 'rgba(22,54,18,1)' : hyper ? 'rgba(28,42,88,0.92)' : optic ? 'rgba(169,186,197,0.96)' : red ? 'rgba(74,22,24,0.96)' : eva ? 'rgba(74,26,144,0.35)' : COLORS.bg3;
+      const textColor = nge ? CANVAS.nge.label : hyper ? CANVAS.hyper.label : optic ? CANVAS.optic.label : red ? CANVAS.red.label : eva ? CANVAS.eva.label : COLORS.textDim;
+      const waveformFill = nge ? 'rgba(160,216,64,0.18)' : hyper ? 'rgba(98,232,255,0.22)' : optic ? 'rgba(18,118,164,0.14)' : red ? 'rgba(255,90,74,0.16)' : eva ? 'rgba(255,123,0,0.22)' : 'rgba(200, 146, 42, 0.22)';
+      const waveformStroke = nge ? CANVAS.nge.trace : hyper ? CANVAS.hyper.trace : optic ? CANVAS.optic.trace : red ? CANVAS.red.trace : eva ? CANVAS.eva.trace : COLORS.waveform;
+      const waveformShadow = nge ? 'rgba(160,216,64,0.35)' : hyper ? 'rgba(255,92,188,0.32)' : optic ? 'rgba(18,124,173,0.18)' : red ? 'rgba(255,90,74,0.26)' : eva ? 'rgba(255,123,0,0.35)' : 'rgba(200, 146, 42, 0.35)';
+      const playFillWave = nge ? 'rgba(80, 160, 50, 0.07)' : hyper ? 'rgba(98,232,255,0.07)' : optic ? 'rgba(18,118,164,0.05)' : red ? 'rgba(156,40,32,0.10)' : eva ? 'rgba(255,123,0,0.07)' : 'rgba(80, 96, 192, 0.07)';
+      const playCursor = hyper ? 'rgba(255,92,188,0.92)' : optic ? 'rgba(29,169,199,0.90)' : red ? 'rgba(255,110,92,0.92)' : eva ? 'rgba(255,123,0,0.92)' : COLORS.accent;
+      const learnedWaveHint = nge ? 'rgba(160,216,64,0.12)' : hyper ? 'rgba(98,232,255,0.10)' : optic ? 'rgba(89,129,153,0.06)' : red ? 'rgba(255,90,74,0.08)' : eva ? 'rgba(255,123,0,0.10)' : 'rgba(160, 170, 240, 0.10)';
+      const learnedWaveLine = nge ? 'rgba(160,216,64,0.32)' : hyper ? 'rgba(255,92,188,0.32)' : optic ? 'rgba(89,129,153,0.16)' : red ? 'rgba(255,90,74,0.22)' : eva ? 'rgba(255,123,0,0.32)' : 'rgba(200, 210, 255, 0.26)';
+      const controlFill = nge ? 'rgba(12,20,12,0.96)' : hyper ? 'rgba(10,14,28,0.96)' : optic ? 'rgba(242,247,250,0.98)' : red ? 'rgba(20,8,9,0.98)' : eva ? 'rgba(8,4,26,0.96)' : 'rgba(14,16,25,0.98)';
+      const controlTrack = nge ? 'rgba(40,72,28,0.86)' : hyper ? 'rgba(36,46,90,0.85)' : optic ? 'rgba(201,214,223,0.96)' : red ? 'rgba(74,22,24,0.84)' : eva ? 'rgba(74,26,144,0.55)' : 'rgba(48,56,86,0.82)';
+      const viewWindowFill = hyper ? 'rgba(96,150,255,0.26)' : optic ? 'rgba(71,126,158,0.20)' : red ? 'rgba(198,70,60,0.26)' : eva ? 'rgba(255,123,0,0.26)' : 'rgba(126, 130, 240, 0.24)';
+      const viewWindowStroke = hyper ? 'rgba(120,210,255,0.9)' : optic ? 'rgba(47,105,136,0.84)' : red ? 'rgba(255,132,116,0.84)' : eva ? 'rgba(255,160,40,0.9)' : COLORS.borderHighlight;
       const loopFill = 'rgba(80, 200, 120, 0.16)';
       const loopStroke = 'rgba(80, 200, 120, 0.74)';
-      const handleBackFill = hyper ? 'rgba(8,12,20,0.96)' : optic ? 'rgba(232,240,245,0.98)' : eva ? 'rgba(8,4,26,0.96)' : 'rgba(8, 10, 16, 0.94)';
-      const handleGripFill = hyper ? 'rgba(186,222,255,0.92)' : optic ? 'rgba(62,118,149,0.92)' : eva ? 'rgba(255,180,80,0.92)' : 'rgba(214, 220, 255, 0.92)';
-      const unknownFill = nge ? 'rgba(160,216,64,0.04)' : hyper ? 'rgba(98,232,255,0.04)' : optic ? 'rgba(147,170,184,0.08)' : eva ? 'rgba(255,123,0,0.04)' : 'rgba(120, 134, 200, 0.05)';
-      const unknownLine = nge ? 'rgba(160,216,64,0.12)' : hyper ? 'rgba(98,232,255,0.14)' : optic ? 'rgba(122,150,166,0.18)' : eva ? 'rgba(255,123,0,0.14)' : 'rgba(130, 142, 212, 0.14)';
-      const badgeBackground = optic ? 'rgba(243,248,251,0.96)' : 'rgba(8,8,11,0.78)';
+      const handleBackFill = hyper ? 'rgba(8,12,20,0.96)' : optic ? 'rgba(232,240,245,0.98)' : red ? 'rgba(14,4,5,0.96)' : eva ? 'rgba(8,4,26,0.96)' : 'rgba(8, 10, 16, 0.94)';
+      const handleGripFill = hyper ? 'rgba(186,222,255,0.92)' : optic ? 'rgba(62,118,149,0.92)' : red ? 'rgba(255,188,176,0.92)' : eva ? 'rgba(255,180,80,0.92)' : 'rgba(214, 220, 255, 0.92)';
+      const unknownFill = nge ? 'rgba(160,216,64,0.04)' : hyper ? 'rgba(98,232,255,0.04)' : optic ? 'rgba(147,170,184,0.08)' : red ? 'rgba(124,40,39,0.08)' : eva ? 'rgba(255,123,0,0.04)' : 'rgba(120, 134, 200, 0.05)';
+      const unknownLine = nge ? 'rgba(160,216,64,0.12)' : hyper ? 'rgba(98,232,255,0.14)' : optic ? 'rgba(122,150,166,0.18)' : red ? 'rgba(124,40,39,0.18)' : eva ? 'rgba(255,123,0,0.14)' : 'rgba(130, 142, 212, 0.14)';
+      const badgeBackground = optic ? 'rgba(243,248,251,0.96)' : red ? 'rgba(20,6,7,0.90)' : 'rgba(8,8,11,0.78)';
       const badgeX = width - SPACING.sm * dpr;
       const transport = transportRef.current;
       const duration = Math.max(0, transport.duration);
@@ -1491,7 +1493,7 @@ export function WaveformOverviewPanel({ markers = [], onDeleteMarker, onClearMar
           ctx.fillRect(rect.x, rect.y, playX - rect.x, rect.h);
         }
 
-        ctx.strokeStyle = hyper ? 'rgba(16, 22, 36, 0.92)' : eva ? 'rgba(22, 12, 48, 0.92)' : 'rgba(12, 12, 18, 0.92)';
+        ctx.strokeStyle = hyper ? 'rgba(16, 22, 36, 0.92)' : red ? 'rgba(22, 6, 7, 0.96)' : eva ? 'rgba(22, 12, 48, 0.92)' : 'rgba(12, 12, 18, 0.92)';
         ctx.lineWidth = Math.max(2 * dpr, 1.5);
         ctx.beginPath();
         ctx.moveTo(playX, rect.y);
@@ -1563,8 +1565,8 @@ export function WaveformOverviewPanel({ markers = [], onDeleteMarker, onClearMar
       const drawMarkers = (rect: TimelineRect, start: number, end: number): void => {
         const mks = markersRef.current;
         if (!mks.length) return;
-        const markerColor = nge ? 'rgba(200,240,80,0.82)' : hyper ? 'rgba(255,200,80,0.88)' : optic ? 'rgba(19,109,154,0.94)' : eva ? 'rgba(255,160,40,0.88)' : 'rgba(220,190,80,0.88)';
-        const markerBg = optic ? 'rgba(243,248,251,0.96)' : 'rgba(6,6,10,0.72)';
+        const markerColor = nge ? 'rgba(200,240,80,0.82)' : hyper ? 'rgba(255,200,80,0.88)' : optic ? 'rgba(19,109,154,0.94)' : red ? 'rgba(255,132,116,0.90)' : eva ? 'rgba(255,160,40,0.88)' : 'rgba(220,190,80,0.88)';
+        const markerBg = optic ? 'rgba(243,248,251,0.96)' : red ? 'rgba(20,6,7,0.90)' : 'rgba(6,6,10,0.72)';
         ctx.save();
         ctx.beginPath();
         ctx.rect(rect.x, rect.y, rect.w, rect.h);
@@ -2412,16 +2414,16 @@ export function WaveformOverviewPanel({ markers = [], onDeleteMarker, onClearMar
         drawBadge(ctx, `DR ${dr.toFixed(1)} dB`, drColor, badgeX, layout.session.y + 4 * dpr, dpr, badgeBackground);
         drawBadge(ctx, clipText, clipColor, badgeX, layout.session.y + 19 * dpr, dpr, badgeBackground);
       } else if (isStreamedOverview) {
-        const liveColor = hyper ? CANVAS.hyper.trace : optic ? CANVAS.optic.trace : eva ? CANVAS.eva.trace : COLORS.borderHighlight;
+        const liveColor = hyper ? CANVAS.hyper.trace : optic ? CANVAS.optic.trace : red ? CANVAS.red.trace : eva ? CANVAS.eva.trace : COLORS.borderHighlight;
         drawBadge(ctx, 'COARSE MAP', liveColor, badgeX, layout.session.y + 4 * dpr, dpr, badgeBackground);
-        drawBadge(ctx, `${Math.round(learnedRatio * 100)}% MAPPED`, optic ? CANVAS.optic.text : COLORS.textTitle, badgeX, layout.session.y + 19 * dpr, dpr, badgeBackground);
+        drawBadge(ctx, `${Math.round(learnedRatio * 100)}% MAPPED`, optic ? CANVAS.optic.text : red ? CANVAS.red.text : COLORS.textTitle, badgeX, layout.session.y + 19 * dpr, dpr, badgeBackground);
       }
 
-      drawBadge(ctx, `VIEW ${formatSpan(viewRange.end - viewRange.start)}`, optic ? CANVAS.optic.category : COLORS.textSecondary, badgeX, layout.view.y + 1 * dpr, dpr, badgeBackground);
+      drawBadge(ctx, `VIEW ${formatSpan(viewRange.end - viewRange.start)}`, optic ? CANVAS.optic.category : red ? CANVAS.red.category : COLORS.textSecondary, badgeX, layout.view.y + 1 * dpr, dpr, badgeBackground);
       if (loopStart !== null && loopEnd !== null) {
         drawBadge(ctx, `LOOP ${formatSpan(loopEnd - loopStart)}`, loopStroke, badgeX, layout.loop.y + 1 * dpr, dpr, badgeBackground);
       } else {
-        drawBadge(ctx, 'DBL-CLICK CLEAR / DRAG TO SET', optic ? CANVAS.optic.label : COLORS.textDim, badgeX, layout.loop.y + 1 * dpr, dpr, badgeBackground);
+        drawBadge(ctx, 'DBL-CLICK CLEAR / DRAG TO SET', optic ? CANVAS.optic.label : red ? CANVAS.red.label : COLORS.textDim, badgeX, layout.loop.y + 1 * dpr, dpr, badgeBackground);
       }
 
       const centroid = centroidRef.current;
@@ -2449,17 +2451,17 @@ export function WaveformOverviewPanel({ markers = [], onDeleteMarker, onClearMar
   }, [audioEngine, displayMode, theaterMode]);
 
   return (
-    <div style={{ ...panelStyle, background: optic ? CANVAS.optic.bg2 : panelStyle.background }}>
+    <div style={{ ...panelStyle, background: optic ? CANVAS.optic.bg2 : red ? CANVAS.red.bg2 : panelStyle.background }}>
       <div
         style={{
           ...scrubToolbarStyle,
-          borderBottom: optic ? '1px solid rgba(109,146,165,0.68)' : scrubToolbarStyle.borderBottom,
-          background: optic ? 'linear-gradient(180deg, rgba(246,250,252,0.99), rgba(235,242,247,0.99))' : scrubToolbarStyle.background,
+          borderBottom: optic ? '1px solid rgba(109,146,165,0.68)' : red ? '1px solid rgba(124,40,39,0.68)' : scrubToolbarStyle.borderBottom,
+          background: optic ? 'linear-gradient(180deg, rgba(246,250,252,0.99), rgba(235,242,247,0.99))' : red ? 'linear-gradient(180deg, rgba(18,6,7,0.99), rgba(30,10,11,0.99))' : scrubToolbarStyle.background,
         }}
       >
         <div style={scrubToolbarHeaderStyle}>
-          <span style={{ ...scrubToolbarLabelStyle, color: optic ? CANVAS.optic.category : scrubToolbarLabelStyle.color }}>SCRUB</span>
-          <span style={{ ...scrubToolbarValueStyle, color: optic ? 'rgba(63,95,114,0.84)' : scrubToolbarValueStyle.color }}>
+          <span style={{ ...scrubToolbarLabelStyle, color: optic ? CANVAS.optic.category : red ? CANVAS.red.category : scrubToolbarLabelStyle.color }}>SCRUB</span>
+          <span style={{ ...scrubToolbarValueStyle, color: optic ? 'rgba(63,95,114,0.84)' : red ? 'rgba(255,186,172,0.80)' : scrubToolbarValueStyle.color }}>
             {SCRUB_STYLE_OPTIONS.find((option) => option.value === scrubStyle)?.detail ?? 'smooth shuttle'}
           </span>
         </div>
@@ -2476,6 +2478,12 @@ export function WaveformOverviewPanel({ markers = [], onDeleteMarker, onClearMar
                       background: 'rgba(247,250,252,0.96)',
                       borderColor: 'rgba(109,146,165,0.70)',
                     }
+                  : red
+                    ? {
+                        color: 'rgba(255,186,172,0.88)',
+                        background: 'rgba(18,6,7,0.96)',
+                        borderColor: 'rgba(124,40,39,0.70)',
+                      }
                   : {}),
                 ...(scrubStyle === option.value
                   ? (optic
@@ -2485,6 +2493,13 @@ export function WaveformOverviewPanel({ markers = [], onDeleteMarker, onClearMar
                           borderColor: CANVAS.optic.chromeBorderActive,
                           boxShadow: '0 0 0 1px rgba(79,134,163,0.12)',
                         }
+                      : red
+                        ? {
+                            color: CANVAS.red.text,
+                            background: 'linear-gradient(135deg, rgba(34,10,11,0.99), rgba(52,14,16,0.99))',
+                            borderColor: CANVAS.red.chromeBorderActive,
+                            boxShadow: '0 0 0 1px rgba(124,40,39,0.16)',
+                          }
                       : scrubButtonActiveStyle)
                   : {}),
               }}
@@ -2500,7 +2515,7 @@ export function WaveformOverviewPanel({ markers = [], onDeleteMarker, onClearMar
             type="button"
             style={{
               ...clearMarkersButtonStyle,
-              color: optic ? 'rgba(50,84,102,0.84)' : clearMarkersButtonStyle.color,
+              color: optic ? 'rgba(50,84,102,0.84)' : red ? 'rgba(255,186,172,0.84)' : clearMarkersButtonStyle.color,
             }}
             onClick={() => onClearMarkersRef.current?.()}
             data-shell-interactive="true"

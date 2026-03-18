@@ -32,6 +32,12 @@ const HYPER_GRID = CANVAS.hyper.grid;
 const HYPER_LABEL = CANVAS.hyper.label;
 const HYPER_BG_RGB = hexToRgb(HYPER_BG);
 const HYPER_TRACE_RGB = hexToRgb(HYPER_TRACE);
+const RED_BG = CANVAS.red.bg2;
+const RED_TRACE = CANVAS.red.trace;
+const RED_GRID = CANVAS.red.grid;
+const RED_LABEL = CANVAS.red.label;
+const RED_BG_RGB = hexToRgb(RED_BG);
+const RED_TRACE_RGB = hexToRgb(RED_TRACE);
 const OPTIC_BG = CANVAS.optic.bg2;
 const OPTIC_TRACE = CANVAS.optic.trace;
 const OPTIC_GRID = CANVAS.optic.grid;
@@ -72,6 +78,17 @@ function getVisualPalette(mode: VisualMode): {
       labelColor: HYPER_LABEL,
       bgRgb: HYPER_BG_RGB,
       traceRgb: HYPER_TRACE_RGB,
+    };
+  }
+
+  if (mode === 'red') {
+    return {
+      bgFill: RED_BG,
+      traceColor: RED_TRACE,
+      gridColor: RED_GRID,
+      labelColor: RED_LABEL,
+      bgRgb: RED_BG_RGB,
+      traceRgb: RED_TRACE_RGB,
     };
   }
 

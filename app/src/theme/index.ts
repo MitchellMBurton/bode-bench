@@ -192,6 +192,42 @@ export const CANVAS = {
     ],
   },
 
+  red: {
+    bg:              '#090203',
+    bg2:             '#140607',
+    shell:           '#0d0304',
+    header:          '#140708',
+    trace:           '#ff5a4a',
+    grid:            'rgba(160,34,32,0.20)',
+    label:           'rgba(214,92,82,0.56)',
+    text:            'rgba(255,208,200,0.88)',
+    glow:            'rgba(255,90,74,0.16)',
+    chromeBorder:    '#321012',
+    chromeBorderActive: '#7c2827',
+    category:        'rgba(198,82,70,0.72)',
+    stat:            '#ff6b5c',
+    persistenceFill: 'rgba(9,2,3,0.88)',
+    spectroAxis:     '#6a201f',
+    spectroPalette: [
+      '#050102',
+      '#180203',
+      '#3e0908',
+      '#7a1611',
+      '#bf2a1d',
+      '#ff5940',
+      '#ff8d71',
+      '#fff0e8',
+    ],
+    bandColors: [
+      '#4a0c13',
+      '#70131a',
+      '#92201e',
+      '#ba3328',
+      '#d94d33',
+      '#ff7350',
+    ],
+  },
+
   // ── OPTIC palette — white-light dispersion / sterile lab chrome ─────────
   // High-key, instrument-clean surfaces with pale cyan structure and
   // prismatic accents. Intended to feel clinical, luminous, and exact.

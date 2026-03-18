@@ -20,6 +20,7 @@ export function TheaterPanelShell({
   children: React.ReactNode;
 }): React.ReactElement {
   const optic = visualMode === 'optic';
+  const red = visualMode === 'red';
 
   return (
     <div style={shellStyle}>
@@ -30,13 +31,15 @@ export function TheaterPanelShell({
             ...overlayStyle,
             background: optic
               ? 'linear-gradient(180deg, rgba(249,252,255,0.92), rgba(233,243,249,0.96))'
+              : red
+                ? 'linear-gradient(180deg, rgba(22,6,7,0.92), rgba(36,8,9,0.96))'
               : overlayStyle.background,
-            border: optic ? `1px solid ${CANVAS.optic.chromeBorderActive}` : undefined,
-            backdropFilter: optic ? 'blur(12px)' : undefined,
+            border: optic ? `1px solid ${CANVAS.optic.chromeBorderActive}` : red ? `1px solid ${CANVAS.red.chromeBorderActive}` : undefined,
+            backdropFilter: optic || red ? 'blur(12px)' : undefined,
           }}
         >
-          <div style={{ ...overlayTitleStyle, color: optic ? CANVAS.optic.text : overlayTitleStyle.color }}>{title}</div>
-          <div style={{ ...overlayDetailStyle, color: optic ? 'rgba(48,92,120,0.78)' : overlayDetailStyle.color }}>{detail}</div>
+          <div style={{ ...overlayTitleStyle, color: optic ? CANVAS.optic.text : red ? CANVAS.red.text : overlayTitleStyle.color }}>{title}</div>
+          <div style={{ ...overlayDetailStyle, color: optic ? 'rgba(48,92,120,0.78)' : red ? 'rgba(255,186,172,0.78)' : overlayDetailStyle.color }}>{detail}</div>
         </div>
       ) : null}
     </div>

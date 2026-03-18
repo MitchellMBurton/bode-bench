@@ -42,6 +42,10 @@ const PARTIAL_COLORS_EVA = [
   '#ff7b00', '#e06800', '#c05400', '#a04000', '#803000',
   '#602060', '#481880', '#301090', '#200860', '#100440',
 ];
+const PARTIAL_COLORS_RED = [
+  '#ff5a4a', '#f04d3f', '#d94134', '#b93429', '#96261f',
+  '#741a16', '#56110f', '#3d0a0a', '#2a0606', '#140202',
+];
 const PARTIAL_COLORS_OPTIC = [
   '#1da9c7', '#57c0ed', '#7adcd8', '#b3e0ff', '#ffd08a',
   '#f2b5ff', '#d0c3ff', '#b6d9ff', '#95d9ff', '#dceefe',
@@ -51,6 +55,7 @@ function getPartialColors(mode: VisualMode): readonly string[] {
   if (mode === 'nge') return PARTIAL_COLORS_NGE;
   if (mode === 'hyper') return PARTIAL_COLORS_HYPER;
   if (mode === 'eva') return PARTIAL_COLORS_EVA;
+  if (mode === 'red') return PARTIAL_COLORS_RED;
   if (mode === 'optic') return PARTIAL_COLORS_OPTIC;
   return PARTIAL_COLORS_DEFAULT;
 }
@@ -88,6 +93,14 @@ function buildLadderColors(mode: VisualMode): LadderColors {
     f0Color: CANVAS.eva.trace,
     labelColor: CANVAS.eva.label,
     dimColor: 'rgba(170,90,255,0.45)',
+  };
+  if (mode === 'red') return {
+    bg: CANVAS.red.bg2,
+    track: '#120405',
+    separator: '#1b0708',
+    f0Color: CANVAS.red.trace,
+    labelColor: CANVAS.red.label,
+    dimColor: 'rgba(214,92,82,0.44)',
   };
   if (mode === 'optic') return {
     bg: CANVAS.optic.bg2,

@@ -8,6 +8,7 @@ import {
   usePerformanceProfileStore,
 } from '../core/session';
 import type { PerformanceProfilePreference } from '../runtime/performanceProfile';
+import { PRODUCT_EXPORT_SLUG, PRODUCT_NAME } from '../constants';
 import { CANVAS, COLORS, FONTS, SPACING } from '../theme';
 import type { VisualMode } from '../audio/displayMode';
 import type { FileAnalysis, TransportState } from '../types';
@@ -62,6 +63,32 @@ function buildPerfTheme(visualMode: VisualMode): PerfTheme {
       traceMarkerBg: 'rgba(246,249,251,0.98)',
       traceLaneBg: 'rgba(231,238,243,0.92)',
       traceCatchupBg: 'rgba(91,126,154,0.08)',
+    };
+  }
+  if (visualMode === 'red') {
+    return {
+      bg0: CANVAS.red.bg,
+      bg1: '#120405',
+      bg2: CANVAS.red.bg2,
+      border: CANVAS.red.chromeBorder,
+      buttonBg: 'rgba(12,3,4,0.92)',
+      buttonBorder: 'rgba(124,40,39,0.64)',
+      buttonColor: CANVAS.red.text,
+      buttonActiveBg: 'rgba(34,10,11,0.96)',
+      buttonActiveBorder: CANVAS.red.chromeBorderActive,
+      buttonActiveColor: CANVAS.red.trace,
+      textCategory: CANVAS.red.category,
+      textTitle: CANVAS.red.text,
+      textPrimary: CANVAS.red.trace,
+      textSecondary: 'rgba(214,108,96,0.72)',
+      textDim: 'rgba(140,58,50,0.34)',
+      levelTrack: '#1d090a',
+      fillInfo: 'linear-gradient(90deg, rgba(156,40,32,0.78), rgba(255,110,92,0.92))',
+      fillDim: 'linear-gradient(90deg, rgba(92,38,38,0.62), rgba(146,72,66,0.82))',
+      traceBandBg: 'rgba(18,6,7,0.84)',
+      traceMarkerBg: 'rgba(18,6,7,0.96)',
+      traceLaneBg: 'rgba(18,6,7,0.72)',
+      traceCatchupBg: 'rgba(255,90,74,0.08)',
     };
   }
   if (visualMode === 'hyper') {
@@ -207,6 +234,26 @@ function buildLogTheme(visualMode: VisualMode): LogTheme {
       toneDim: 'rgba(47,80,100,0.72)',
     };
   }
+  if (visualMode === 'red') {
+    return {
+      wrapBorder: 'rgba(124,40,39,0.56)',
+      headerBg: '#120405',
+      headerBorder: CANVAS.red.chromeBorder,
+      scrollBg: '#0a0203',
+      buttonBg: 'rgba(12,3,4,0.92)',
+      buttonBorder: 'rgba(124,40,39,0.56)',
+      buttonColor: CANVAS.red.text,
+      buttonActiveBg: 'rgba(34,10,11,0.96)',
+      buttonActiveBorder: CANVAS.red.chromeBorderActive,
+      buttonActiveColor: CANVAS.red.trace,
+      headerLabel: CANVAS.red.category,
+      headerMeta: 'rgba(214,108,96,0.42)',
+      clockColor: 'rgba(140,58,50,0.40)',
+      sourceColor: CANVAS.red.category,
+      toneInfo: CANVAS.red.trace,
+      toneDim: 'rgba(255,188,176,0.68)',
+    };
+  }
   if (visualMode === 'nge') {
     return {
       wrapBorder: 'rgba(60,140,30,0.3)',
@@ -308,7 +355,7 @@ function buildExportName(): string {
   const hh = String(now.getHours()).padStart(2, '0');
   const mm = String(now.getMinutes()).padStart(2, '0');
   const ss = String(now.getSeconds()).padStart(2, '0');
-  return `bach-cello-console-log-${y}${m}${d}-${hh}${mm}${ss}.txt`;
+  return `${PRODUCT_EXPORT_SLUG}-log-${y}${m}${d}-${hh}${mm}${ss}.txt`;
 }
 
 const SCRUB_SETTLE_MS = 500;
@@ -922,7 +969,7 @@ function inferPerformanceHealth(snapshot: PerformanceDiagnosticsSnapshot): {
 function buildPerformanceExport(snapshot: PerformanceDiagnosticsSnapshot): string {
   const health = inferPerformanceHealth(snapshot);
   const lines = [
-    'Bach Cello Console Performance Snapshot',
+    `${PRODUCT_NAME} Performance Snapshot`,
     `${health.title} :: ${health.detail}`,
     '',
     `Session      ${snapshot.filename ?? 'NO SESSION'}`,

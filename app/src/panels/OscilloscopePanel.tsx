@@ -27,6 +27,13 @@ const HYPER_GRID = CANVAS.hyper.grid;
 const HYPER_LABEL = CANVAS.hyper.label;
 const HYPER_TEXT = CANVAS.hyper.text;
 const HYPER_GLOW = CANVAS.hyper.glow;
+const RED_BG = CANVAS.red.bg2;
+const RED_TRACE = CANVAS.red.trace;
+const RED_GRID = CANVAS.red.grid;
+const RED_LABEL = CANVAS.red.label;
+const RED_TEXT = CANVAS.red.text;
+const RED_GLOW = CANVAS.red.glow;
+const RED_PERSISTENCE_FILL = CANVAS.red.persistenceFill;
 const OPTIC_BG = CANVAS.optic.bg2;
 const OPTIC_TRACE = CANVAS.optic.trace;
 const OPTIC_GRID = CANVAS.optic.grid;
@@ -85,15 +92,16 @@ export function OscilloscopePanel(): React.ReactElement {
       const nge = displayMode.nge;
       const hyper = displayMode.hyper;
       const optic = displayMode.optic;
+      const red = displayMode.red;
       const eva = displayMode.eva;
-      const backgroundFill = nge ? NGE_BG : hyper ? HYPER_BG : optic ? OPTIC_BG : eva ? EVA_BG : COLORS.bg2;
-      const persistenceFill = nge ? NGE_PERSISTENCE_FILL : hyper ? CANVAS.hyper.persistenceFill : optic ? OPTIC_PERSISTENCE_FILL : eva ? EVA_PERSISTENCE_FILL : COLORS.bg2;
-      const gridColor = nge ? NGE_GRID : hyper ? HYPER_GRID : optic ? OPTIC_GRID : eva ? EVA_GRID : COLORS.waveformGrid;
-      const amplitudeTextColor = hyper ? HYPER_TEXT : optic ? OPTIC_TEXT : eva ? EVA_TEXT : COLORS.textDim;
-      const traceColor = nge ? NGE_TRACE : hyper ? HYPER_TRACE : optic ? OPTIC_TRACE : eva ? EVA_TRACE : COLORS.waveform;
+      const backgroundFill = nge ? NGE_BG : hyper ? HYPER_BG : optic ? OPTIC_BG : red ? RED_BG : eva ? EVA_BG : COLORS.bg2;
+      const persistenceFill = nge ? NGE_PERSISTENCE_FILL : hyper ? CANVAS.hyper.persistenceFill : optic ? OPTIC_PERSISTENCE_FILL : red ? RED_PERSISTENCE_FILL : eva ? EVA_PERSISTENCE_FILL : COLORS.bg2;
+      const gridColor = nge ? NGE_GRID : hyper ? HYPER_GRID : optic ? OPTIC_GRID : red ? RED_GRID : eva ? EVA_GRID : COLORS.waveformGrid;
+      const amplitudeTextColor = hyper ? HYPER_TEXT : optic ? OPTIC_TEXT : red ? RED_TEXT : eva ? EVA_TEXT : COLORS.textDim;
+      const traceColor = nge ? NGE_TRACE : hyper ? HYPER_TRACE : optic ? OPTIC_TRACE : red ? RED_TRACE : eva ? EVA_TRACE : COLORS.waveform;
 
       // Background — hard clear in normal mode, phosphor persistence in NGE/EVA
-      if (nge || hyper || optic || eva) {
+      if (nge || hyper || optic || red || eva) {
         // Fade previous trace: partially transparent fill lets old traces glow
         ctx.fillStyle = persistenceFill;
       } else {
@@ -155,6 +163,8 @@ export function OscilloscopePanel(): React.ReactElement {
             ? 'rgba(98,232,255,0.25)'
             : optic
               ? 'rgba(123,182,212,0.36)'
+              : red
+                ? 'rgba(255,132,116,0.28)'
             : eva
               ? 'rgba(255,123,0,0.25)'
               : COLORS.waveformGrid;
@@ -163,7 +173,7 @@ export function OscilloscopePanel(): React.ReactElement {
         ctx.moveTo(padX, midY);
         ctx.lineTo(padX + drawW, midY);
         ctx.stroke();
-        drawLabel(ctx, W, dpr, nge ? 'nge' : hyper ? 'hyper' : optic ? 'optic' : eva ? 'eva' : 'default');
+        drawLabel(ctx, W, dpr, nge ? 'nge' : hyper ? 'hyper' : optic ? 'optic' : red ? 'red' : eva ? 'eva' : 'default');
         return;
       }
 
@@ -192,13 +202,13 @@ export function OscilloscopePanel(): React.ReactElement {
 
       // NGE: bright phosphor green-amber; normal: instrument amber
       ctx.strokeStyle = traceColor;
-      ctx.lineWidth = nge || hyper || optic || eva ? 1.2 * dpr : CANVAS.oscLineWidth * dpr;
+      ctx.lineWidth = nge || hyper || optic || red || eva ? 1.2 * dpr : CANVAS.oscLineWidth * dpr;
       ctx.lineJoin = 'round';
 
-      if (nge || hyper || optic || eva) {
+      if (nge || hyper || optic || red || eva) {
         // Glow pass — wide soft stroke underneath
         ctx.save();
-        ctx.strokeStyle = nge ? 'rgba(140,210,40,0.18)' : hyper ? HYPER_GLOW : optic ? OPTIC_GLOW : EVA_GLOW;
+        ctx.strokeStyle = nge ? 'rgba(140,210,40,0.18)' : hyper ? HYPER_GLOW : optic ? OPTIC_GLOW : red ? RED_GLOW : EVA_GLOW;
         ctx.lineWidth = 5 * dpr;
         ctx.beginPath();
         for (let i = 0; i < samples; i++) {
@@ -218,7 +228,7 @@ export function OscilloscopePanel(): React.ReactElement {
       }
       ctx.stroke();
 
-      drawLabel(ctx, W, dpr, nge ? 'nge' : hyper ? 'hyper' : optic ? 'optic' : eva ? 'eva' : 'default');
+      drawLabel(ctx, W, dpr, nge ? 'nge' : hyper ? 'hyper' : optic ? 'optic' : red ? 'red' : eva ? 'eva' : 'default');
     };
 
     rafRef.current = requestAnimationFrame(draw);
@@ -240,10 +250,10 @@ function drawLabel(
   ctx: CanvasRenderingContext2D,
   W: number,
   dpr: number,
-  mode: 'default' | 'nge' | 'hyper' | 'optic' | 'eva' = 'default',
+  mode: 'default' | 'nge' | 'hyper' | 'optic' | 'red' | 'eva' = 'default',
 ): void {
   ctx.font = `${9 * dpr}px ${FONTS.mono}`;
-  ctx.fillStyle = mode === 'nge' ? NGE_LABEL : mode === 'hyper' ? HYPER_LABEL : mode === 'optic' ? OPTIC_LABEL : mode === 'eva' ? EVA_LABEL : COLORS.textDim;
+  ctx.fillStyle = mode === 'nge' ? NGE_LABEL : mode === 'hyper' ? HYPER_LABEL : mode === 'optic' ? OPTIC_LABEL : mode === 'red' ? RED_LABEL : mode === 'eva' ? EVA_LABEL : COLORS.textDim;
   ctx.textAlign = 'right';
   ctx.textBaseline = 'top';
   ctx.fillText('OSCILLOSCOPE', W - 8 * dpr, 6 * dpr);

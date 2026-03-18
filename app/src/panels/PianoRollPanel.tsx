@@ -78,19 +78,20 @@ export function PianoRollPanel({ noteEvents }: Props): React.ReactElement {
       const H = canvas.height;
       const dpr = Math.min(devicePixelRatio, PANEL_DPR_MAX);
       const optic = displayMode.optic;
-      const backgroundFill = optic ? CANVAS.optic.bg2 : COLORS.bg1;
-      const blackKeyFill = optic ? 'rgba(225,236,244,0.92)' : COLORS.bg0;
-      const whiteKeyFill = optic ? 'rgba(247,251,255,0.98)' : COLORS.bg2;
-      const octaveLine = optic ? 'rgba(159,199,223,0.55)' : COLORS.border;
-      const octaveLabel = optic ? CANVAS.optic.label : COLORS.textDim;
-      const activeNoteFill = optic ? 'rgba(29,169,199,0.50)' : COLORS.noteOverlay;
-      const pastNoteFill = optic ? 'rgba(125,174,205,0.38)' : 'rgba(100, 80, 30, 0.45)';
-      const futureNoteFill = optic ? 'rgba(142,214,231,0.52)' : 'rgba(160, 120, 50, 0.55)';
-      const activeNoteBorder = optic ? 'rgba(21,151,212,0.88)' : COLORS.noteOverlayBorder;
-      const noteBorder = optic ? 'rgba(113,171,204,0.36)' : 'rgba(200, 160, 80, 0.3)';
-      const cursorColor = optic ? CANVAS.optic.trace : COLORS.accent;
-      const tickLineColor = optic ? 'rgba(213,229,238,0.92)' : COLORS.bg3;
-      const tickTextColor = optic ? CANVAS.optic.label : COLORS.textDim;
+      const red = displayMode.red;
+      const backgroundFill = optic ? CANVAS.optic.bg2 : red ? CANVAS.red.bg2 : COLORS.bg1;
+      const blackKeyFill = optic ? 'rgba(225,236,244,0.92)' : red ? 'rgba(24,8,9,0.96)' : COLORS.bg0;
+      const whiteKeyFill = optic ? 'rgba(247,251,255,0.98)' : red ? 'rgba(34,12,13,0.94)' : COLORS.bg2;
+      const octaveLine = optic ? 'rgba(159,199,223,0.55)' : red ? 'rgba(124,40,39,0.48)' : COLORS.border;
+      const octaveLabel = optic ? CANVAS.optic.label : red ? CANVAS.red.label : COLORS.textDim;
+      const activeNoteFill = optic ? 'rgba(29,169,199,0.50)' : red ? 'rgba(255,90,74,0.48)' : COLORS.noteOverlay;
+      const pastNoteFill = optic ? 'rgba(125,174,205,0.38)' : red ? 'rgba(110,28,24,0.38)' : 'rgba(100, 80, 30, 0.45)';
+      const futureNoteFill = optic ? 'rgba(142,214,231,0.52)' : red ? 'rgba(176,52,42,0.48)' : 'rgba(160, 120, 50, 0.55)';
+      const activeNoteBorder = optic ? 'rgba(21,151,212,0.88)' : red ? 'rgba(255,140,120,0.88)' : COLORS.noteOverlayBorder;
+      const noteBorder = optic ? 'rgba(113,171,204,0.36)' : red ? 'rgba(198,70,60,0.36)' : 'rgba(200, 160, 80, 0.3)';
+      const cursorColor = optic ? CANVAS.optic.trace : red ? CANVAS.red.trace : COLORS.accent;
+      const tickLineColor = optic ? 'rgba(213,229,238,0.92)' : red ? 'rgba(56,16,18,0.92)' : COLORS.bg3;
+      const tickTextColor = optic ? CANVAS.optic.label : red ? CANVAS.red.label : COLORS.textDim;
 
       ctx.clearRect(0, 0, W, H);
       ctx.fillStyle = backgroundFill;
@@ -227,7 +228,7 @@ export function PianoRollPanel({ noteEvents }: Props): React.ReactElement {
   }, [audioEngine, displayMode]);
 
   return (
-    <div style={{ ...panelStyle, background: displayMode.optic ? CANVAS.optic.bg2 : COLORS.bg1 }}>
+    <div style={{ ...panelStyle, background: displayMode.optic ? CANVAS.optic.bg2 : displayMode.red ? CANVAS.red.bg2 : COLORS.bg1 }}>
       <canvas ref={canvasRef} style={canvasStyle} />
     </div>
   );

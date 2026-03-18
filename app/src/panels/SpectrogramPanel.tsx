@@ -26,6 +26,10 @@ const HYPER_BG = CANVAS.hyper.bg;
 const HYPER_LABEL = CANVAS.hyper.label;
 const HYPER_AXIS = CANVAS.hyper.spectroAxis;
 const HYPER_SPECTRO_PALETTE = CANVAS.hyper.spectroPalette;
+const RED_BG = CANVAS.red.bg;
+const RED_LABEL = CANVAS.red.label;
+const RED_AXIS = CANVAS.red.spectroAxis;
+const RED_SPECTRO_PALETTE = CANVAS.red.spectroPalette;
 const OPTIC_BG = CANVAS.optic.bg;
 const OPTIC_LABEL = CANVAS.optic.label;
 const OPTIC_AXIS = CANVAS.optic.spectroAxis;
@@ -39,6 +43,7 @@ const HISTORY_LEVELS = 256;
 const SPECTRO_BG_RGB = hexToRgb(SPECTRO_BG);
 const NGE_BG_RGB = hexToRgb(NGE_BG);
 const HYPER_BG_RGB = hexToRgb(HYPER_BG);
+const RED_BG_RGB = hexToRgb(RED_BG);
 const OPTIC_BG_RGB = hexToRgb(OPTIC_BG);
 const EVA_BG_RGB = hexToRgb(EVA_BG);
 
@@ -94,6 +99,7 @@ function spectroPaletteColor(db: number, palette: readonly string[]): string {
 function spectroColorForMode(db: number, mode: VisualMode): string {
   if (mode === 'nge') return spectroPaletteColor(db, NGE_SPECTRO_PALETTE);
   if (mode === 'hyper') return spectroPaletteColor(db, HYPER_SPECTRO_PALETTE);
+  if (mode === 'red') return spectroPaletteColor(db, RED_SPECTRO_PALETTE);
   if (mode === 'optic') return spectroPaletteColor(db, OPTIC_SPECTRO_PALETTE);
   if (mode === 'eva') return spectroPaletteColor(db, EVA_SPECTRO_PALETTE);
   return spectroColor(db);
@@ -118,6 +124,7 @@ function createPalette(mode: VisualMode): readonly Rgb[] {
 const NORMAL_PALETTE = createPalette('default');
 const NGE_PALETTE = createPalette('nge');
 const HYPER_PALETTE = createPalette('hyper');
+const RED_PALETTE = createPalette('red');
 const OPTIC_PALETTE = createPalette('optic');
 const EVA_PALETTE = createPalette('eva');
 
@@ -166,8 +173,8 @@ function paintHistoryToCanvas(
 ): void {
   if (width === 0 || height === 0) return;
 
-  const palette = mode === 'nge' ? NGE_PALETTE : mode === 'hyper' ? HYPER_PALETTE : mode === 'optic' ? OPTIC_PALETTE : mode === 'eva' ? EVA_PALETTE : NORMAL_PALETTE;
-  const [bgR, bgG, bgB] = mode === 'nge' ? NGE_BG_RGB : mode === 'hyper' ? HYPER_BG_RGB : mode === 'optic' ? OPTIC_BG_RGB : mode === 'eva' ? EVA_BG_RGB : SPECTRO_BG_RGB;
+  const palette = mode === 'nge' ? NGE_PALETTE : mode === 'hyper' ? HYPER_PALETTE : mode === 'red' ? RED_PALETTE : mode === 'optic' ? OPTIC_PALETTE : mode === 'eva' ? EVA_PALETTE : NORMAL_PALETTE;
+  const [bgR, bgG, bgB] = mode === 'nge' ? NGE_BG_RGB : mode === 'hyper' ? HYPER_BG_RGB : mode === 'red' ? RED_BG_RGB : mode === 'optic' ? OPTIC_BG_RGB : mode === 'eva' ? EVA_BG_RGB : SPECTRO_BG_RGB;
   const image = ctx.createImageData(width, height);
   const { data } = image;
 
@@ -352,12 +359,13 @@ export function SpectrogramPanel(): React.ReactElement {
       const dpr = Math.min(devicePixelRatio, PANEL_DPR_MAX);
       const mode = displayMode.mode;
       const hyper = mode === 'hyper';
+      const red = mode === 'red';
       const optic = mode === 'optic';
       const eva = mode === 'eva';
       const spectroX = axisW;
-      const backgroundFill = mode === 'nge' ? NGE_BG : mode === 'hyper' ? HYPER_BG : optic ? OPTIC_BG : mode === 'eva' ? EVA_BG : SPECTRO_BG;
-      const axisColor = mode === 'nge' ? NGE_AXIS : mode === 'hyper' ? HYPER_AXIS : optic ? OPTIC_AXIS : mode === 'eva' ? EVA_AXIS : COLORS.border;
-      const labelColor = mode === 'nge' ? NGE_LABEL : mode === 'hyper' ? HYPER_LABEL : optic ? OPTIC_LABEL : mode === 'eva' ? EVA_LABEL : COLORS.textDim;
+      const backgroundFill = mode === 'nge' ? NGE_BG : mode === 'hyper' ? HYPER_BG : red ? RED_BG : optic ? OPTIC_BG : mode === 'eva' ? EVA_BG : SPECTRO_BG;
+      const axisColor = mode === 'nge' ? NGE_AXIS : mode === 'hyper' ? HYPER_AXIS : red ? RED_AXIS : optic ? OPTIC_AXIS : mode === 'eva' ? EVA_AXIS : COLORS.border;
+      const labelColor = mode === 'nge' ? NGE_LABEL : mode === 'hyper' ? HYPER_LABEL : red ? RED_LABEL : optic ? OPTIC_LABEL : mode === 'eva' ? EVA_LABEL : COLORS.textDim;
 
       const offscreenCtx = offscreen.getContext('2d');
       if (!offscreenCtx) return;
@@ -421,18 +429,18 @@ export function SpectrogramPanel(): React.ReactElement {
       ctx.drawImage(offscreen, spectroX, padY);
 
       const cellPx = Math.round(8 * dpr);
-      ctx.fillStyle = hyper ? 'rgba(4,12,32,0.30)' : optic ? 'rgba(136,170,188,0.16)' : eva ? 'rgba(8,4,26,0.30)' : 'rgba(0,0,0,0.30)';
+      ctx.fillStyle = hyper ? 'rgba(4,12,32,0.30)' : optic ? 'rgba(136,170,188,0.16)' : red ? 'rgba(74,20,20,0.22)' : eva ? 'rgba(8,4,26,0.30)' : 'rgba(0,0,0,0.30)';
       for (let gx = spectroX; gx < spectroX + spectroW; gx += cellPx) {
         ctx.fillRect(gx, padY, 1, spectroH);
       }
 
-      ctx.fillStyle = hyper ? 'rgba(10,18,44,0.38)' : optic ? 'rgba(142,174,190,0.22)' : eva ? 'rgba(20,8,40,0.38)' : 'rgba(0,0,0,0.38)';
+      ctx.fillStyle = hyper ? 'rgba(10,18,44,0.38)' : optic ? 'rgba(142,174,190,0.22)' : red ? 'rgba(96,28,26,0.24)' : eva ? 'rgba(20,8,40,0.38)' : 'rgba(0,0,0,0.38)';
       for (const hz of MINOR_GRID_HZ) {
         const t = hzToT(hz);
         ctx.fillRect(spectroX, padY + spectroH - t * spectroH, spectroW, 1);
       }
 
-      ctx.fillStyle = hyper ? 'rgba(26,44,112,0.52)' : optic ? 'rgba(101,133,149,0.34)' : eva ? 'rgba(74,26,144,0.52)' : 'rgba(0,0,0,0.62)';
+      ctx.fillStyle = hyper ? 'rgba(26,44,112,0.52)' : optic ? 'rgba(101,133,149,0.34)' : red ? 'rgba(138,44,38,0.32)' : eva ? 'rgba(74,26,144,0.52)' : 'rgba(0,0,0,0.62)';
       for (const hz of GRID_HZ) {
         const t = hzToT(hz);
         ctx.fillRect(spectroX, padY + spectroH - t * spectroH, spectroW, 1);
@@ -475,7 +483,7 @@ export function SpectrogramPanel(): React.ReactElement {
   }, [audioEngine, displayMode, scrollSpeed, theaterMode]);
 
   return (
-    <div style={{ ...panelStyle, background: displayMode.mode === 'optic' ? CANVAS.optic.bg : SPECTRO_BG }}>
+    <div style={{ ...panelStyle, background: displayMode.mode === 'optic' ? CANVAS.optic.bg : displayMode.mode === 'red' ? CANVAS.red.bg : SPECTRO_BG }}>
       <canvas
         ref={canvasRef}
         style={canvasStyle}

@@ -26,6 +26,11 @@ const HYPER_PERSISTENCE_FILL = CANVAS.hyper.persistenceFill;
 const HYPER_TRACE = CANVAS.hyper.trace;
 const HYPER_GRID = CANVAS.hyper.grid;
 const HYPER_LABEL = CANVAS.hyper.label;
+const RED_BG = CANVAS.red.bg2;
+const RED_PERSISTENCE_FILL = CANVAS.red.persistenceFill;
+const RED_TRACE = CANVAS.red.trace;
+const RED_GRID = CANVAS.red.grid;
+const RED_LABEL = CANVAS.red.label;
 const OPTIC_BG = CANVAS.optic.bg2;
 const OPTIC_PERSISTENCE_FILL = CANVAS.optic.persistenceFill;
 const OPTIC_TRACE = CANVAS.optic.trace;
@@ -42,6 +47,8 @@ const NGE_BG_RGB = hexToRgb(NGE_BG);
 const NGE_TRACE_RGB = hexToRgb(NGE_TRACE);
 const HYPER_BG_RGB = hexToRgb(HYPER_BG);
 const HYPER_TRACE_RGB = hexToRgb(HYPER_TRACE);
+const RED_BG_RGB = hexToRgb(RED_BG);
+const RED_TRACE_RGB = hexToRgb(RED_TRACE);
 const OPTIC_BG_RGB = hexToRgb(OPTIC_BG);
 const OPTIC_TRACE_RGB = hexToRgb(OPTIC_TRACE);
 const EVA_BG_RGB = hexToRgb(EVA_BG);
@@ -78,6 +85,18 @@ function getVisualPalette(mode: VisualMode): {
       labelColor: HYPER_LABEL,
       backgroundFillRgb: HYPER_BG_RGB,
       traceColorRgb: HYPER_TRACE_RGB,
+    };
+  }
+
+  if (mode === 'red') {
+    return {
+      backgroundFill: RED_BG,
+      persistenceFill: RED_PERSISTENCE_FILL,
+      traceColor: RED_TRACE,
+      gridColor: RED_GRID,
+      labelColor: RED_LABEL,
+      backgroundFillRgb: RED_BG_RGB,
+      traceColorRgb: RED_TRACE_RGB,
     };
   }
 

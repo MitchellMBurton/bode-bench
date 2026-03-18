@@ -20,6 +20,7 @@ import { useAudioEngine, useDisplayMode, usePerformanceDiagnosticsStore, usePerf
 import type { VisualMode } from './audio/displayMode';
 import type { Marker } from './types';
 import type { PerformanceDiagnosticsSnapshot } from './diagnostics/logStore';
+import { PRODUCT_NAME } from './constants';
 import { CANVAS, COLORS, SPACING } from './theme';
 import { formatRuntimeMs } from './utils/format';
 
@@ -94,7 +95,12 @@ export default function App(): React.ReactElement {
   const panelTitle = fileTitle ?? 'NO SESSION';
   const showScanLines = visualMode === 'nge' || visualMode === 'hyper' || visualMode === 'eva';
   const showOpticBloom = visualMode === 'optic';
+  const showRedLighting = visualMode === 'red';
   const runtimeStatus = getRuntimeStatus(perfSnapshot);
+
+  useEffect(() => {
+    document.title = fileTitle ? `${fileTitle} - ${PRODUCT_NAME}` : PRODUCT_NAME;
+  }, [fileTitle]);
 
   return (
     <>
@@ -146,13 +152,22 @@ export default function App(): React.ReactElement {
           content: <PerformanceDiagnostics visualMode={visualMode} />,
         }}
         topLeft={{
-          category: 'SUITE CONSOLE',
+          category: 'SESSION CONSOLE',
           title: panelTitle,
-          help: 'SESSION CONTROLS\n\nLoad a file via drag-drop or the file button. All analysis runs locally — no network required.\n\nVOL: output volume. RATE: playback speed (preserves pitch when pitch mode is on). PITCH: enable real-time pitch shifting on decoded files (< 384 MB).\n\nGREYSCALE: monochrome overlay. OPTIC: white-light dispersion palette. NGE: phosphor-green palette. HYPER: cyan/indigo palette. EVA: alarm-state violet/orange palette.\n\nKEYBOARD SHORTCUTS: Space play/pause, ← → seek 5 s (Shift: 15 s), S stop, L loop file, M mark, Esc clear loop, ? show all shortcuts.\n\nDiagnostics log captures every transport event and file analysis result.',
+          help: 'SESSION CONTROLS\n\nLoad a file via drag-drop or the file button. All analysis runs locally — no network required.\n\nVOL: output volume. RATE: playback speed (preserves pitch when pitch mode is on). PITCH: enable real-time pitch shifting on decoded files (< 384 MB).\n\nGREYSCALE: monochrome overlay. OPTIC: white-light dispersion palette. RED: darkroom red-light palette. NGE: phosphor-green palette. HYPER: cyan/indigo palette. EVA: alarm-state violet/orange palette.\n\nKEYBOARD SHORTCUTS: Space play/pause, ← → seek 5 s (Shift: 15 s), S stop, L loop file, M mark, Esc clear loop, ? show all shortcuts.\n\nDiagnostics log captures every transport event and file analysis result.',
           content: (
             <div style={controlPanelStyle}>
               <MetadataDisplay filename={filename} visualMode={visualMode} />
-              <div style={{ ...dividerStyle, background: visualMode === 'optic' ? CANVAS.optic.chromeBorder : COLORS.border }} />
+              <div
+                style={{
+                  ...dividerStyle,
+                  background: visualMode === 'optic'
+                    ? CANVAS.optic.chromeBorder
+                    : visualMode === 'red'
+                      ? CANVAS.red.chromeBorder
+                      : COLORS.border,
+                }}
+              />
               <TransportControls />
               <SessionControls
                 grayscale={grayscale}
@@ -243,6 +258,7 @@ export default function App(): React.ReactElement {
         }}
       />
       {showOpticBloom && <div style={opticBloomStyle} />}
+      {showRedLighting && <div style={redLightingStyle} />}
       {showScanLines && <div style={scanLineStyle} />}
       <HotkeyOverlay
         open={hotkeyOverlayOpen}
@@ -291,5 +307,21 @@ const opticBloomStyle: React.CSSProperties = {
     'linear-gradient(138deg, rgba(255,255,255,0.02) 0%, rgba(93,167,203,0.04) 30%, transparent 48%, rgba(198,160,96,0.05) 68%, rgba(255,255,255,0.02) 100%)',
   ].join(','),
   animation: 'optics-glide 18s linear infinite',
+  willChange: 'background-position',
+};
+
+const redLightingStyle: React.CSSProperties = {
+  position: 'fixed',
+  inset: 0,
+  pointerEvents: 'none',
+  zIndex: 9998,
+  opacity: 0.18,
+  backgroundImage: [
+    'radial-gradient(circle at 16% 18%, rgba(255,78,64,0.18), transparent 22%)',
+    'radial-gradient(circle at 84% 14%, rgba(160,28,24,0.26), transparent 20%)',
+    'radial-gradient(circle at 50% 84%, rgba(255,120,94,0.10), transparent 26%)',
+    'linear-gradient(180deg, rgba(64,0,0,0.18) 0%, rgba(32,0,0,0.05) 28%, transparent 46%, rgba(74,0,0,0.08) 100%)',
+  ].join(','),
+  animation: 'red-drift 22s linear infinite',
   willChange: 'background-position',
 };

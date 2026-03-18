@@ -23,6 +23,9 @@ const NGE_TEXT = 'rgba(140,210,40,0.72)';
 const HYPER_TRACE = CANVAS.hyper.trace;
 const HYPER_LABEL = CANVAS.hyper.label;
 const HYPER_TEXT = CANVAS.hyper.text;
+const RED_TRACE = CANVAS.red.trace;
+const RED_LABEL = CANVAS.red.label;
+const RED_TEXT = CANVAS.red.text;
 const OPTIC_TRACE = CANVAS.optic.trace;
 const OPTIC_LABEL = CANVAS.optic.label;
 const OPTIC_TEXT = CANVAS.optic.text;
@@ -130,19 +133,20 @@ export function LoudnessHistoryPanel(): React.ReactElement {
       const nge = displayMode.nge;
       const hyper = displayMode.hyper;
       const optic = displayMode.optic;
+      const red = displayMode.red;
       const eva = displayMode.eva;
       const padV = PAD_V_PX * dpr;
       drawDimRef.current = { H, padV };
       const baseY = H - padV;
-      const traceColor = nge ? NGE_TRACE : hyper ? HYPER_TRACE : optic ? OPTIC_TRACE : eva ? EVA_TRACE : COLORS.waveform;
-      const labelColor = nge ? NGE_LABEL : hyper ? HYPER_LABEL : optic ? OPTIC_LABEL : eva ? EVA_LABEL : COLORS.textDim;
-      const textColor = nge ? NGE_TEXT : hyper ? HYPER_TEXT : optic ? OPTIC_TEXT : eva ? EVA_TEXT : COLORS.textSecondary;
+      const traceColor = nge ? NGE_TRACE : hyper ? HYPER_TRACE : optic ? OPTIC_TRACE : red ? RED_TRACE : eva ? EVA_TRACE : COLORS.waveform;
+      const labelColor = nge ? NGE_LABEL : hyper ? HYPER_LABEL : optic ? OPTIC_LABEL : red ? RED_LABEL : eva ? EVA_LABEL : COLORS.textDim;
+      const textColor = nge ? NGE_TEXT : hyper ? HYPER_TEXT : optic ? OPTIC_TEXT : red ? RED_TEXT : eva ? EVA_TEXT : COLORS.textSecondary;
 
-      ctx.fillStyle = hyper ? CANVAS.hyper.bg2 : optic ? CANVAS.optic.bg2 : eva ? CANVAS.eva.bg : COLORS.bg1;
+      ctx.fillStyle = hyper ? CANVAS.hyper.bg2 : optic ? CANVAS.optic.bg2 : red ? CANVAS.red.bg2 : eva ? CANVAS.eva.bg : COLORS.bg1;
       ctx.fillRect(0, 0, W, H);
 
       // Top border
-      ctx.fillStyle = hyper ? 'rgba(32,52,110,0.92)' : optic ? 'rgba(159,199,223,0.84)' : eva ? 'rgba(74,26,144,0.92)' : COLORS.border;
+      ctx.fillStyle = hyper ? 'rgba(32,52,110,0.92)' : optic ? 'rgba(159,199,223,0.84)' : red ? 'rgba(124,40,39,0.84)' : eva ? 'rgba(74,26,144,0.92)' : COLORS.border;
       ctx.fillRect(0, 0, W, 1);
 
       // Reference lines — labels on right
@@ -150,12 +154,12 @@ export function LoudnessHistoryPanel(): React.ReactElement {
       for (const [db, label] of REF_LINES) {
         const y = Math.round(dbToY(db, H, padV)) + 0.5;
         ctx.strokeStyle = db === -6
-          ? (hyper ? 'rgba(88,124,255,0.72)' : optic ? 'rgba(123,182,212,0.76)' : eva ? 'rgba(120,50,200,0.72)' : 'rgba(50,50,72,1)')
-          : (hyper ? 'rgba(28,42,88,0.92)' : optic ? 'rgba(191,218,233,0.92)' : eva ? 'rgba(40,16,80,0.92)' : 'rgba(32,32,48,1)');
+          ? (hyper ? 'rgba(88,124,255,0.72)' : optic ? 'rgba(123,182,212,0.76)' : red ? 'rgba(156,52,46,0.72)' : eva ? 'rgba(120,50,200,0.72)' : 'rgba(50,50,72,1)')
+          : (hyper ? 'rgba(28,42,88,0.92)' : optic ? 'rgba(191,218,233,0.92)' : red ? 'rgba(64,16,18,0.92)' : eva ? 'rgba(40,16,80,0.92)' : 'rgba(32,32,48,1)');
         ctx.lineWidth = 1;
         ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
         ctx.font = `${6.5 * dpr}px ${FONTS.mono}`;
-        ctx.fillStyle = hyper ? HYPER_LABEL : optic ? OPTIC_LABEL : eva ? EVA_LABEL : 'rgba(80,80,110,1)';
+        ctx.fillStyle = hyper ? HYPER_LABEL : optic ? OPTIC_LABEL : red ? RED_LABEL : eva ? EVA_LABEL : 'rgba(80,80,110,1)';
         ctx.textAlign = 'right';
         ctx.textBaseline = 'bottom';
         ctx.fillText(label, W - SPACING.xs * dpr, y - 1 * dpr);
@@ -192,8 +196,8 @@ export function LoudnessHistoryPanel(): React.ReactElement {
           ctx.lineTo(points[points.length - 1][0], baseY);
           ctx.closePath();
           const fillGrad = ctx.createLinearGradient(0, padV, 0, H);
-          fillGrad.addColorStop(0, nge ? 'rgba(160,216,64,0.24)' : hyper ? 'rgba(98,232,255,0.24)' : optic ? 'rgba(21,151,212,0.16)' : eva ? 'rgba(255,123,0,0.24)' : 'rgba(200,146,42,0.28)');
-          fillGrad.addColorStop(1, nge ? 'rgba(96,192,32,0.04)' : hyper ? 'rgba(255,92,188,0.06)' : optic ? 'rgba(236,177,255,0.06)' : eva ? 'rgba(170,90,255,0.06)' : 'rgba(200,146,42,0.04)');
+          fillGrad.addColorStop(0, nge ? 'rgba(160,216,64,0.24)' : hyper ? 'rgba(98,232,255,0.24)' : optic ? 'rgba(21,151,212,0.16)' : red ? 'rgba(255,90,74,0.20)' : eva ? 'rgba(255,123,0,0.24)' : 'rgba(200,146,42,0.28)');
+          fillGrad.addColorStop(1, nge ? 'rgba(96,192,32,0.04)' : hyper ? 'rgba(255,92,188,0.06)' : optic ? 'rgba(236,177,255,0.06)' : red ? 'rgba(140,42,38,0.06)' : eva ? 'rgba(170,90,255,0.06)' : 'rgba(200,146,42,0.04)');
           ctx.fillStyle = fillGrad;
           ctx.fill();
 
@@ -201,7 +205,7 @@ export function LoudnessHistoryPanel(): React.ReactElement {
           ctx.beginPath();
           ctx.moveTo(points[0][0], points[0][1]);
           for (let i = 1; i < points.length; i++) ctx.lineTo(points[i][0], points[i][1]);
-          ctx.strokeStyle = nge ? 'rgba(160,216,64,0.78)' : hyper ? 'rgba(98,232,255,0.84)' : optic ? 'rgba(21,151,212,0.82)' : eva ? 'rgba(255,123,0,0.84)' : 'rgba(200,146,42,0.75)';
+          ctx.strokeStyle = nge ? 'rgba(160,216,64,0.78)' : hyper ? 'rgba(98,232,255,0.84)' : optic ? 'rgba(21,151,212,0.82)' : red ? 'rgba(255,110,92,0.84)' : eva ? 'rgba(255,123,0,0.84)' : 'rgba(200,146,42,0.75)';
           ctx.lineWidth = 1.5 * dpr;
           ctx.lineJoin = 'round';
           ctx.stroke();
@@ -216,7 +220,7 @@ export function LoudnessHistoryPanel(): React.ReactElement {
       } else if (hLen === 0) {
         // Empty state: flat dim line
         const y = Math.round(dbToY(-40, H, padV)) + 0.5;
-        ctx.strokeStyle = hyper ? 'rgba(24,34,70,1)' : optic ? 'rgba(202,222,234,0.92)' : eva ? 'rgba(22,12,48,1)' : COLORS.bg3;
+        ctx.strokeStyle = hyper ? 'rgba(24,34,70,1)' : optic ? 'rgba(202,222,234,0.92)' : red ? 'rgba(34,10,11,0.92)' : eva ? 'rgba(22,12,48,1)' : COLORS.bg3;
         ctx.lineWidth = 1;
         ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
       }

@@ -97,12 +97,15 @@ interface ChromePanelProps extends PanelDef {
 function ChromePanel({ category, title, stat, help, content, visualMode, onFullscreen }: ChromePanelProps): React.ReactElement {
   const nge = visualMode === 'nge';
   const optic = visualMode === 'optic';
+  const red = visualMode === 'red';
   const hyper = visualMode === 'hyper';
   const eva = visualMode === 'eva';
   const chromeBorder = nge
     ? CANVAS.nge.chromeBorder
     : optic
       ? CANVAS.optic.chromeBorder
+    : red
+      ? CANVAS.red.chromeBorder
     : hyper
       ? CANVAS.hyper.chromeBorder
       : eva
@@ -112,6 +115,8 @@ function ChromePanel({ category, title, stat, help, content, visualMode, onFulls
     ? CANVAS.nge.chromeBorderActive
     : optic
       ? CANVAS.optic.chromeBorderActive
+    : red
+      ? CANVAS.red.chromeBorderActive
     : hyper
       ? CANVAS.hyper.chromeBorderActive
       : eva
@@ -121,6 +126,8 @@ function ChromePanel({ category, title, stat, help, content, visualMode, onFulls
     ? CANVAS.nge.category
     : optic
       ? CANVAS.optic.category
+    : red
+      ? CANVAS.red.category
     : hyper
       ? CANVAS.hyper.category
       : eva
@@ -130,19 +137,25 @@ function ChromePanel({ category, title, stat, help, content, visualMode, onFulls
     ? CANVAS.nge.stat
     : optic
       ? CANVAS.optic.stat
+    : red
+      ? CANVAS.red.stat
     : hyper
       ? CANVAS.hyper.stat
       : eva
         ? CANVAS.eva.stat
         : COLORS.waveform;
-  const chromeTitle = optic ? CANVAS.optic.text : chromeTitleStyle.color;
+  const chromeTitle = optic ? CANVAS.optic.text : red ? CANVAS.red.text : chromeTitleStyle.color;
   const chromeBackground = optic
     ? 'linear-gradient(180deg, rgba(248,251,253,0.98), rgba(236,243,247,0.99))'
+    : red
+      ? 'linear-gradient(180deg, rgba(16,5,6,0.99), rgba(24,8,9,0.99))'
     : chromeStyle.background;
   const chromeHeaderBackground = optic
     ? 'linear-gradient(90deg, rgba(251,253,255,0.99), rgba(234,241,246,0.99))'
+    : red
+      ? 'linear-gradient(90deg, rgba(20,8,9,0.98), rgba(34,10,11,0.98))'
     : undefined;
-  const fullscreenBtnColor = optic ? CANVAS.optic.category : fullscreenBtnStyle.color;
+  const fullscreenBtnColor = optic ? CANVAS.optic.category : red ? CANVAS.red.category : fullscreenBtnStyle.color;
 
   return (
     <div style={{ ...chromeStyle, background: chromeBackground, border: `1px solid ${chromeBorder}` }}>
@@ -198,12 +211,15 @@ export function ConsoleLayout({
   }, [fullscreenQuadrant]);
   const nge = visualMode === 'nge';
   const optic = visualMode === 'optic';
+  const red = visualMode === 'red';
   const hyper = visualMode === 'hyper';
   const eva = visualMode === 'eva';
   const headerBorder = nge
     ? CANVAS.nge.chromeBorderActive
     : optic
       ? CANVAS.optic.chromeBorderActive
+    : red
+      ? CANVAS.red.chromeBorderActive
     : hyper
       ? CANVAS.hyper.chromeBorderActive
       : eva
@@ -213,6 +229,8 @@ export function ConsoleLayout({
     ? CANVAS.nge.category
     : optic
       ? CANVAS.optic.category
+    : red
+      ? CANVAS.red.category
     : hyper
       ? CANVAS.hyper.category
       : eva
@@ -222,6 +240,8 @@ export function ConsoleLayout({
     ? CANVAS.nge.chromeBorder
     : optic
       ? CANVAS.optic.chromeBorder
+    : red
+      ? CANVAS.red.chromeBorder
     : hyper
       ? CANVAS.hyper.chromeBorder
       : eva
@@ -231,6 +251,8 @@ export function ConsoleLayout({
     ? 'rgba(80,160,50,0.5)'
     : optic
       ? CANVAS.optic.category
+    : red
+      ? CANVAS.red.category
     : hyper
       ? 'rgba(112,180,255,0.62)'
       : eva
@@ -240,6 +262,8 @@ export function ConsoleLayout({
     ? 'rgba(160,230,60,0.92)'
     : optic
       ? CANVAS.optic.text
+    : red
+      ? CANVAS.red.text
     : hyper
       ? 'rgba(222,238,255,0.96)'
       : eva
@@ -249,6 +273,8 @@ export function ConsoleLayout({
     ? '#2c6b18'
     : optic
       ? CANVAS.optic.chromeBorderActive
+    : red
+      ? CANVAS.red.chromeBorderActive
     : hyper
       ? 'rgba(112,180,255,0.72)'
       : eva
@@ -258,6 +284,8 @@ export function ConsoleLayout({
     ? 'rgba(8,18,8,0.9)'
     : optic
       ? 'rgba(247,250,252,0.94)'
+    : red
+      ? 'rgba(14,4,5,0.92)'
     : hyper
       ? 'rgba(8,14,32,0.92)'
       : eva
@@ -265,22 +293,30 @@ export function ConsoleLayout({
         : COLORS.bg1;
   const shellBackground = optic
     ? 'linear-gradient(180deg, #f3f7fa 0%, #e9f0f4 52%, #e1e9ee 100%)'
+    : red
+      ? 'linear-gradient(180deg, #0a0203 0%, #120405 48%, #180708 100%)'
     : shellStyle.background;
   const headerBackground = optic
     ? 'linear-gradient(90deg, rgba(249,252,253,0.99), rgba(233,241,246,0.98))'
+    : red
+      ? 'linear-gradient(90deg, rgba(20,7,8,0.98), rgba(42,12,14,0.98))'
     : globalHeaderStyle.background;
-  const headerTitleColor = optic ? CANVAS.optic.text : headerTitleStyle.color;
-  const dividerBackground = optic ? 'rgba(91,131,154,0.44)' : toolbarDividerStyle.background;
-  const runtimeHintColor = optic ? 'rgba(57,90,109,0.82)' : runtimeToolbarHintStyle.color;
-  const runtimeTrayBackground = optic ? 'rgba(240,246,250,0.99)' : runtimeTrayStyle.background;
+  const headerTitleColor = optic ? CANVAS.optic.text : red ? CANVAS.red.text : headerTitleStyle.color;
+  const dividerBackground = optic ? 'rgba(91,131,154,0.44)' : red ? 'rgba(124,40,39,0.44)' : toolbarDividerStyle.background;
+  const runtimeHintColor = optic ? 'rgba(57,90,109,0.82)' : red ? 'rgba(214,108,96,0.78)' : runtimeToolbarHintStyle.color;
+  const runtimeTrayBackground = optic ? 'rgba(240,246,250,0.99)' : red ? 'rgba(12,4,5,0.99)' : runtimeTrayStyle.background;
   const runtimeResizeBackground = optic
     ? 'linear-gradient(180deg, rgba(244,248,251,0.99), rgba(228,237,243,1))'
+    : red
+      ? 'linear-gradient(180deg, rgba(18,6,7,0.99), rgba(36,10,11,1))'
     : runtimeResizeHandleStyle.background;
   const runtimeResizeGrip = optic
     ? 'linear-gradient(90deg, rgba(117,151,170,0.16), rgba(79,134,163,0.82), rgba(117,151,170,0.16))'
+    : red
+      ? 'linear-gradient(90deg, rgba(124,40,39,0.16), rgba(255,90,74,0.82), rgba(124,40,39,0.16))'
     : runtimeResizeGripStyle.background;
-  const runtimeResizeLabelColor = optic ? CANVAS.optic.text : runtimeResizeLabelStyle.color;
-  const runtimeResizeHintColor = optic ? 'rgba(57,90,109,0.82)' : runtimeResizeHintStyle.color;
+  const runtimeResizeLabelColor = optic ? CANVAS.optic.text : red ? CANVAS.red.text : runtimeResizeLabelStyle.color;
+  const runtimeResizeHintColor = optic ? 'rgba(57,90,109,0.82)' : red ? 'rgba(214,108,96,0.78)' : runtimeResizeHintStyle.color;
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -382,7 +418,7 @@ export function ConsoleLayout({
 
       {runtimeDock ? (
         <>
-          <div style={{ ...toolbarStyle, ...runtimeToolbarStyle, background: optic ? 'rgba(234,241,246,0.96)' : toolbarStyle.background, borderBottom: `1px solid ${toolbarBorder}` }}>
+          <div style={{ ...toolbarStyle, ...runtimeToolbarStyle, background: optic ? 'rgba(234,241,246,0.96)' : red ? 'rgba(18,6,7,0.96)' : toolbarStyle.background, borderBottom: `1px solid ${toolbarBorder}` }}>
             <div style={runtimeToolbarMetaStyle}>
               <span style={{ ...toolbarLabelStyle, color: toolbarText }}>{runtimeDock.label}</span>
               <span style={{ ...toolbarValueStyle, color: toolbarText }}>{runtimeDock.value}</span>
@@ -439,7 +475,7 @@ export function ConsoleLayout({
       ) : null}
 
       {/* Layout toolbar */}
-      <div style={{ ...toolbarStyle, background: optic ? 'rgba(232,239,244,0.94)' : toolbarStyle.background, borderBottom: `1px solid ${toolbarBorder}` }}>
+      <div style={{ ...toolbarStyle, background: optic ? 'rgba(232,239,244,0.94)' : red ? 'rgba(16,5,6,0.94)' : toolbarStyle.background, borderBottom: `1px solid ${toolbarBorder}` }}>
         <span style={{ ...toolbarLabelStyle, color: toolbarText }}>LAYOUT PROFILE</span>
         <span style={{ ...toolbarValueStyle, color: toolbarText }}>DEFAULT</span>
         <div style={{ ...toolbarDividerStyle, background: dividerBackground }} />
@@ -513,16 +549,17 @@ export function ConsoleLayout({
         const def = quadrantMap[fullscreenQuadrant];
         const ngeFS = visualMode === 'nge';
         const opticFS = visualMode === 'optic';
+        const redFS = visualMode === 'red';
         const hyperFS = visualMode === 'hyper';
         const evaFS = visualMode === 'eva';
-        const fsBorder = ngeFS ? CANVAS.nge.chromeBorderActive : opticFS ? CANVAS.optic.chromeBorderActive : hyperFS ? CANVAS.hyper.chromeBorderActive : evaFS ? CANVAS.eva.chromeBorderActive : COLORS.borderHighlight;
-        const fsCategory = ngeFS ? CANVAS.nge.category : opticFS ? CANVAS.optic.category : hyperFS ? CANVAS.hyper.category : evaFS ? CANVAS.eva.category : COLORS.textCategory;
+        const fsBorder = ngeFS ? CANVAS.nge.chromeBorderActive : opticFS ? CANVAS.optic.chromeBorderActive : redFS ? CANVAS.red.chromeBorderActive : hyperFS ? CANVAS.hyper.chromeBorderActive : evaFS ? CANVAS.eva.chromeBorderActive : COLORS.borderHighlight;
+        const fsCategory = ngeFS ? CANVAS.nge.category : opticFS ? CANVAS.optic.category : redFS ? CANVAS.red.category : hyperFS ? CANVAS.hyper.category : evaFS ? CANVAS.eva.category : COLORS.textCategory;
         return (
-          <div style={{ ...fullscreenOverlayStyle, background: opticFS ? 'linear-gradient(180deg, #f4f8fb 0%, #e7eff3 100%)' : fullscreenOverlayStyle.background }} data-shell-overlay="true">
+          <div style={{ ...fullscreenOverlayStyle, background: opticFS ? 'linear-gradient(180deg, #f4f8fb 0%, #e7eff3 100%)' : redFS ? 'linear-gradient(180deg, #120405 0%, #1b0708 100%)' : fullscreenOverlayStyle.background }} data-shell-overlay="true">
             <div style={{ ...fullscreenHeaderStyle, borderBottom: `1px solid ${fsBorder}` }}>
               <span style={{ ...fullscreenHeaderCategoryStyle, color: fsCategory }}>{def.category}</span>
-              <span style={{ ...fullscreenHeaderTitleStyle, color: opticFS ? CANVAS.optic.text : fullscreenHeaderTitleStyle.color }}>{def.title}</span>
-              <button style={{ ...fullscreenCloseBtnStyle, color: opticFS ? CANVAS.optic.text : fullscreenCloseBtnStyle.color }} onClick={() => setFullscreenQuadrant(null)} title="Exit fullscreen (Escape)" aria-label="Exit fullscreen">✕</button>
+              <span style={{ ...fullscreenHeaderTitleStyle, color: opticFS ? CANVAS.optic.text : redFS ? CANVAS.red.text : fullscreenHeaderTitleStyle.color }}>{def.title}</span>
+              <button style={{ ...fullscreenCloseBtnStyle, color: opticFS ? CANVAS.optic.text : redFS ? CANVAS.red.text : fullscreenCloseBtnStyle.color }} onClick={() => setFullscreenQuadrant(null)} title="Exit fullscreen (Escape)" aria-label="Exit fullscreen">✕</button>
             </div>
             <div style={fullscreenContentStyle}>{def.content}</div>
           </div>

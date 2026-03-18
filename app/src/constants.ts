@@ -4,6 +4,9 @@
 // enforced in the audio engine AND reflected in the UI.
 // ============================================================
 
+export const PRODUCT_NAME = 'Media Analysis Console';
+export const PRODUCT_EXPORT_SLUG = 'media-analysis-console';
+
 // Playback rate
 export const RATE_MIN     = 0.25;
 export const RATE_MAX     = 2;

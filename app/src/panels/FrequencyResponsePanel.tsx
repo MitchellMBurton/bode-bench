@@ -28,6 +28,13 @@ const HYPER_TRACE_FAINT = 'rgba(255,102,196,0.44)';
 const HYPER_GLOW = CANVAS.hyper.glow;
 const HYPER_LABEL = CANVAS.hyper.label;
 const HYPER_TEXT = CANVAS.hyper.text;
+const RED_TRACE = CANVAS.red.trace;
+const RED_TRACE_SOFT = 'rgba(255,110,92,0.82)';
+const RED_TRACE_DIM = 'rgba(198,70,60,0.56)';
+const RED_TRACE_FAINT = 'rgba(132,42,38,0.44)';
+const RED_GLOW = CANVAS.red.glow;
+const RED_LABEL = CANVAS.red.label;
+const RED_TEXT = CANVAS.red.text;
 const OPTIC_TRACE = CANVAS.optic.trace;
 const OPTIC_TRACE_SOFT = 'rgba(18,118,164,0.82)';
 const OPTIC_TRACE_DIM = 'rgba(71,121,155,0.64)';
@@ -213,6 +220,7 @@ export function FrequencyResponsePanel(): React.ReactElement {
       const nge = displayMode.nge;
       const hyper = displayMode.hyper;
       const optic = displayMode.optic;
+      const red = displayMode.red;
       const eva = displayMode.eva;
       const padX = PAD * dpr;
       const padY = PAD * dpr;
@@ -220,10 +228,10 @@ export function FrequencyResponsePanel(): React.ReactElement {
       const drawW = Math.max(1, width - padX * 2);
       const drawH = Math.max(1, height - padY * 2 - axisH);
       const pointCount = Math.max(112, Math.floor(drawW / Math.max(2, 3 * dpr)));
-      const signalColor = nge ? NGE_TRACE : hyper ? HYPER_TRACE : optic ? OPTIC_TRACE : eva ? EVA_TRACE : COLORS.waveform;
-      const signalGlow = nge ? NGE_GLOW : hyper ? HYPER_GLOW : optic ? OPTIC_GLOW : eva ? EVA_GLOW : COLORS.waveformGlow;
-      const labelColor = nge ? NGE_LABEL : hyper ? HYPER_LABEL : optic ? OPTIC_LABEL : eva ? EVA_LABEL : COLORS.textDim;
-      const textColor = nge ? NGE_TEXT : hyper ? HYPER_TEXT : optic ? OPTIC_TEXT : eva ? EVA_TEXT : COLORS.textSecondary;
+      const signalColor = nge ? NGE_TRACE : hyper ? HYPER_TRACE : optic ? OPTIC_TRACE : red ? RED_TRACE : eva ? EVA_TRACE : COLORS.waveform;
+      const signalGlow = nge ? NGE_GLOW : hyper ? HYPER_GLOW : optic ? OPTIC_GLOW : red ? RED_GLOW : eva ? EVA_GLOW : COLORS.waveformGlow;
+      const labelColor = nge ? NGE_LABEL : hyper ? HYPER_LABEL : optic ? OPTIC_LABEL : red ? RED_LABEL : eva ? EVA_LABEL : COLORS.textDim;
+      const textColor = nge ? NGE_TEXT : hyper ? HYPER_TEXT : optic ? OPTIC_TEXT : red ? RED_TEXT : eva ? EVA_TEXT : COLORS.textSecondary;
 
       const didResizeCurve =
         smoothLeftRef.current === null ||
@@ -241,7 +249,7 @@ export function FrequencyResponsePanel(): React.ReactElement {
       targetRightRef.current = targetRight;
 
       ctx.clearRect(0, 0, width, height);
-      ctx.fillStyle = hyper ? CANVAS.hyper.bg2 : optic ? CANVAS.optic.bg2 : eva ? CANVAS.eva.bg2 : COLORS.bg2;
+      ctx.fillStyle = hyper ? CANVAS.hyper.bg2 : optic ? CANVAS.optic.bg2 : red ? CANVAS.red.bg2 : eva ? CANVAS.eva.bg2 : COLORS.bg2;
       ctx.fillRect(0, 0, width, height);
 
       const backdrop = ctx.createLinearGradient(0, padY, 0, padY + drawH);
@@ -249,6 +257,10 @@ export function FrequencyResponsePanel(): React.ReactElement {
         backdrop.addColorStop(0, 'rgba(3, 8, 20, 0.98)');
         backdrop.addColorStop(0.55, 'rgba(8, 12, 34, 0.96)');
         backdrop.addColorStop(1, 'rgba(20, 8, 26, 0.96)');
+      } else if (red) {
+        backdrop.addColorStop(0, 'rgba(16, 4, 5, 0.99)');
+        backdrop.addColorStop(0.55, 'rgba(24, 6, 7, 0.97)');
+        backdrop.addColorStop(1, 'rgba(42, 10, 11, 0.99)');
       } else if (optic) {
         backdrop.addColorStop(0, 'rgba(250, 252, 253, 0.99)');
         backdrop.addColorStop(0.55, 'rgba(236, 241, 245, 0.98)');
@@ -265,7 +277,7 @@ export function FrequencyResponsePanel(): React.ReactElement {
       ctx.fillStyle = backdrop;
       ctx.fillRect(padX, padY, drawW, drawH);
 
-      const bandColors = optic ? CANVAS.optic.bandColors : CANVAS.bandColors;
+      const bandColors = optic ? CANVAS.optic.bandColors : red ? CANVAS.red.bandColors : CANVAS.bandColors;
       for (let i = 0; i < CANVAS.frequencyBands.length; i++) {
         const band = CANVAS.frequencyBands[i];
         const bandX = padX + freqToX(band.lowHz, drawW, MIN_HZ, MAX_HZ);
@@ -321,8 +333,8 @@ export function FrequencyResponsePanel(): React.ReactElement {
         const tickDb = topDb + relTick;
         const y = dbToPanelY(tickDb, topDb, bottomDb, padY, drawH);
         ctx.strokeStyle = relTick === 0
-          ? (hyper ? 'rgba(88,124,255,0.9)' : optic ? 'rgba(95,138,161,0.84)' : eva ? 'rgba(120,50,200,0.9)' : COLORS.borderActive)
-          : (hyper ? 'rgba(32,52,110,0.9)' : optic ? 'rgba(183,203,215,0.88)' : eva ? 'rgba(40,16,80,0.9)' : COLORS.border);
+          ? (hyper ? 'rgba(88,124,255,0.9)' : optic ? 'rgba(95,138,161,0.84)' : red ? 'rgba(156,52,46,0.84)' : eva ? 'rgba(120,50,200,0.9)' : COLORS.borderActive)
+          : (hyper ? 'rgba(32,52,110,0.9)' : optic ? 'rgba(183,203,215,0.88)' : red ? 'rgba(64,16,18,0.90)' : eva ? 'rgba(40,16,80,0.9)' : COLORS.border);
         ctx.lineWidth = 1;
         ctx.beginPath();
         ctx.moveTo(padX, y + 0.5);
@@ -330,7 +342,7 @@ export function FrequencyResponsePanel(): React.ReactElement {
         ctx.stroke();
 
         ctx.font = `${8 * dpr}px ${FONTS.mono}`;
-        ctx.fillStyle = hyper ? HYPER_LABEL : optic ? OPTIC_LABEL : eva ? EVA_LABEL : COLORS.textDim;
+        ctx.fillStyle = hyper ? HYPER_LABEL : optic ? OPTIC_LABEL : red ? RED_LABEL : eva ? EVA_LABEL : COLORS.textDim;
         ctx.textAlign = 'left';
         ctx.textBaseline = 'bottom';
         ctx.fillText(`${relTick}`, padX + 2 * dpr, y - 2 * dpr);
@@ -338,7 +350,7 @@ export function FrequencyResponsePanel(): React.ReactElement {
 
       for (const tick of FREQ_TICKS) {
         const x = padX + freqToX(tick, drawW, MIN_HZ, MAX_HZ);
-        ctx.strokeStyle = hyper ? 'rgba(32,52,110,0.9)' : optic ? 'rgba(183,203,215,0.88)' : eva ? 'rgba(40,16,80,0.9)' : COLORS.border;
+        ctx.strokeStyle = hyper ? 'rgba(32,52,110,0.9)' : optic ? 'rgba(183,203,215,0.88)' : red ? 'rgba(64,16,18,0.90)' : eva ? 'rgba(40,16,80,0.9)' : COLORS.border;
         ctx.lineWidth = 1;
         ctx.beginPath();
         ctx.moveTo(x + 0.5, padY);
@@ -346,7 +358,7 @@ export function FrequencyResponsePanel(): React.ReactElement {
         ctx.stroke();
 
         ctx.font = `${8 * dpr}px ${FONTS.mono}`;
-        ctx.fillStyle = hyper ? HYPER_LABEL : optic ? OPTIC_LABEL : eva ? EVA_LABEL : COLORS.textDim;
+        ctx.fillStyle = hyper ? HYPER_LABEL : optic ? OPTIC_LABEL : red ? RED_LABEL : eva ? EVA_LABEL : COLORS.textDim;
         ctx.textAlign = tick === MIN_HZ ? 'left' : tick === MAX_HZ ? 'right' : 'center';
         ctx.textBaseline = 'top';
         ctx.fillText(formatFreqLabel(tick), x, padY + drawH + 4 * dpr);
@@ -356,7 +368,7 @@ export function FrequencyResponsePanel(): React.ReactElement {
       ctx.font = `${7 * dpr}px ${FONTS.mono}`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'bottom';
-      ctx.fillStyle = hyper ? 'rgba(88,124,255,0.28)' : nge ? 'rgba(120,200,40,0.28)' : optic ? 'rgba(76,108,129,0.48)' : eva ? 'rgba(255,140,40,0.28)' : 'rgba(160,140,80,0.28)';
+      ctx.fillStyle = hyper ? 'rgba(88,124,255,0.28)' : nge ? 'rgba(120,200,40,0.28)' : optic ? 'rgba(76,108,129,0.48)' : red ? 'rgba(214,92,82,0.34)' : eva ? 'rgba(255,140,40,0.28)' : 'rgba(160,140,80,0.28)';
       for (let i = 1; i < CANVAS.frequencyBands.length; i++) {
         const boundHz = CANVAS.frequencyBands[i].lowHz;
         const bx = padX + freqToX(boundHz, drawW, MIN_HZ, MAX_HZ);
@@ -366,11 +378,11 @@ export function FrequencyResponsePanel(): React.ReactElement {
       const ribbonGradient = ctx.createLinearGradient(padX, padY, padX, padY + drawH);
       ribbonGradient.addColorStop(
         0,
-        nge ? 'rgba(112, 184, 48, 0.18)' : hyper ? 'rgba(98, 232, 255, 0.18)' : optic ? 'rgba(57, 126, 158, 0.12)' : eva ? 'rgba(255, 123, 0, 0.18)' : 'rgba(80, 96, 192, 0.18)',
+        nge ? 'rgba(112, 184, 48, 0.18)' : hyper ? 'rgba(98, 232, 255, 0.18)' : optic ? 'rgba(57, 126, 158, 0.12)' : red ? 'rgba(156, 40, 32, 0.16)' : eva ? 'rgba(255, 123, 0, 0.18)' : 'rgba(80, 96, 192, 0.18)',
       );
       ribbonGradient.addColorStop(
         1,
-        nge ? 'rgba(48, 104, 20, 0.10)' : hyper ? 'rgba(255, 92, 188, 0.12)' : optic ? 'rgba(103, 141, 166, 0.08)' : eva ? 'rgba(170, 90, 255, 0.12)' : 'rgba(200, 146, 42, 0.16)',
+        nge ? 'rgba(48, 104, 20, 0.10)' : hyper ? 'rgba(255, 92, 188, 0.12)' : optic ? 'rgba(103, 141, 166, 0.08)' : red ? 'rgba(110, 32, 28, 0.10)' : eva ? 'rgba(170, 90, 255, 0.12)' : 'rgba(200, 146, 42, 0.16)',
       );
       ctx.beginPath();
       for (let i = 0; i < pointCount; i++) {
@@ -389,15 +401,15 @@ export function FrequencyResponsePanel(): React.ReactElement {
       const fillGradient = ctx.createLinearGradient(padX, padY, padX, padY + drawH);
       fillGradient.addColorStop(
         0,
-        nge ? 'rgba(160, 216, 64, 0.34)' : hyper ? 'rgba(98, 232, 255, 0.40)' : optic ? 'rgba(18, 118, 164, 0.22)' : eva ? 'rgba(255, 123, 0, 0.40)' : 'rgba(232, 176, 40, 0.42)',
+        nge ? 'rgba(160, 216, 64, 0.34)' : hyper ? 'rgba(98, 232, 255, 0.40)' : optic ? 'rgba(18, 118, 164, 0.22)' : red ? 'rgba(255, 90, 74, 0.24)' : eva ? 'rgba(255, 123, 0, 0.40)' : 'rgba(232, 176, 40, 0.42)',
       );
       fillGradient.addColorStop(
         0.55,
-        nge ? 'rgba(96, 192, 32, 0.12)' : hyper ? 'rgba(110, 96, 255, 0.16)' : optic ? 'rgba(79, 134, 163, 0.10)' : eva ? 'rgba(120, 50, 200, 0.16)' : 'rgba(200, 146, 42, 0.14)',
+        nge ? 'rgba(96, 192, 32, 0.12)' : hyper ? 'rgba(110, 96, 255, 0.16)' : optic ? 'rgba(79, 134, 163, 0.10)' : red ? 'rgba(156, 40, 32, 0.10)' : eva ? 'rgba(120, 50, 200, 0.16)' : 'rgba(200, 146, 42, 0.14)',
       );
       fillGradient.addColorStop(
         1,
-        nge ? 'rgba(96, 192, 32, 0.03)' : hyper ? 'rgba(255, 92, 188, 0.05)' : optic ? 'rgba(184, 150, 94, 0.04)' : eva ? 'rgba(170, 90, 255, 0.05)' : 'rgba(200, 146, 42, 0.03)',
+        nge ? 'rgba(96, 192, 32, 0.03)' : hyper ? 'rgba(255, 92, 188, 0.05)' : optic ? 'rgba(184, 150, 94, 0.04)' : red ? 'rgba(92, 24, 22, 0.04)' : eva ? 'rgba(170, 90, 255, 0.05)' : 'rgba(200, 146, 42, 0.03)',
       );
       ctx.beginPath();
       ctx.moveTo(padX, padY + drawH);
@@ -411,7 +423,7 @@ export function FrequencyResponsePanel(): React.ReactElement {
       ctx.fill();
 
       ctx.save();
-      ctx.strokeStyle = nge ? NGE_TRACE_SOFT : hyper ? HYPER_TRACE_SOFT : optic ? OPTIC_TRACE_SOFT : eva ? EVA_TRACE_SOFT : 'rgba(232, 176, 40, 0.72)';
+      ctx.strokeStyle = nge ? NGE_TRACE_SOFT : hyper ? HYPER_TRACE_SOFT : optic ? OPTIC_TRACE_SOFT : red ? RED_TRACE_SOFT : eva ? EVA_TRACE_SOFT : 'rgba(232, 176, 40, 0.72)';
       ctx.lineWidth = 3 * dpr;
       ctx.shadowBlur = 20 * dpr;
       ctx.shadowColor = signalGlow;
@@ -434,7 +446,7 @@ export function FrequencyResponsePanel(): React.ReactElement {
       }
       ctx.stroke();
 
-      ctx.strokeStyle = nge ? NGE_TRACE_DIM : hyper ? HYPER_TRACE_DIM : optic ? OPTIC_TRACE_DIM : eva ? EVA_TRACE_DIM : 'rgba(80, 96, 192, 0.65)';
+      ctx.strokeStyle = nge ? NGE_TRACE_DIM : hyper ? HYPER_TRACE_DIM : optic ? OPTIC_TRACE_DIM : red ? RED_TRACE_DIM : eva ? EVA_TRACE_DIM : 'rgba(80, 96, 192, 0.65)';
       ctx.lineWidth = 1 * dpr;
       ctx.beginPath();
       for (let i = 0; i < pointCount; i++) {
@@ -444,7 +456,7 @@ export function FrequencyResponsePanel(): React.ReactElement {
       }
       ctx.stroke();
 
-      ctx.strokeStyle = nge ? NGE_TRACE_FAINT : hyper ? HYPER_TRACE_FAINT : optic ? OPTIC_TRACE_FAINT : eva ? EVA_TRACE_FAINT : 'rgba(232, 176, 40, 0.40)';
+      ctx.strokeStyle = nge ? NGE_TRACE_FAINT : hyper ? HYPER_TRACE_FAINT : optic ? OPTIC_TRACE_FAINT : red ? RED_TRACE_FAINT : eva ? EVA_TRACE_FAINT : 'rgba(232, 176, 40, 0.40)';
       ctx.lineWidth = 1 * dpr;
       ctx.beginPath();
       for (let i = 0; i < pointCount; i++) {
@@ -458,7 +470,7 @@ export function FrequencyResponsePanel(): React.ReactElement {
         const hotX = padX + (hottestIndex / (pointCount - 1)) * drawW;
         const hotY = averageY[hottestIndex];
         ctx.save();
-        ctx.fillStyle = nge ? 'rgba(160, 216, 64, 0.85)' : hyper ? 'rgba(98, 232, 255, 0.9)' : optic ? 'rgba(21, 151, 212, 0.9)' : eva ? 'rgba(255, 123, 0, 0.9)' : 'rgba(232, 176, 40, 0.85)';
+        ctx.fillStyle = nge ? 'rgba(160, 216, 64, 0.85)' : hyper ? 'rgba(98, 232, 255, 0.9)' : optic ? 'rgba(21, 151, 212, 0.9)' : red ? 'rgba(255, 110, 92, 0.9)' : eva ? 'rgba(255, 123, 0, 0.9)' : 'rgba(232, 176, 40, 0.85)';
         ctx.shadowBlur = 18 * dpr;
         ctx.shadowColor = nge
           ? 'rgba(140, 210, 40, 0.8)'
@@ -466,6 +478,8 @@ export function FrequencyResponsePanel(): React.ReactElement {
             ? 'rgba(255, 92, 188, 0.72)'
             : optic
               ? 'rgba(18, 118, 164, 0.34)'
+            : red
+              ? 'rgba(255, 90, 74, 0.72)'
             : eva
               ? 'rgba(255, 120, 0, 0.72)'
               : 'rgba(232, 176, 40, 0.8)';

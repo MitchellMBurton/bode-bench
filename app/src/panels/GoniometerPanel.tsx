@@ -117,17 +117,18 @@ export function GoniometerPanel(): React.ReactElement {
       const nge = displayMode.nge;
       const hyper = displayMode.hyper;
       const optic = displayMode.optic;
+      const red = displayMode.red;
       const eva = displayMode.eva;
 
-      const traceColor = nge ? '#a0d840' : hyper ? CANVAS.hyper.trace : optic ? CANVAS.optic.trace : eva ? CANVAS.eva.trace : COLORS.waveform;
-      const labelColor = nge ? 'rgba(140,210,40,0.5)' : hyper ? CANVAS.hyper.label : optic ? CANVAS.optic.label : eva ? CANVAS.eva.label : COLORS.textDim;
-      const textColor = nge ? 'rgba(140,210,40,0.72)' : hyper ? CANVAS.hyper.text : optic ? CANVAS.optic.text : eva ? CANVAS.eva.text : COLORS.textSecondary;
-      const gridColor = nge ? CANVAS.nge.grid : hyper ? CANVAS.hyper.grid : optic ? CANVAS.optic.grid : eva ? CANVAS.eva.grid : COLORS.border;
+      const traceColor = nge ? '#a0d840' : hyper ? CANVAS.hyper.trace : optic ? CANVAS.optic.trace : red ? CANVAS.red.trace : eva ? CANVAS.eva.trace : COLORS.waveform;
+      const labelColor = nge ? 'rgba(140,210,40,0.5)' : hyper ? CANVAS.hyper.label : optic ? CANVAS.optic.label : red ? CANVAS.red.label : eva ? CANVAS.eva.label : COLORS.textDim;
+      const textColor = nge ? 'rgba(140,210,40,0.72)' : hyper ? CANVAS.hyper.text : optic ? CANVAS.optic.text : red ? CANVAS.red.text : eva ? CANVAS.eva.text : COLORS.textSecondary;
+      const gridColor = nge ? CANVAS.nge.grid : hyper ? CANVAS.hyper.grid : optic ? CANVAS.optic.grid : red ? CANVAS.red.grid : eva ? CANVAS.eva.grid : COLORS.border;
 
       // Background
-      ctx.fillStyle = hyper ? CANVAS.hyper.bg2 : optic ? CANVAS.optic.bg2 : eva ? CANVAS.eva.bg : COLORS.bg1;
+      ctx.fillStyle = hyper ? CANVAS.hyper.bg2 : optic ? CANVAS.optic.bg2 : red ? CANVAS.red.bg2 : eva ? CANVAS.eva.bg : COLORS.bg1;
       ctx.fillRect(0, 0, W, H);
-      ctx.fillStyle = hyper ? 'rgba(32,52,110,0.92)' : optic ? 'rgba(159,199,223,0.84)' : eva ? 'rgba(74,26,144,0.92)' : COLORS.border;
+      ctx.fillStyle = hyper ? 'rgba(32,52,110,0.92)' : optic ? 'rgba(159,199,223,0.84)' : red ? 'rgba(124,40,39,0.84)' : eva ? 'rgba(74,26,144,0.92)' : COLORS.border;
       ctx.fillRect(0, 0, W, 1);
 
       // ── Correlation bar ────────────────────────────────────────────────
@@ -135,7 +136,7 @@ export function GoniometerPanel(): React.ReactElement {
       const corrY = H - corrH;
 
       // Divider line above bar
-      ctx.fillStyle = hyper ? 'rgba(28,42,88,0.92)' : optic ? 'rgba(191,218,233,0.92)' : eva ? 'rgba(22,12,48,1)' : 'rgba(32,32,48,1)';
+      ctx.fillStyle = hyper ? 'rgba(28,42,88,0.92)' : optic ? 'rgba(191,218,233,0.92)' : red ? 'rgba(54,16,18,0.96)' : eva ? 'rgba(22,12,48,1)' : 'rgba(32,32,48,1)';
       ctx.fillRect(0, corrY, W, 1);
 
       // Read smoothed phase correlation (updated in frame callback at 20fps)
@@ -144,13 +145,13 @@ export function GoniometerPanel(): React.ReactElement {
       const corrZeroX = W * 0.5;
       const corrNeedleX = corrZeroX + corrVal * corrZeroX;
       const corrColor = corrVal > 0.5
-        ? (nge ? 'rgba(100,200,40,0.8)' : hyper ? 'rgba(80,200,100,0.8)' : optic ? 'rgba(29,169,199,0.82)' : eva ? 'rgba(255,123,0,0.8)' : 'rgba(60,180,80,0.8)')
+        ? (nge ? 'rgba(100,200,40,0.8)' : hyper ? 'rgba(80,200,100,0.8)' : optic ? 'rgba(29,169,199,0.82)' : red ? 'rgba(255,120,100,0.82)' : eva ? 'rgba(255,123,0,0.8)' : 'rgba(60,180,80,0.8)')
         : corrVal > 0
-          ? (nge ? 'rgba(180,200,40,0.8)' : optic ? 'rgba(223,174,88,0.82)' : eva ? 'rgba(255,160,32,0.8)' : 'rgba(200,180,50,0.8)')
+          ? (nge ? 'rgba(180,200,40,0.8)' : optic ? 'rgba(223,174,88,0.82)' : red ? 'rgba(255,174,96,0.82)' : eva ? 'rgba(255,160,32,0.8)' : 'rgba(200,180,50,0.8)')
           : 'rgba(200,60,40,0.8)';
 
       // Background bar
-      ctx.fillStyle = hyper ? 'rgba(14,22,50,1)' : optic ? 'rgba(232,242,248,0.98)' : eva ? 'rgba(8,4,26,1)' : 'rgba(16,16,24,1)';
+      ctx.fillStyle = hyper ? 'rgba(14,22,50,1)' : optic ? 'rgba(232,242,248,0.98)' : red ? 'rgba(18,5,6,1)' : eva ? 'rgba(8,4,26,1)' : 'rgba(16,16,24,1)';
       ctx.fillRect(0, corrY + 1, W, corrH - 1);
 
       // Fill from centre to needle

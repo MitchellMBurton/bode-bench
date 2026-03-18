@@ -148,6 +148,8 @@ export interface NoteEvent {
 
 /** Metadata for a single structural section (movement, track, chapter, etc.). */
 export interface MovementMetadata {
+  /** Optional human-readable parent work or collection title. */
+  readonly collectionTitle?: string;
   /** Optional series or collection number. For Bach suites: 1–6. Omit for single works. */
   readonly suite?: number;
   readonly movement: string;

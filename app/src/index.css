@@ -1,4 +1,4 @@
-/* Bach Cello Console — global reset and base styles */
+/* Media Analysis Console — global reset and base styles */
 
 *, *::before, *::after {
   box-sizing: border-box;
@@ -26,6 +26,15 @@
   --panel-hover-bg: rgba(242, 247, 250, 0.98);
   --panel-hover-border: rgba(79, 134, 163, 0.68);
   --panel-hover-color: rgba(16, 45, 62, 0.98);
+}
+
+:root[data-visual-mode="red"] {
+  color-scheme: dark;
+  --app-bg: #090203;
+  --app-fg: #f2d1ca;
+  --panel-hover-bg: rgba(20, 6, 7, 0.94);
+  --panel-hover-border: rgba(156, 52, 46, 0.44);
+  --panel-hover-color: rgba(255, 206, 198, 0.92);
 }
 
 html, body, #root {
@@ -95,5 +104,15 @@ input[type="range"] {
 
   to {
     background-position: 48px -36px, -56px 28px, 160px 0;
+  }
+}
+
+@keyframes red-drift {
+  from {
+    background-position: 0 0, 100% 0, 50% 100%, 0 0;
+  }
+
+  to {
+    background-position: 36px -24px, -42px 18px, 54% 88%, 0 120px;
   }
 }
