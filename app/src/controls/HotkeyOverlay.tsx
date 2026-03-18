@@ -25,6 +25,7 @@ const HOTKEY_TABLE: readonly { key: string; description: string }[] = [
 ];
 
 export function HotkeyOverlay({ open, onClose, visualMode }: Props): React.ReactElement | null {
+  const optic = visualMode === 'optic';
   const nge = visualMode === 'nge';
   const hyper = visualMode === 'hyper';
   const eva = visualMode === 'eva';
@@ -43,6 +44,8 @@ export function HotkeyOverlay({ open, onClose, visualMode }: Props): React.React
 
   const cardBorder = nge
     ? CANVAS.nge.chromeBorderActive
+    : optic
+      ? CANVAS.optic.chromeBorderActive
     : hyper
       ? CANVAS.hyper.chromeBorderActive
       : eva
@@ -50,6 +53,8 @@ export function HotkeyOverlay({ open, onClose, visualMode }: Props): React.React
         : COLORS.borderHighlight;
   const headerColor = nge
     ? CANVAS.nge.category
+    : optic
+      ? CANVAS.optic.category
     : hyper
       ? CANVAS.hyper.category
       : eva
@@ -57,6 +62,8 @@ export function HotkeyOverlay({ open, onClose, visualMode }: Props): React.React
         : COLORS.textCategory;
   const keyColor = nge
     ? CANVAS.nge.trace
+    : optic
+      ? CANVAS.optic.trace
     : hyper
       ? CANVAS.hyper.trace
       : eva
@@ -65,25 +72,25 @@ export function HotkeyOverlay({ open, onClose, visualMode }: Props): React.React
 
   return (
     <div
-      style={backdropStyle}
+      style={{ ...backdropStyle, background: optic ? 'rgba(224, 233, 240, 0.62)' : backdropStyle.background }}
       data-shell-overlay="true"
       onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div style={{ ...cardStyle, borderColor: cardBorder }}>
+      <div style={{ ...cardStyle, borderColor: cardBorder, background: optic ? 'rgba(248,251,253,0.98)' : cardStyle.background, boxShadow: optic ? '0 10px 28px rgba(79, 134, 163, 0.16)' : cardStyle.boxShadow }}>
         {/* Header */}
         <div style={headerRowStyle}>
           <span style={{ ...headerLabelStyle, color: headerColor }}>KEYBOARD SHORTCUTS</span>
-          <button style={closeBtnStyle} onClick={onClose} aria-label="Close">✕</button>
+          <button style={{ ...closeBtnStyle, color: optic ? CANVAS.optic.text : closeBtnStyle.color }} onClick={onClose} aria-label="Close">✕</button>
         </div>
         {/* Divider */}
-        <div style={dividerStyle} />
+        <div style={{ ...dividerStyle, background: optic ? 'rgba(109,146,165,0.64)' : dividerStyle.background }} />
         {/* Shortcut table */}
         <table style={tableStyle}>
           <tbody>
             {HOTKEY_TABLE.map(({ key, description }) => (
               <tr key={key}>
                 <td style={{ ...keyColStyle, color: keyColor }}>{key}</td>
-                <td style={descColStyle}>{description}</td>
+                <td style={{ ...descColStyle, color: optic ? 'rgba(41,73,92,0.84)' : descColStyle.color }}>{description}</td>
               </tr>
             ))}
           </tbody>

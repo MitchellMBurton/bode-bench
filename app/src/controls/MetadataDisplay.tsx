@@ -15,14 +15,22 @@ interface Props {
 export function MetadataDisplay({ filename, metadata, visualMode }: Props): React.ReactElement {
   // Derive a display title from the filename: strip extension, truncate
   const fileTitle = filename ? stripExtension(filename) : null;
+  const optic = visualMode === 'optic';
   const eva = visualMode === 'eva';
   const categoryColor = visualMode === 'nge'
     ? CANVAS.nge.category
+    : optic
+      ? CANVAS.optic.category
     : visualMode === 'hyper'
       ? CANVAS.hyper.category
       : eva
         ? CANVAS.eva.category
         : COLORS.textCategory;
+  const titleColor = optic ? CANVAS.optic.text : titleStyle.color;
+        const subtitleColor = optic ? 'rgba(58,89,108,0.82)' : subtitleStyle.color;
+        const dividerColor = optic ? 'rgba(109,146,165,0.64)' : dividerStyle.background;
+        const metaLabelColor = optic ? 'rgba(78,110,128,0.78)' : metaLabelStyle.color;
+        const metaValueColor = optic ? 'rgba(29,56,72,0.92)' : metaValueStyle.color;
 
   return (
     <div style={wrapStyle}>
@@ -30,20 +38,20 @@ export function MetadataDisplay({ filename, metadata, visualMode }: Props): Reac
         {metadata ? (
           <>
             <div style={{ ...composerStyle, color: categoryColor }}>{metadata.composer}</div>
-            <div style={titleStyle}>
+            <div style={{ ...titleStyle, color: titleColor }}>
               Cello Suite No.{metadata.suite} — {metadata.movement}
             </div>
-            <div style={subtitleStyle}>{metadata.instrument}</div>
+            <div style={{ ...subtitleStyle, color: subtitleColor }}>{metadata.instrument}</div>
           </>
         ) : fileTitle ? (
           <>
             <div style={{ ...composerStyle, color: categoryColor }}>AUDIO</div>
-            <div style={titleStyle}>{fileTitle}</div>
+            <div style={{ ...titleStyle, color: titleColor }}>{fileTitle}</div>
           </>
         ) : (
           <>
             <div style={{ ...composerStyle, color: categoryColor }}>NO SESSION</div>
-            <div style={{ ...titleStyle, color: COLORS.textDim, fontSize: FONTS.sizeMd }}>
+            <div style={{ ...titleStyle, color: optic ? 'rgba(87,118,136,0.86)' : COLORS.textDim, fontSize: FONTS.sizeMd }}>
               No file loaded
             </div>
           </>
@@ -52,12 +60,12 @@ export function MetadataDisplay({ filename, metadata, visualMode }: Props): Reac
 
       {metadata && (
         <>
-          <div style={dividerStyle} />
+          <div style={{ ...dividerStyle, background: dividerColor }} />
           <div style={metaGridStyle}>
-            <MetaRow label="KEY"   value={metadata.key} />
-            <MetaRow label="TEMPO" value={metadata.tempoMarking} />
-            <MetaRow label="METER" value={metadata.timeSignature} />
-            <MetaRow label="DUR."  value={formatDuration(metadata.estimatedDurationS)} />
+            <MetaRow label="KEY"   value={metadata.key} labelColor={metaLabelColor} valueColor={metaValueColor} />
+            <MetaRow label="TEMPO" value={metadata.tempoMarking} labelColor={metaLabelColor} valueColor={metaValueColor} />
+            <MetaRow label="METER" value={metadata.timeSignature} labelColor={metaLabelColor} valueColor={metaValueColor} />
+            <MetaRow label="DUR."  value={formatDuration(metadata.estimatedDurationS)} labelColor={metaLabelColor} valueColor={metaValueColor} />
           </div>
         </>
       )}
@@ -65,11 +73,11 @@ export function MetadataDisplay({ filename, metadata, visualMode }: Props): Reac
   );
 }
 
-function MetaRow({ label, value }: { label: string; value: string }): React.ReactElement {
+function MetaRow({ label, value, labelColor, valueColor }: { label: string; value: string; labelColor?: string; valueColor?: string }): React.ReactElement {
   return (
     <div style={metaRowStyle}>
-      <span style={metaLabelStyle}>{label}</span>
-      <span style={metaValueStyle}>{value}</span>
+      <span style={{ ...metaLabelStyle, color: labelColor ?? metaLabelStyle.color }}>{label}</span>
+      <span style={{ ...metaValueStyle, color: valueColor ?? metaValueStyle.color }}>{value}</span>
     </div>
   );
 }

@@ -96,10 +96,13 @@ interface ChromePanelProps extends PanelDef {
 
 function ChromePanel({ category, title, stat, help, content, visualMode, onFullscreen }: ChromePanelProps): React.ReactElement {
   const nge = visualMode === 'nge';
+  const optic = visualMode === 'optic';
   const hyper = visualMode === 'hyper';
   const eva = visualMode === 'eva';
   const chromeBorder = nge
     ? CANVAS.nge.chromeBorder
+    : optic
+      ? CANVAS.optic.chromeBorder
     : hyper
       ? CANVAS.hyper.chromeBorder
       : eva
@@ -107,6 +110,8 @@ function ChromePanel({ category, title, stat, help, content, visualMode, onFulls
         : COLORS.border;
   const chromeBorderInner = nge
     ? CANVAS.nge.chromeBorderActive
+    : optic
+      ? CANVAS.optic.chromeBorderActive
     : hyper
       ? CANVAS.hyper.chromeBorderActive
       : eva
@@ -114,6 +119,8 @@ function ChromePanel({ category, title, stat, help, content, visualMode, onFulls
         : COLORS.border;
   const chromeCategory = nge
     ? CANVAS.nge.category
+    : optic
+      ? CANVAS.optic.category
     : hyper
       ? CANVAS.hyper.category
       : eva
@@ -121,25 +128,35 @@ function ChromePanel({ category, title, stat, help, content, visualMode, onFulls
         : COLORS.textCategory;
   const chromeStat = nge
     ? CANVAS.nge.stat
+    : optic
+      ? CANVAS.optic.stat
     : hyper
       ? CANVAS.hyper.stat
       : eva
         ? CANVAS.eva.stat
         : COLORS.waveform;
+  const chromeTitle = optic ? CANVAS.optic.text : chromeTitleStyle.color;
+  const chromeBackground = optic
+    ? 'linear-gradient(180deg, rgba(248,251,253,0.98), rgba(236,243,247,0.99))'
+    : chromeStyle.background;
+  const chromeHeaderBackground = optic
+    ? 'linear-gradient(90deg, rgba(251,253,255,0.99), rgba(234,241,246,0.99))'
+    : undefined;
+  const fullscreenBtnColor = optic ? CANVAS.optic.category : fullscreenBtnStyle.color;
 
   return (
-    <div style={{ ...chromeStyle, border: `1px solid ${chromeBorder}` }}>
-      <div style={{ ...chromeHeaderStyle, borderBottom: `1px solid ${chromeBorderInner}` }}>
+    <div style={{ ...chromeStyle, background: chromeBackground, border: `1px solid ${chromeBorder}` }}>
+      <div style={{ ...chromeHeaderStyle, background: chromeHeaderBackground, borderBottom: `1px solid ${chromeBorderInner}` }}>
         <div style={chromeLabelGroupStyle}>
           <span style={{ ...chromeCategoryStyle, color: chromeCategory }}>{category}</span>
-          <span style={chromeTitleStyle}>{title}</span>
+          <span style={{ ...chromeTitleStyle, color: chromeTitle }}>{title}</span>
         </div>
         {stat && <span style={{ ...chromeStatStyle, color: chromeStat }}>{stat}</span>}
         {help && <PanelHelp text={help} visualMode={visualMode} />}
         {onFullscreen && (
           <button
             onClick={onFullscreen}
-            style={fullscreenBtnStyle}
+            style={{ ...fullscreenBtnStyle, color: fullscreenBtnColor }}
             title="Expand quadrant to fullscreen"
             aria-label="Fullscreen"
           >
@@ -180,10 +197,13 @@ export function ConsoleLayout({
     return () => window.removeEventListener('keydown', handler);
   }, [fullscreenQuadrant]);
   const nge = visualMode === 'nge';
+  const optic = visualMode === 'optic';
   const hyper = visualMode === 'hyper';
   const eva = visualMode === 'eva';
   const headerBorder = nge
     ? CANVAS.nge.chromeBorderActive
+    : optic
+      ? CANVAS.optic.chromeBorderActive
     : hyper
       ? CANVAS.hyper.chromeBorderActive
       : eva
@@ -191,6 +211,8 @@ export function ConsoleLayout({
         : COLORS.headerBorder;
   const chromeCategory = nge
     ? CANVAS.nge.category
+    : optic
+      ? CANVAS.optic.category
     : hyper
       ? CANVAS.hyper.category
       : eva
@@ -198,6 +220,8 @@ export function ConsoleLayout({
         : COLORS.textCategory;
   const toolbarBorder = nge
     ? CANVAS.nge.chromeBorder
+    : optic
+      ? CANVAS.optic.chromeBorder
     : hyper
       ? CANVAS.hyper.chromeBorder
       : eva
@@ -205,6 +229,8 @@ export function ConsoleLayout({
         : COLORS.border;
   const toolbarText = nge
     ? 'rgba(80,160,50,0.5)'
+    : optic
+      ? CANVAS.optic.category
     : hyper
       ? 'rgba(112,180,255,0.62)'
       : eva
@@ -212,6 +238,8 @@ export function ConsoleLayout({
         : COLORS.textCategory;
   const toolbarButtonText = nge
     ? 'rgba(160,230,60,0.92)'
+    : optic
+      ? CANVAS.optic.text
     : hyper
       ? 'rgba(222,238,255,0.96)'
       : eva
@@ -219,6 +247,8 @@ export function ConsoleLayout({
         : COLORS.textPrimary;
   const toolbarButtonBorder = nge
     ? '#2c6b18'
+    : optic
+      ? CANVAS.optic.chromeBorderActive
     : hyper
       ? 'rgba(112,180,255,0.72)'
       : eva
@@ -226,11 +256,31 @@ export function ConsoleLayout({
         : COLORS.borderActive;
   const toolbarButtonBg = nge
     ? 'rgba(8,18,8,0.9)'
+    : optic
+      ? 'rgba(247,250,252,0.94)'
     : hyper
       ? 'rgba(8,14,32,0.92)'
       : eva
         ? 'rgba(15,10,36,0.92)'
         : COLORS.bg1;
+  const shellBackground = optic
+    ? 'linear-gradient(180deg, #f3f7fa 0%, #e9f0f4 52%, #e1e9ee 100%)'
+    : shellStyle.background;
+  const headerBackground = optic
+    ? 'linear-gradient(90deg, rgba(249,252,253,0.99), rgba(233,241,246,0.98))'
+    : globalHeaderStyle.background;
+  const headerTitleColor = optic ? CANVAS.optic.text : headerTitleStyle.color;
+  const dividerBackground = optic ? 'rgba(91,131,154,0.44)' : toolbarDividerStyle.background;
+  const runtimeHintColor = optic ? 'rgba(57,90,109,0.82)' : runtimeToolbarHintStyle.color;
+  const runtimeTrayBackground = optic ? 'rgba(240,246,250,0.99)' : runtimeTrayStyle.background;
+  const runtimeResizeBackground = optic
+    ? 'linear-gradient(180deg, rgba(244,248,251,0.99), rgba(228,237,243,1))'
+    : runtimeResizeHandleStyle.background;
+  const runtimeResizeGrip = optic
+    ? 'linear-gradient(90deg, rgba(117,151,170,0.16), rgba(79,134,163,0.82), rgba(117,151,170,0.16))'
+    : runtimeResizeGripStyle.background;
+  const runtimeResizeLabelColor = optic ? CANVAS.optic.text : runtimeResizeLabelStyle.color;
+  const runtimeResizeHintColor = optic ? 'rgba(57,90,109,0.82)' : runtimeResizeHintStyle.color;
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -316,12 +366,12 @@ export function ConsoleLayout({
 
   return (
     <LayoutInteractionProvider>
-      <div style={{ ...shellStyle, filter: grayscale ? 'grayscale(1) contrast(1.05)' : 'none' }}>
+      <div style={{ ...shellStyle, background: shellBackground, filter: grayscale ? 'grayscale(1) contrast(1.05)' : 'none' }}>
       {/* Global header */}
-      <div style={{ ...globalHeaderStyle, borderBottom: `1px solid ${headerBorder}` }}>
+      <div style={{ ...globalHeaderStyle, background: headerBackground, borderBottom: `1px solid ${headerBorder}` }}>
         <div style={headerLeftStyle}>
           <span style={{ ...headerSuperStyle, color: chromeCategory }}>SCIENTIFIC LISTENING INSTRUMENT</span>
-          <span style={headerTitleStyle}>MEDIA ANALYSIS CONSOLE</span>
+          <span style={{ ...headerTitleStyle, color: headerTitleColor }}>MEDIA ANALYSIS CONSOLE</span>
         </div>
         <div style={headerRightStyle}>
           <span style={{ ...headerTagStyle, color: chromeCategory }}>DESKTOP-FIRST / SESSION-BASED</span>
@@ -332,16 +382,16 @@ export function ConsoleLayout({
 
       {runtimeDock ? (
         <>
-          <div style={{ ...toolbarStyle, ...runtimeToolbarStyle, borderBottom: `1px solid ${toolbarBorder}` }}>
+          <div style={{ ...toolbarStyle, ...runtimeToolbarStyle, background: optic ? 'rgba(234,241,246,0.96)' : toolbarStyle.background, borderBottom: `1px solid ${toolbarBorder}` }}>
             <div style={runtimeToolbarMetaStyle}>
               <span style={{ ...toolbarLabelStyle, color: toolbarText }}>{runtimeDock.label}</span>
               <span style={{ ...toolbarValueStyle, color: toolbarText }}>{runtimeDock.value}</span>
-              <div style={toolbarDividerStyle} />
+              <div style={{ ...toolbarDividerStyle, background: dividerBackground }} />
             </div>
             <div style={runtimeSummaryStyle}>{runtimeDock.summary}</div>
             <div style={runtimeToolbarActionsStyle}>
               {runtimeDock.open ? (
-                <span style={runtimeToolbarHintStyle}>DRAG PERF LAB EDGE TO RESIZE</span>
+                <span style={{ ...runtimeToolbarHintStyle, color: runtimeHintColor }}>DRAG PERF LAB EDGE TO RESIZE</span>
               ) : null}
             </div>
             <button
@@ -362,6 +412,7 @@ export function ConsoleLayout({
               style={{
                 ...runtimeTrayStyle,
                 height: runtimeTrayHeight,
+                background: runtimeTrayBackground,
                 borderBottom: `1px solid ${toolbarBorder}`,
               }}
             >
@@ -369,7 +420,7 @@ export function ConsoleLayout({
                 {runtimeDock.content}
               </div>
               <div
-                style={runtimeResizeHandleStyle}
+                style={{ ...runtimeResizeHandleStyle, background: runtimeResizeBackground, borderTop: `1px solid ${toolbarBorder}` }}
                 onPointerDown={onRuntimeTrayResizePointerDown}
                 onPointerMove={onRuntimeTrayResizePointerMove}
                 onPointerUp={onRuntimeTrayResizePointerUp}
@@ -378,9 +429,9 @@ export function ConsoleLayout({
                 onDoubleClick={resetRuntimeTrayHeight}
                 title="Drag to resize the Perf Lab tray. Double click to reset the default height."
               >
-                <div style={runtimeResizeGripStyle} />
-                <span style={runtimeResizeLabelStyle}>DRAG TO RESIZE PERF LAB</span>
-                <span style={runtimeResizeHintStyle}>DBL-CLICK RESET</span>
+                <div style={{ ...runtimeResizeGripStyle, background: runtimeResizeGrip }} />
+                <span style={{ ...runtimeResizeLabelStyle, color: runtimeResizeLabelColor }}>DRAG TO RESIZE PERF LAB</span>
+                <span style={{ ...runtimeResizeHintStyle, color: runtimeResizeHintColor }}>DBL-CLICK RESET</span>
               </div>
             </div>
           ) : null}
@@ -388,10 +439,10 @@ export function ConsoleLayout({
       ) : null}
 
       {/* Layout toolbar */}
-      <div style={{ ...toolbarStyle, borderBottom: `1px solid ${toolbarBorder}` }}>
+      <div style={{ ...toolbarStyle, background: optic ? 'rgba(232,239,244,0.94)' : toolbarStyle.background, borderBottom: `1px solid ${toolbarBorder}` }}>
         <span style={{ ...toolbarLabelStyle, color: toolbarText }}>LAYOUT PROFILE</span>
         <span style={{ ...toolbarValueStyle, color: toolbarText }}>DEFAULT</span>
-        <div style={toolbarDividerStyle} />
+        <div style={{ ...toolbarDividerStyle, background: dividerBackground }} />
         <button
           style={{
             ...toolbarButtonStyle,
@@ -461,16 +512,17 @@ export function ConsoleLayout({
         const quadrantMap = { tl: topLeft, tr: topRight, bl: bottomLeft, br: bottomRight } as const;
         const def = quadrantMap[fullscreenQuadrant];
         const ngeFS = visualMode === 'nge';
+        const opticFS = visualMode === 'optic';
         const hyperFS = visualMode === 'hyper';
         const evaFS = visualMode === 'eva';
-        const fsBorder = ngeFS ? CANVAS.nge.chromeBorderActive : hyperFS ? CANVAS.hyper.chromeBorderActive : evaFS ? CANVAS.eva.chromeBorderActive : COLORS.borderHighlight;
-        const fsCategory = ngeFS ? CANVAS.nge.category : hyperFS ? CANVAS.hyper.category : evaFS ? CANVAS.eva.category : COLORS.textCategory;
+        const fsBorder = ngeFS ? CANVAS.nge.chromeBorderActive : opticFS ? CANVAS.optic.chromeBorderActive : hyperFS ? CANVAS.hyper.chromeBorderActive : evaFS ? CANVAS.eva.chromeBorderActive : COLORS.borderHighlight;
+        const fsCategory = ngeFS ? CANVAS.nge.category : opticFS ? CANVAS.optic.category : hyperFS ? CANVAS.hyper.category : evaFS ? CANVAS.eva.category : COLORS.textCategory;
         return (
-          <div style={fullscreenOverlayStyle} data-shell-overlay="true">
+          <div style={{ ...fullscreenOverlayStyle, background: opticFS ? 'linear-gradient(180deg, #f4f8fb 0%, #e7eff3 100%)' : fullscreenOverlayStyle.background }} data-shell-overlay="true">
             <div style={{ ...fullscreenHeaderStyle, borderBottom: `1px solid ${fsBorder}` }}>
               <span style={{ ...fullscreenHeaderCategoryStyle, color: fsCategory }}>{def.category}</span>
-              <span style={fullscreenHeaderTitleStyle}>{def.title}</span>
-              <button style={fullscreenCloseBtnStyle} onClick={() => setFullscreenQuadrant(null)} title="Exit fullscreen (Escape)" aria-label="Exit fullscreen">✕</button>
+              <span style={{ ...fullscreenHeaderTitleStyle, color: opticFS ? CANVAS.optic.text : fullscreenHeaderTitleStyle.color }}>{def.title}</span>
+              <button style={{ ...fullscreenCloseBtnStyle, color: opticFS ? CANVAS.optic.text : fullscreenCloseBtnStyle.color }} onClick={() => setFullscreenQuadrant(null)} title="Exit fullscreen (Escape)" aria-label="Exit fullscreen">✕</button>
             </div>
             <div style={fullscreenContentStyle}>{def.content}</div>
           </div>

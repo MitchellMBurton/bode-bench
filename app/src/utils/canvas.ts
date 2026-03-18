@@ -67,13 +67,15 @@ export function drawDbScale(
   y: number,
   height: number,
   tickValues: number[] = [-60, -40, -20, -12, -6, -3, 0],
+  strokeColor: string = COLORS.border,
+  textColor: string = COLORS.textDim,
 ): void {
   ctx.save();
   ctx.font = `${9}px "JetBrains Mono", monospace`;
   ctx.textAlign = 'right';
   ctx.textBaseline = 'middle';
-  ctx.strokeStyle = COLORS.border;
-  ctx.fillStyle = COLORS.textDim;
+  ctx.strokeStyle = strokeColor;
+  ctx.fillStyle = textColor;
   ctx.lineWidth = 0.5;
 
   for (const db of tickValues) {

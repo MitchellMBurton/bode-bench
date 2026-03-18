@@ -22,6 +22,19 @@ interface SessionTheme {
 }
 
 function buildSessionTheme(visualMode: VisualMode): SessionTheme {
+  if (visualMode === 'optic') {
+    return {
+      separator: 'rgba(96,131,150,0.36)',
+      labelColor: CANVAS.optic.category,
+      trackBg: '#ccd7de',
+      fillAccent: 'rgba(18,118,164,0.86)',
+      fillPitch: 'rgba(76,118,189,0.84)',
+      valueColor: CANVAS.optic.text,
+      buttonBg: 'rgba(247,250,252,0.94)',
+      buttonBorder: 'rgba(109,146,165,0.72)',
+      buttonColor: CANVAS.optic.category,
+    };
+  }
   if (visualMode === 'nge') {
     return {
       separator: 'rgba(60,140,30,0.28)',
@@ -217,6 +230,7 @@ export function SessionControls({
   const scrollLabel = formatMultiplier(scroll);
 
   const isNge = visualMode === 'nge';
+  const isOptic = visualMode === 'optic';
   const isHyper = visualMode === 'hyper';
   const isEva = visualMode === 'eva';
   const t = buildSessionTheme(visualMode);
@@ -227,6 +241,14 @@ export function SessionControls({
   const thFill: React.CSSProperties = { ...fillStyle, background: t.fillAccent };
   const thValue: React.CSSProperties = { ...valueStyle, color: t.valueColor };
   const thButton: React.CSSProperties = { ...toggleStyle, background: t.buttonBg, borderColor: t.buttonBorder, color: t.buttonColor };
+  const thToggleActive: React.CSSProperties = isOptic
+    ? {
+        ...toggleActiveStyle,
+        background: 'rgba(226,236,242,0.98)',
+        borderColor: CANVAS.optic.chromeBorderActive,
+        color: CANVAS.optic.text,
+      }
+    : toggleActiveStyle;
 
   return (
     <div style={wrapStyle}>
@@ -326,11 +348,22 @@ export function SessionControls({
 
       <div style={toggleRowStyle}>
         <button
-          style={{ ...thButton, ...(grayscale ? toggleActiveStyle : {}) }}
+          style={{ ...thButton, ...(grayscale ? thToggleActive : {}) }}
           onClick={() => onGrayscale(!grayscale)}
           title="Toggle greyscale display mode"
         >
           MONO
+        </button>
+
+        <button
+          style={{ ...thButton, ...(isOptic ? opticActiveStyle : {}) }}
+          onClick={() => {
+            const nextMode = isOptic ? 'default' : 'optic';
+            onVisualMode(nextMode);
+          }}
+          title="White-light optics mode"
+        >
+          OPTIC
         </button>
 
         <button
@@ -476,6 +509,13 @@ const toggleActiveStyle: React.CSSProperties = {
   background: COLORS.accentDim,
   borderColor: COLORS.accent,
   color: COLORS.textPrimary,
+};
+
+const opticActiveStyle: React.CSSProperties = {
+  background: 'linear-gradient(135deg, rgba(252,254,255,0.99), rgba(230,239,245,0.99))',
+  borderColor: '#4f86a3',
+  color: '#13394f',
+  boxShadow: '0 0 0 1px rgba(79,134,163,0.12)',
 };
 
 const ngeActiveStyle: React.CSSProperties = {

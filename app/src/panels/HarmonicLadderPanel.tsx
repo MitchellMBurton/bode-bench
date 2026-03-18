@@ -42,11 +42,16 @@ const PARTIAL_COLORS_EVA = [
   '#ff7b00', '#e06800', '#c05400', '#a04000', '#803000',
   '#602060', '#481880', '#301090', '#200860', '#100440',
 ];
+const PARTIAL_COLORS_OPTIC = [
+  '#1da9c7', '#57c0ed', '#7adcd8', '#b3e0ff', '#ffd08a',
+  '#f2b5ff', '#d0c3ff', '#b6d9ff', '#95d9ff', '#dceefe',
+];
 
 function getPartialColors(mode: VisualMode): readonly string[] {
   if (mode === 'nge') return PARTIAL_COLORS_NGE;
   if (mode === 'hyper') return PARTIAL_COLORS_HYPER;
   if (mode === 'eva') return PARTIAL_COLORS_EVA;
+  if (mode === 'optic') return PARTIAL_COLORS_OPTIC;
   return PARTIAL_COLORS_DEFAULT;
 }
 
@@ -84,6 +89,14 @@ function buildLadderColors(mode: VisualMode): LadderColors {
     labelColor: CANVAS.eva.label,
     dimColor: 'rgba(170,90,255,0.45)',
   };
+  if (mode === 'optic') return {
+    bg: CANVAS.optic.bg2,
+    track: '#dde9f1',
+    separator: '#e8f1f7',
+    f0Color: CANVAS.optic.trace,
+    labelColor: CANVAS.optic.label,
+    dimColor: 'rgba(92,132,156,0.48)',
+  };
   return {
     bg: COLORS.bg2,
     track: COLORS.levelTrack,
@@ -120,19 +133,21 @@ export function HarmonicLadderPanel(): React.ReactElement {
   const audioEngine = useAudioEngine();
   const theaterMode = useTheaterMode();
   const displayMode = useDisplayMode();
+  const currentMode = displayMode.mode;
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const currentLadderColors = buildLadderColors(displayMode.mode);
-  const currentPartialColors = getPartialColors(displayMode.mode);
-  const ladderColorsRef = useRef(currentLadderColors);
-  const partialColorsRef = useRef(currentPartialColors);
-  useLayoutEffect(() => {
-    ladderColorsRef.current = currentLadderColors;
-    partialColorsRef.current = currentPartialColors;
-  });
   const frameRef = useRef<AudioFrame | null>(null);
   const dirtyRef = useRef(true);
   const smoothedRef = useRef<Float32Array>(new Float32Array(NUM_PARTIALS).fill(Number(CANVAS.dbMin)));
   const rafRef = useRef<number | null>(null);
+  const currentLadderColors = buildLadderColors(currentMode);
+  const currentPartialColors = getPartialColors(currentMode);
+  const ladderColorsRef = useRef(currentLadderColors);
+  const partialColorsRef = useRef(currentPartialColors);
+  useLayoutEffect(() => {
+    ladderColorsRef.current = buildLadderColors(currentMode);
+    partialColorsRef.current = getPartialColors(currentMode);
+    dirtyRef.current = true;
+  }, [currentMode]);
 
   useEffect(() => frameBus.subscribe((frame) => { frameRef.current = frame; dirtyRef.current = true; }), [frameBus]);
 

@@ -3,26 +3,40 @@
 // standby overlay while video priority mode is active.
 // ============================================================
 
-import { COLORS, FONTS, SPACING } from '../theme';
+import type { VisualMode } from '../audio/displayMode';
+import { CANVAS, COLORS, FONTS, SPACING } from '../theme';
 
 export function TheaterPanelShell({
   active,
   title,
   detail,
+  visualMode,
   children,
 }: {
   active: boolean;
   title: string;
   detail: string;
+  visualMode?: VisualMode;
   children: React.ReactNode;
 }): React.ReactElement {
+  const optic = visualMode === 'optic';
+
   return (
     <div style={shellStyle}>
       <div style={contentStyle}>{children}</div>
       {active ? (
-        <div style={overlayStyle}>
-          <div style={overlayTitleStyle}>{title}</div>
-          <div style={overlayDetailStyle}>{detail}</div>
+        <div
+          style={{
+            ...overlayStyle,
+            background: optic
+              ? 'linear-gradient(180deg, rgba(249,252,255,0.92), rgba(233,243,249,0.96))'
+              : overlayStyle.background,
+            border: optic ? `1px solid ${CANVAS.optic.chromeBorderActive}` : undefined,
+            backdropFilter: optic ? 'blur(12px)' : undefined,
+          }}
+        >
+          <div style={{ ...overlayTitleStyle, color: optic ? CANVAS.optic.text : overlayTitleStyle.color }}>{title}</div>
+          <div style={{ ...overlayDetailStyle, color: optic ? 'rgba(48,92,120,0.78)' : overlayDetailStyle.color }}>{detail}</div>
         </div>
       ) : null}
     </div>

@@ -192,6 +192,45 @@ export const CANVAS = {
     ],
   },
 
+  // ── OPTIC palette — white-light dispersion / sterile lab chrome ─────────
+  // High-key, instrument-clean surfaces with pale cyan structure and
+  // prismatic accents. Intended to feel clinical, luminous, and exact.
+  optic: {
+    bg:              '#eaf1f5',
+    bg2:             '#dbe5ec',
+    shell:           '#eef4f7',
+    header:          '#e3edf2',
+    trace:           '#126f9d',
+    grid:            'rgba(73,106,126,0.34)',
+    label:           'rgba(42,69,88,0.96)',
+    text:            'rgba(14,31,43,0.98)',
+    glow:            'rgba(18,124,173,0.08)',
+    chromeBorder:    '#a9c0ce',
+    chromeBorderActive: '#4f86a3',
+    category:        'rgba(45,78,97,0.96)',
+    stat:            '#0d7e9e',
+    persistenceFill: 'rgba(223,231,236,0.94)',
+    spectroAxis:     '#5b8199',
+    spectroPalette: [
+      '#eaf0f4',
+      '#cfdde6',
+      '#a6bfd1',
+      '#6f9ec1',
+      '#3d7dab',
+      '#1f8898',
+      '#b89258',
+      '#7a62a9',
+    ],
+    bandColors: [
+      '#587bc4',
+      '#338cbc',
+      '#2d9fa9',
+      '#5eb2a2',
+      '#c39b57',
+      '#9e84be',
+    ],
+  },
+
   // Frequency bands — standard audio engineering terminology
   frequencyBands: [
     { label: 'Sub', range: '20-80 Hz', centerHz: 40, lowHz: 20, highHz: 80 },

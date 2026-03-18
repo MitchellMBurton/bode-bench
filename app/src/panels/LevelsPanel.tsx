@@ -49,6 +49,15 @@ function buildLevelsColors(mode: VisualMode): LevelsColors {
     peakHold: 'rgba(255,140,40,0.55)',
     label: CANVAS.eva.label,
   };
+  if (mode === 'optic') return {
+    bg: CANVAS.optic.bg2,
+    track: '#d8e6ef',
+    levelGreen: '#47b4cf',
+    levelYellow: '#f0c66d',
+    levelRed: '#e47f6e',
+    peakHold: 'rgba(21,151,212,0.55)',
+    label: CANVAS.optic.label,
+  };
   return {
     bg: COLORS.bg2,
     track: COLORS.levelTrack,
@@ -75,15 +84,19 @@ export function LevelsPanel(): React.ReactElement {
   const audioEngine = useAudioEngine();
   const theaterMode = useTheaterMode();
   const displayMode = useDisplayMode();
-  const currentColors = buildLevelsColors(displayMode.mode);
-  const colorsRef = useRef(currentColors);
-  useLayoutEffect(() => { colorsRef.current = currentColors; });
+  const currentMode = displayMode.mode;
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const frameRef = useRef<AudioFrame | null>(null);
   const dirtyRef = useRef(true);
   const rafRef = useRef<number | null>(null);
   const peakL = useRef<PeakHolder>({ fraction: 0, heldAt: 0 });
   const peakR = useRef<PeakHolder>({ fraction: 0, heldAt: 0 });
+  const currentColors = buildLevelsColors(currentMode);
+  const colorsRef = useRef(currentColors);
+  useLayoutEffect(() => {
+    colorsRef.current = buildLevelsColors(currentMode);
+    dirtyRef.current = true;
+  }, [currentMode]);
 
   useEffect(() => {
     const unsub = frameBus.subscribe((f) => { frameRef.current = f; dirtyRef.current = true; });
@@ -146,7 +159,7 @@ export function LevelsPanel(): React.ReactElement {
       ctx.fillRect(0, 0, W, H);
 
       if (!frame) {
-        drawDbScale(ctx, scaleW, padY, barH, [-60, -40, -20, -12, -6, -3, 0]);
+        drawDbScale(ctx, scaleW, padY, barH, [-60, -40, -20, -12, -6, -3, 0], c.label, c.label);
         drawLabel(ctx, W, dpr, c.label);
         return;
       }
@@ -172,7 +185,7 @@ export function LevelsPanel(): React.ReactElement {
       const rmsFracR = dbToFraction(levelToDb(frame.rmsRight));
 
       // DB scale
-      drawDbScale(ctx, scaleW, padY, barH, [-60, -40, -20, -12, -6, -3, 0]);
+      drawDbScale(ctx, scaleW, padY, barH, [-60, -40, -20, -12, -6, -3, 0], c.label, c.label);
 
       // Channel bars: L then R side by side
       const barStartX = scaleW + padX;

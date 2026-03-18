@@ -16,11 +16,14 @@ export function PanelHelp({ text, visualMode }: Props): React.ReactElement {
   const containerRef = useRef<HTMLDivElement>(null);
 
   const nge = visualMode === 'nge';
+  const optic = visualMode === 'optic';
   const hyper = visualMode === 'hyper';
   const eva = visualMode === 'eva';
 
   const btnColor = nge
     ? 'rgba(140,210,40,0.32)'
+    : optic
+      ? 'rgba(73,109,129,0.60)'
     : hyper
       ? 'rgba(98,232,255,0.32)'
       : eva
@@ -28,6 +31,8 @@ export function PanelHelp({ text, visualMode }: Props): React.ReactElement {
         : 'rgba(160,140,80,0.30)';
   const btnHoverColor = nge
     ? 'rgba(140,210,40,0.70)'
+    : optic
+      ? 'rgba(22,71,98,0.92)'
     : hyper
       ? 'rgba(98,232,255,0.70)'
       : eva
@@ -35,6 +40,8 @@ export function PanelHelp({ text, visualMode }: Props): React.ReactElement {
         : 'rgba(200,175,100,0.70)';
   const popoverBorder = nge
     ? CANVAS.nge.chromeBorderActive
+    : optic
+      ? CANVAS.optic.chromeBorderActive
     : hyper
       ? CANVAS.hyper.chromeBorderActive
       : eva
@@ -80,7 +87,15 @@ export function PanelHelp({ text, visualMode }: Props): React.ReactElement {
         ?
       </button>
       {open && (
-        <div style={{ ...popoverStyle, borderColor: popoverBorder }}>
+        <div
+          style={{
+            ...popoverStyle,
+            borderColor: popoverBorder,
+            background: optic ? 'rgba(247,250,252,0.98)' : popoverStyle.background,
+            color: optic ? 'rgba(30,63,81,0.90)' : popoverStyle.color,
+            boxShadow: optic ? '0 8px 22px rgba(79, 134, 163, 0.16)' : popoverStyle.boxShadow,
+          }}
+        >
           {text}
         </div>
       )}

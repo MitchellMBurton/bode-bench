@@ -27,6 +27,24 @@ interface TransportTheme {
 }
 
 function buildTransportTheme(visualMode: VisualMode): TransportTheme {
+  if (visualMode === 'optic') {
+    return {
+      btnBg: 'rgba(247,250,252,0.94)',
+      btnBorder: 'rgba(109,146,165,0.76)',
+      btnColor: CANVAS.optic.text,
+      btnActiveBg: 'linear-gradient(135deg, rgba(252,254,255,0.99), rgba(231,239,245,0.99))',
+      btnActiveBorder: '#4f86a3',
+      btnResetBorder: CANVAS.optic.chromeBorderActive,
+      btnResetBg: 'rgba(239,246,250,0.98)',
+      loopBg: 'rgba(57,126,158,0.10)',
+      loopBorder: 'rgba(79,134,163,0.42)',
+      loopLabel: '#0d7e9e',
+      loopTime: 'rgba(35,67,88,0.86)',
+      loopClear: 'rgba(24,96,132,0.84)',
+      seekTrackBg: '#d0dce3',
+      seekFillColor: '#117aa5',
+    };
+  }
   if (visualMode === 'nge') {
     return {
       btnBg: 'rgba(4,10,4,0.9)',
@@ -1468,7 +1486,11 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
         style={{
           ...ingestStyle,
           borderColor: isDragging ? tt.seekFillColor : tt.btnBorder,
-          background: isDragging ? COLORS.accentGlow : tt.btnBg,
+          background: isDragging
+            ? displayMode.mode === 'optic'
+              ? 'rgba(97,176,214,0.18)'
+              : COLORS.accentGlow
+            : tt.btnBg,
         }}
         onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
         onDragLeave={() => setIsDragging(false)}
@@ -1486,13 +1508,13 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
           onChange={onFileInput}
         />
         {isLoading ? (
-          <span style={ingestTextStyle}>DECODING...</span>
+          <span style={{ ...ingestTextStyle, color: tt.btnColor }}>DECODING...</span>
         ) : transport.filename ? (
           <span style={{ ...ingestTextStyle, color: tt.btnColor }}>
             {transport.filename}
           </span>
         ) : (
-          <span style={ingestTextStyle}>DROP AUDIO / VIDEO - OR CLICK TO OPEN</span>
+          <span style={{ ...ingestTextStyle, color: tt.btnColor }}>DROP AUDIO / VIDEO - OR CLICK TO OPEN</span>
         )}
       </div>
 
@@ -1501,12 +1523,16 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
           style={{
             ...loadNoticeStyle,
             ...(loadNotice.tone === 'warn'
-              ? displayMode.mode === 'nge'
+              ? displayMode.mode === 'optic'
+                ? { borderColor: 'rgba(79,134,163,0.58)', background: 'rgba(231,240,246,0.90)' }
+                : displayMode.mode === 'nge'
                 ? { borderColor: 'rgba(160,200,40,0.55)', background: 'rgba(10,24,4,0.55)' }
                 : displayMode.mode === 'hyper'
                   ? { borderColor: 'rgba(98,200,255,0.45)', background: 'rgba(4,10,32,0.55)' }
                   : loadNoticeWarnStyle
-              : displayMode.mode === 'nge'
+              : displayMode.mode === 'optic'
+                ? { borderColor: 'rgba(109,146,165,0.60)', background: 'rgba(243,248,251,0.92)' }
+                : displayMode.mode === 'nge'
                 ? { borderColor: 'rgba(80,160,30,0.35)', background: 'rgba(6,16,4,0.50)' }
                 : displayMode.mode === 'hyper'
                   ? { borderColor: 'rgba(60,100,220,0.35)', background: 'rgba(4,8,28,0.50)' }

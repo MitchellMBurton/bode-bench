@@ -17,11 +17,13 @@ const BAND_COLORS_DEFAULT = CANVAS.bandColors;
 const BAND_COLORS_NGE = ['#0d2a0a', '#0f4a0e', '#1a6a18', '#2a8a20', '#50aa20', '#80d028'] as const;
 const BAND_COLORS_HYPER = ['#0c1460', '#0a2272', '#0a3888', '#0c529a', '#1068a8', '#1888b8'] as const;
 const BAND_COLORS_EVA = ['#200840', '#3a0860', '#580030', '#8a1800', '#cc4a00', '#ff7b00'] as const;
+const BAND_COLORS_OPTIC = CANVAS.optic.bandColors;
 
 function getBandColors(mode: VisualMode): readonly string[] {
   if (mode === 'nge') return BAND_COLORS_NGE;
   if (mode === 'hyper') return BAND_COLORS_HYPER;
   if (mode === 'eva') return BAND_COLORS_EVA;
+  if (mode === 'optic') return BAND_COLORS_OPTIC;
   return BAND_COLORS_DEFAULT;
 }
 
@@ -35,6 +37,7 @@ function buildBandsColors(mode: VisualMode): BandsColors {
   if (mode === 'nge') return { bg: CANVAS.nge.bg2, track: '#030a03', label: 'rgba(80,160,50,0.5)' };
   if (mode === 'hyper') return { bg: CANVAS.hyper.bg2, track: '#030918', label: 'rgba(84,132,255,0.5)' };
   if (mode === 'eva') return { bg: CANVAS.eva.bg2, track: '#08041a', label: CANVAS.eva.label };
+  if (mode === 'optic') return { bg: CANVAS.optic.bg2, track: '#dce8f0', label: CANVAS.optic.label };
   return { bg: COLORS.bg2, track: COLORS.levelTrack, label: COLORS.textDim };
 }
 
@@ -43,19 +46,21 @@ export function FrequencyBandsPanel(): React.ReactElement {
   const audioEngine = useAudioEngine();
   const theaterMode = useTheaterMode();
   const displayMode = useDisplayMode();
+  const currentMode = displayMode.mode;
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const frameRef = useRef<AudioFrame | null>(null);
   const dirtyRef = useRef(true);
   const rafRef = useRef<number | null>(null);
   const smoothedRef = useRef<number[]>(CANVAS.frequencyBands.map(() => 0));
-  const currentColors = buildBandsColors(displayMode.mode);
-  const currentBandColors = getBandColors(displayMode.mode);
+  const currentColors = buildBandsColors(currentMode);
+  const currentBandColors = getBandColors(currentMode);
   const colorsRef = useRef(currentColors);
   const bandColorsRef = useRef(currentBandColors);
   useLayoutEffect(() => {
-    colorsRef.current = currentColors;
-    bandColorsRef.current = currentBandColors;
-  });
+    colorsRef.current = buildBandsColors(currentMode);
+    bandColorsRef.current = getBandColors(currentMode);
+    dirtyRef.current = true;
+  }, [currentMode]);
 
   useEffect(() => {
     const unsub = frameBus.subscribe((f) => { frameRef.current = f; dirtyRef.current = true; });

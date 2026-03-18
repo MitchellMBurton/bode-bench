@@ -5,8 +5,8 @@
 // ============================================================
 
 import { useEffect, useRef } from 'react';
-import { useAudioEngine } from '../core/session';
-import { COLORS, FONTS, SPACING } from '../theme';
+import { useAudioEngine, useDisplayMode } from '../core/session';
+import { CANVAS, COLORS, FONTS, SPACING } from '../theme';
 import { shouldSkipFrame } from '../utils/rafGuard';
 import type { NoteEvent } from '../types';
 
@@ -39,6 +39,7 @@ function isBlackKey(midi: number): boolean {
 
 export function PianoRollPanel({ noteEvents }: Props): React.ReactElement {
   const audioEngine = useAudioEngine();
+  const displayMode = useDisplayMode();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rafRef = useRef<number | null>(null);
   const noteEventsRef = useRef<NoteEvent[] | null>(noteEvents);
@@ -76,9 +77,23 @@ export function PianoRollPanel({ noteEvents }: Props): React.ReactElement {
       const W = canvas.width;
       const H = canvas.height;
       const dpr = Math.min(devicePixelRatio, PANEL_DPR_MAX);
+      const optic = displayMode.optic;
+      const backgroundFill = optic ? CANVAS.optic.bg2 : COLORS.bg1;
+      const blackKeyFill = optic ? 'rgba(225,236,244,0.92)' : COLORS.bg0;
+      const whiteKeyFill = optic ? 'rgba(247,251,255,0.98)' : COLORS.bg2;
+      const octaveLine = optic ? 'rgba(159,199,223,0.55)' : COLORS.border;
+      const octaveLabel = optic ? CANVAS.optic.label : COLORS.textDim;
+      const activeNoteFill = optic ? 'rgba(29,169,199,0.50)' : COLORS.noteOverlay;
+      const pastNoteFill = optic ? 'rgba(125,174,205,0.38)' : 'rgba(100, 80, 30, 0.45)';
+      const futureNoteFill = optic ? 'rgba(142,214,231,0.52)' : 'rgba(160, 120, 50, 0.55)';
+      const activeNoteBorder = optic ? 'rgba(21,151,212,0.88)' : COLORS.noteOverlayBorder;
+      const noteBorder = optic ? 'rgba(113,171,204,0.36)' : 'rgba(200, 160, 80, 0.3)';
+      const cursorColor = optic ? CANVAS.optic.trace : COLORS.accent;
+      const tickLineColor = optic ? 'rgba(213,229,238,0.92)' : COLORS.bg3;
+      const tickTextColor = optic ? CANVAS.optic.label : COLORS.textDim;
 
       ctx.clearRect(0, 0, W, H);
-      ctx.fillStyle = COLORS.bg1;
+      ctx.fillStyle = backgroundFill;
       ctx.fillRect(0, 0, W, H);
 
       const currentTime = audioEngine.currentTime;
@@ -95,7 +110,7 @@ export function PianoRollPanel({ noteEvents }: Props): React.ReactElement {
       for (let m = MIDI_MIN; m <= MIDI_MAX; m++) {
         const rowIndex = MIDI_MAX - m; // top = high pitch
         const y = rowIndex * rowH;
-        ctx.fillStyle = isBlackKey(m) ? COLORS.bg0 : COLORS.bg2;
+        ctx.fillStyle = isBlackKey(m) ? blackKeyFill : whiteKeyFill;
         ctx.fillRect(0, y, W, rowH);
       }
 
@@ -105,7 +120,7 @@ export function PianoRollPanel({ noteEvents }: Props): React.ReactElement {
         if (pc === 0) {
           const rowIndex = MIDI_MAX - m;
           const y = Math.round(rowIndex * rowH) + 0.5;
-          ctx.strokeStyle = COLORS.border;
+          ctx.strokeStyle = octaveLine;
           ctx.lineWidth = 1;
           ctx.beginPath();
           ctx.moveTo(0, y);
@@ -113,7 +128,7 @@ export function PianoRollPanel({ noteEvents }: Props): React.ReactElement {
           ctx.stroke();
           // Octave label
           ctx.font = `${7 * dpr}px ${FONTS.mono}`;
-          ctx.fillStyle = COLORS.textDim;
+          ctx.fillStyle = octaveLabel;
           ctx.textAlign = 'left';
           ctx.textBaseline = 'top';
           ctx.fillText(midiToName(m), 2 * dpr, y + 1);
@@ -140,18 +155,18 @@ export function PianoRollPanel({ noteEvents }: Props): React.ReactElement {
           const isActive = note.onset_s <= currentTime && note.onset_s + note.duration_s > currentTime;
 
           if (isActive) {
-            ctx.fillStyle = COLORS.noteOverlay;
+            ctx.fillStyle = activeNoteFill;
           } else if (isPast) {
-            ctx.fillStyle = 'rgba(100, 80, 30, 0.45)';
+            ctx.fillStyle = pastNoteFill;
           } else {
-            ctx.fillStyle = 'rgba(160, 120, 50, 0.55)';
+            ctx.fillStyle = futureNoteFill;
           }
 
           const noteH = Math.max(1, rowH - 1);
           ctx.fillRect(x, y + 0.5, noteW, noteH);
 
           // Note border
-          ctx.strokeStyle = isActive ? COLORS.noteOverlayBorder : 'rgba(200, 160, 80, 0.3)';
+          ctx.strokeStyle = isActive ? activeNoteBorder : noteBorder;
           ctx.lineWidth = isActive ? 1.5 * dpr : 0.5;
           ctx.strokeRect(x, y + 0.5, noteW, noteH);
         }
@@ -159,7 +174,7 @@ export function PianoRollPanel({ noteEvents }: Props): React.ReactElement {
 
       // Cursor line
       const cursorX = Math.round(CURSOR_X_FRACTION * W) + 0.5;
-      ctx.strokeStyle = COLORS.accent;
+      ctx.strokeStyle = cursorColor;
       ctx.lineWidth = 1.5 * dpr;
       ctx.beginPath();
       ctx.moveTo(cursorX, 0);
@@ -175,7 +190,7 @@ export function PianoRollPanel({ noteEvents }: Props): React.ReactElement {
       ctx.textBaseline = 'bottom';
       for (let t = firstTick; t <= lastTick; t += 2) {
         const x = (t - timeAtLeft) * pxPerSec;
-        ctx.strokeStyle = COLORS.bg3;
+        ctx.strokeStyle = tickLineColor;
         ctx.lineWidth = 0.5;
         ctx.beginPath();
         ctx.moveTo(x + 0.5, 0);
@@ -184,13 +199,13 @@ export function PianoRollPanel({ noteEvents }: Props): React.ReactElement {
         const m = Math.floor(t / 60);
         const s = t % 60;
         const label = m > 0 ? `${m}:${String(s).padStart(2, '0')}` : `${s}s`;
-        ctx.fillStyle = COLORS.textDim;
+        ctx.fillStyle = tickTextColor;
         ctx.fillText(label, x, H - 2 * dpr);
       }
 
       // Panel label
       ctx.font = `${8 * dpr}px ${FONTS.mono}`;
-      ctx.fillStyle = COLORS.textDim;
+      ctx.fillStyle = tickTextColor;
       ctx.textAlign = 'right';
       ctx.textBaseline = 'top';
       ctx.fillText('SCORE', W - SPACING.sm * dpr, SPACING.xs * dpr);
@@ -198,7 +213,7 @@ export function PianoRollPanel({ noteEvents }: Props): React.ReactElement {
       // No-data hint
       if (!events || events.length === 0) {
         ctx.font = `${8 * dpr}px ${FONTS.mono}`;
-        ctx.fillStyle = COLORS.textDim;
+        ctx.fillStyle = tickTextColor;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText('NO SCORE DATA', W / 2, H / 2);
@@ -209,10 +224,10 @@ export function PianoRollPanel({ noteEvents }: Props): React.ReactElement {
     return () => {
       if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
     };
-  }, [audioEngine]);
+  }, [audioEngine, displayMode]);
 
   return (
-    <div style={panelStyle}>
+    <div style={{ ...panelStyle, background: displayMode.optic ? CANVAS.optic.bg2 : COLORS.bg1 }}>
       <canvas ref={canvasRef} style={canvasStyle} />
     </div>
   );

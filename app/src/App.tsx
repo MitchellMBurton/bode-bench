@@ -20,7 +20,7 @@ import { useAudioEngine, useDisplayMode, usePerformanceDiagnosticsStore, usePerf
 import type { VisualMode } from './audio/displayMode';
 import type { Marker } from './types';
 import type { PerformanceDiagnosticsSnapshot } from './diagnostics/logStore';
-import { COLORS, SPACING } from './theme';
+import { CANVAS, COLORS, SPACING } from './theme';
 import { formatRuntimeMs } from './utils/format';
 
 function getRuntimeStatus(snapshot: PerformanceDiagnosticsSnapshot): string {
@@ -76,6 +76,13 @@ export default function App(): React.ReactElement {
     displayMode.setMode(visualMode);
   }, [displayMode, visualMode]);
 
+  useEffect(() => {
+    document.documentElement.dataset.visualMode = visualMode;
+    return () => {
+      delete document.documentElement.dataset.visualMode;
+    };
+  }, [visualMode]);
+
   usePerformanceMonitoring();
   useGlobalHotkeys({
     setMarkers,
@@ -86,6 +93,7 @@ export default function App(): React.ReactElement {
   const fileTitle = filename ? filename.replace(/\.[^/.]+$/, '') : null;
   const panelTitle = fileTitle ?? 'NO SESSION';
   const showScanLines = visualMode === 'nge' || visualMode === 'hyper' || visualMode === 'eva';
+  const showOpticBloom = visualMode === 'optic';
   const runtimeStatus = getRuntimeStatus(perfSnapshot);
 
   return (
@@ -140,11 +148,11 @@ export default function App(): React.ReactElement {
         topLeft={{
           category: 'SUITE CONSOLE',
           title: panelTitle,
-          help: 'SESSION CONTROLS\n\nLoad a file via drag-drop or the file button. All analysis runs locally — no network required.\n\nVOL: output volume. RATE: playback speed (preserves pitch when pitch mode is on). PITCH: enable real-time pitch shifting on decoded files (< 384 MB).\n\nGREYSCALE: monochrome overlay. NGE: phosphor-green palette. HYPER: cyan/indigo palette.\n\nKEYBOARD SHORTCUTS: Space play/pause, ← → seek 5 s (Shift: 15 s), S stop, L loop file, M mark, Esc clear loop, ? show all shortcuts.\n\nDiagnostics log captures every transport event and file analysis result.',
+          help: 'SESSION CONTROLS\n\nLoad a file via drag-drop or the file button. All analysis runs locally — no network required.\n\nVOL: output volume. RATE: playback speed (preserves pitch when pitch mode is on). PITCH: enable real-time pitch shifting on decoded files (< 384 MB).\n\nGREYSCALE: monochrome overlay. OPTIC: white-light dispersion palette. NGE: phosphor-green palette. HYPER: cyan/indigo palette. EVA: alarm-state violet/orange palette.\n\nKEYBOARD SHORTCUTS: Space play/pause, ← → seek 5 s (Shift: 15 s), S stop, L loop file, M mark, Esc clear loop, ? show all shortcuts.\n\nDiagnostics log captures every transport event and file analysis result.',
           content: (
             <div style={controlPanelStyle}>
               <MetadataDisplay filename={filename} visualMode={visualMode} />
-              <div style={dividerStyle} />
+              <div style={{ ...dividerStyle, background: visualMode === 'optic' ? CANVAS.optic.chromeBorder : COLORS.border }} />
               <TransportControls />
               <SessionControls
                 grayscale={grayscale}
@@ -165,6 +173,7 @@ export default function App(): React.ReactElement {
               active={theaterMode}
               title="VIDEO PRIORITY"
               detail="Live diagnostic surfaces are paused in place while theater mode is active."
+              visualMode={visualMode}
             >
               <SplitPane
                 direction="column"
@@ -191,6 +200,7 @@ export default function App(): React.ReactElement {
               active={theaterMode}
               title="SURFACES IDLED"
               detail="Instrumentation is held in place during video priority mode, then resumes instantly."
+              visualMode={visualMode}
             >
               <SplitPane
                 direction="column"
@@ -215,6 +225,7 @@ export default function App(): React.ReactElement {
               active={theaterMode}
               title="SPECTRAL PAUSE"
               detail="Loudness and spectrum views are held in place during theater mode, then resume from the same session."
+              visualMode={visualMode}
             >
               <SplitPane
                 direction="column"
@@ -231,6 +242,7 @@ export default function App(): React.ReactElement {
           ),
         }}
       />
+      {showOpticBloom && <div style={opticBloomStyle} />}
       {showScanLines && <div style={scanLineStyle} />}
       <HotkeyOverlay
         open={hotkeyOverlayOpen}
@@ -264,5 +276,20 @@ const scanLineStyle: React.CSSProperties = {
     'repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.10) 2px, rgba(0,0,0,0.10) 3px)',
   animation: 'nge-scanlines 80ms linear infinite',
   mixBlendMode: 'overlay',
+  willChange: 'background-position',
+};
+
+const opticBloomStyle: React.CSSProperties = {
+  position: 'fixed',
+  inset: 0,
+  pointerEvents: 'none',
+  zIndex: 9998,
+  opacity: 0.12,
+  backgroundImage: [
+    'radial-gradient(circle at 18% 14%, rgba(255,255,255,0.22), transparent 24%)',
+    'radial-gradient(circle at 82% 12%, rgba(70,160,205,0.08), transparent 18%)',
+    'linear-gradient(138deg, rgba(255,255,255,0.02) 0%, rgba(93,167,203,0.04) 30%, transparent 48%, rgba(198,160,96,0.05) 68%, rgba(255,255,255,0.02) 100%)',
+  ].join(','),
+  animation: 'optics-glide 18s linear infinite',
   willChange: 'background-position',
 };

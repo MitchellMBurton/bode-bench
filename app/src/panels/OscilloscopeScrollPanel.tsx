@@ -32,6 +32,12 @@ const HYPER_GRID = CANVAS.hyper.grid;
 const HYPER_LABEL = CANVAS.hyper.label;
 const HYPER_BG_RGB = hexToRgb(HYPER_BG);
 const HYPER_TRACE_RGB = hexToRgb(HYPER_TRACE);
+const OPTIC_BG = CANVAS.optic.bg2;
+const OPTIC_TRACE = CANVAS.optic.trace;
+const OPTIC_GRID = CANVAS.optic.grid;
+const OPTIC_LABEL = CANVAS.optic.label;
+const OPTIC_BG_RGB = hexToRgb(OPTIC_BG);
+const OPTIC_TRACE_RGB = hexToRgb(OPTIC_TRACE);
 const EVA_BG = CANVAS.eva.bg2;
 const EVA_TRACE = CANVAS.eva.trace;
 const EVA_GRID = CANVAS.eva.grid;
@@ -66,6 +72,17 @@ function getVisualPalette(mode: VisualMode): {
       labelColor: HYPER_LABEL,
       bgRgb: HYPER_BG_RGB,
       traceRgb: HYPER_TRACE_RGB,
+    };
+  }
+
+  if (mode === 'optic') {
+    return {
+      bgFill: OPTIC_BG,
+      traceColor: OPTIC_TRACE,
+      gridColor: OPTIC_GRID,
+      labelColor: OPTIC_LABEL,
+      bgRgb: OPTIC_BG_RGB,
+      traceRgb: OPTIC_TRACE_RGB,
     };
   }
 
@@ -318,7 +335,7 @@ export function OscilloscopeScrollPanel(): React.ReactElement {
   }, [audioEngine, displayMode, scrollSpeed, theaterMode]);
 
   return (
-    <div style={panelStyle}>
+    <div style={{ ...panelStyle, background: getVisualPalette(displayMode.mode).bgFill }}>
       <canvas ref={canvasRef} style={canvasStyle} />
     </div>
   );

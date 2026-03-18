@@ -249,16 +249,17 @@ export function LoudnessMeterPanel(): React.ReactElement {
       const dpr = Math.min(devicePixelRatio, PANEL_DPR_MAX);
       const nge = displayMode.nge;
       const hyper = displayMode.hyper;
+      const optic = displayMode.optic;
       const eva = displayMode.eva;
       const padV = 6 * dpr;
 
-      const traceColor = nge ? '#a0d840' : hyper ? CANVAS.hyper.trace : eva ? CANVAS.eva.trace : COLORS.waveform;
-      const labelColor = nge ? 'rgba(140,210,40,0.5)' : hyper ? CANVAS.hyper.label : eva ? CANVAS.eva.label : COLORS.textDim;
-      const textColor = nge ? 'rgba(140,210,40,0.72)' : hyper ? CANVAS.hyper.text : eva ? CANVAS.eva.text : COLORS.textSecondary;
+      const traceColor = nge ? '#a0d840' : hyper ? CANVAS.hyper.trace : optic ? CANVAS.optic.trace : eva ? CANVAS.eva.trace : COLORS.waveform;
+      const labelColor = nge ? 'rgba(140,210,40,0.5)' : hyper ? CANVAS.hyper.label : optic ? CANVAS.optic.label : eva ? CANVAS.eva.label : COLORS.textDim;
+      const textColor = nge ? 'rgba(140,210,40,0.72)' : hyper ? CANVAS.hyper.text : optic ? CANVAS.optic.text : eva ? CANVAS.eva.text : COLORS.textSecondary;
 
-      ctx.fillStyle = hyper ? CANVAS.hyper.bg2 : eva ? CANVAS.eva.bg : COLORS.bg1;
+      ctx.fillStyle = hyper ? CANVAS.hyper.bg2 : optic ? CANVAS.optic.bg2 : eva ? CANVAS.eva.bg : COLORS.bg1;
       ctx.fillRect(0, 0, W, H);
-      ctx.fillStyle = hyper ? 'rgba(32,52,110,0.92)' : eva ? 'rgba(74,26,144,0.92)' : COLORS.border;
+      ctx.fillStyle = hyper ? 'rgba(32,52,110,0.92)' : optic ? 'rgba(159,199,223,0.84)' : eva ? 'rgba(74,26,144,0.92)' : COLORS.border;
       ctx.fillRect(0, 0, W, 1);
 
       // ── Delivery zone bands (key visual differentiator from plain RMS) ───
@@ -267,13 +268,13 @@ export function LoudnessMeterPanel(): React.ReactElement {
       const y14     = lufsToY(-14, H, padV);
       const y23     = lufsToY(-23, H, padV);
       const yBot    = H - padV;
-      ctx.fillStyle = nge ? 'rgba(120,40,10,0.10)' : hyper ? 'rgba(180,40,40,0.10)' : eva ? 'rgba(160,20,20,0.12)' : 'rgba(100,18,18,0.14)';
+      ctx.fillStyle = nge ? 'rgba(120,40,10,0.10)' : hyper ? 'rgba(180,40,40,0.10)' : optic ? 'rgba(228,124,103,0.12)' : eva ? 'rgba(160,20,20,0.12)' : 'rgba(100,18,18,0.14)';
       ctx.fillRect(0, yTop, W, y14 - yTop);
       // Green band: -14 to -23 LUFS (streaming–broadcast safe zone)
-      ctx.fillStyle = nge ? 'rgba(40,100,10,0.10)' : hyper ? 'rgba(20,80,60,0.10)' : eva ? 'rgba(120,50,0,0.10)' : 'rgba(14,60,24,0.12)';
+      ctx.fillStyle = nge ? 'rgba(40,100,10,0.10)' : hyper ? 'rgba(20,80,60,0.10)' : optic ? 'rgba(122,223,206,0.12)' : eva ? 'rgba(120,50,0,0.10)' : 'rgba(14,60,24,0.12)';
       ctx.fillRect(0, y14, W, y23 - y14);
       // Below -23: no tint (below all delivery targets, subdued)
-      ctx.fillStyle = nge ? 'rgba(10,30,5,0.08)' : hyper ? 'rgba(8,12,30,0.08)' : eva ? 'rgba(8,4,26,0.10)' : 'rgba(8,10,16,0.10)';
+      ctx.fillStyle = nge ? 'rgba(10,30,5,0.08)' : hyper ? 'rgba(8,12,30,0.08)' : optic ? 'rgba(214,228,237,0.38)' : eva ? 'rgba(8,4,26,0.10)' : 'rgba(8,10,16,0.10)';
       ctx.fillRect(0, y23, W, yBot - y23);
 
       // ── Reference lines ──────────────────────────────────────────────────
@@ -282,8 +283,8 @@ export function LoudnessMeterPanel(): React.ReactElement {
         const y = Math.round(lufsToY(lufs, H, padV)) + 0.5;
         const isTarget = lufs === -14;
         ctx.strokeStyle = isTarget
-          ? (hyper ? 'rgba(88,124,255,0.65)' : nge ? 'rgba(100,200,40,0.55)' : eva ? 'rgba(255,123,0,0.55)' : 'rgba(60,60,90,1)')
-          : (hyper ? 'rgba(28,42,88,0.85)' : nge ? 'rgba(40,80,20,0.45)' : eva ? 'rgba(74,26,144,0.55)' : 'rgba(38,38,56,1)');
+          ? (hyper ? 'rgba(88,124,255,0.65)' : nge ? 'rgba(100,200,40,0.55)' : optic ? 'rgba(116,186,220,0.72)' : eva ? 'rgba(255,123,0,0.55)' : 'rgba(60,60,90,1)')
+          : (hyper ? 'rgba(28,42,88,0.85)' : nge ? 'rgba(40,80,20,0.45)' : optic ? 'rgba(191,218,233,0.92)' : eva ? 'rgba(74,26,144,0.55)' : 'rgba(38,38,56,1)');
         ctx.lineWidth = 1;
         ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
         ctx.font = `${6.5 * dpr}px ${FONTS.mono}`;
@@ -321,8 +322,8 @@ export function LoudnessMeterPanel(): React.ReactElement {
           ctx.lineTo(points[points.length - 1][0], baseY);
           ctx.closePath();
           const fillGrad = ctx.createLinearGradient(0, padV, 0, H);
-          fillGrad.addColorStop(0, nge ? 'rgba(160,216,64,0.26)' : hyper ? 'rgba(98,232,255,0.26)' : eva ? 'rgba(255,123,0,0.26)' : 'rgba(100,120,210,0.28)');
-          fillGrad.addColorStop(1, nge ? 'rgba(96,192,32,0.04)' : hyper ? 'rgba(255,92,188,0.06)' : eva ? 'rgba(170,90,255,0.06)' : 'rgba(70,90,170,0.04)');
+          fillGrad.addColorStop(0, nge ? 'rgba(160,216,64,0.26)' : hyper ? 'rgba(98,232,255,0.26)' : optic ? 'rgba(21,151,212,0.16)' : eva ? 'rgba(255,123,0,0.26)' : 'rgba(100,120,210,0.28)');
+          fillGrad.addColorStop(1, nge ? 'rgba(96,192,32,0.04)' : hyper ? 'rgba(255,92,188,0.06)' : optic ? 'rgba(210,173,244,0.06)' : eva ? 'rgba(170,90,255,0.06)' : 'rgba(70,90,170,0.04)');
           ctx.fillStyle = fillGrad;
           ctx.fill();
 
@@ -330,7 +331,7 @@ export function LoudnessMeterPanel(): React.ReactElement {
           ctx.beginPath();
           ctx.moveTo(points[0][0], points[0][1]);
           for (let i = 1; i < points.length; i++) ctx.lineTo(points[i][0], points[i][1]);
-          ctx.strokeStyle = nge ? 'rgba(160,216,64,0.80)' : hyper ? 'rgba(98,232,255,0.86)' : eva ? 'rgba(255,123,0,0.86)' : 'rgba(130,152,228,0.88)';
+          ctx.strokeStyle = nge ? 'rgba(160,216,64,0.80)' : hyper ? 'rgba(98,232,255,0.86)' : optic ? 'rgba(21,151,212,0.82)' : eva ? 'rgba(255,123,0,0.86)' : 'rgba(130,152,228,0.88)';
           ctx.lineWidth = 1.5 * dpr;
           ctx.lineJoin = 'round';
           ctx.stroke();
@@ -339,12 +340,12 @@ export function LoudnessMeterPanel(): React.ReactElement {
           const last = points[points.length - 1];
           ctx.beginPath();
           ctx.arc(last[0], last[1], 2.5 * dpr, 0, Math.PI * 2);
-          ctx.fillStyle = nge ? traceColor : hyper ? traceColor : 'rgba(150,170,240,1)';
+          ctx.fillStyle = nge ? traceColor : hyper ? traceColor : optic ? traceColor : 'rgba(150,170,240,1)';
           ctx.fill();
         }
       } else if (hLen === 0) {
         const y = Math.round(lufsToY(-30, H, padV)) + 0.5;
-        ctx.strokeStyle = hyper ? 'rgba(24,34,70,1)' : eva ? 'rgba(22,12,48,1)' : COLORS.bg3;
+        ctx.strokeStyle = hyper ? 'rgba(24,34,70,1)' : optic ? 'rgba(202,222,234,0.92)' : eva ? 'rgba(22,12,48,1)' : COLORS.bg3;
         ctx.lineWidth = 1;
         ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
       }
@@ -354,7 +355,7 @@ export function LoudnessMeterPanel(): React.ReactElement {
       const intHas = intHasRef.current;
       if (intHas && intLufs > LUFS_BOT) {
         const intY = Math.round(lufsToY(intLufs, H, padV)) + 0.5;
-        const intLineColor = nge ? 'rgba(160,216,64,0.55)' : hyper ? 'rgba(98,232,255,0.55)' : eva ? 'rgba(255,123,0,0.55)' : 'rgba(130,152,228,0.60)';
+        const intLineColor = nge ? 'rgba(160,216,64,0.55)' : hyper ? 'rgba(98,232,255,0.55)' : optic ? 'rgba(21,151,212,0.55)' : eva ? 'rgba(255,123,0,0.55)' : 'rgba(130,152,228,0.60)';
         ctx.strokeStyle = intLineColor;
         ctx.lineWidth = 1.5 * dpr;
         ctx.setLineDash([8 * dpr, 3 * dpr]);
@@ -382,7 +383,7 @@ export function LoudnessMeterPanel(): React.ReactElement {
         const momCol = curLufs > -6
           ? COLORS.statusErr
           : curLufs > -14
-            ? (nge ? '#c0e860' : eva ? '#ffa020' : 'rgba(220,190,60,0.95)')
+            ? (nge ? '#c0e860' : optic ? '#c99b4f' : eva ? '#ffa020' : 'rgba(220,190,60,0.95)')
             : textColor;
         ctx.font = `${10 * dpr}px ${FONTS.mono}`;
         ctx.fillStyle = momCol;
@@ -405,7 +406,7 @@ export function LoudnessMeterPanel(): React.ReactElement {
         const tpCol = truePeak > TP_WARN_DB
           ? COLORS.statusErr
           : truePeak > -6
-            ? (nge ? '#c0e860' : eva ? '#ffa020' : 'rgba(220,190,60,0.9)')
+            ? (nge ? '#c0e860' : optic ? '#c99b4f' : eva ? '#ffa020' : 'rgba(220,190,60,0.9)')
             : labelColor;
         ctx.font = `${8 * dpr}px ${FONTS.mono}`;
         ctx.fillStyle = tpCol;

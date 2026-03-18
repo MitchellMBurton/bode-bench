@@ -17,6 +17,12 @@ interface PerfTheme {
   bg1: string;
   bg2: string;
   border: string;
+  buttonBg: string;
+  buttonBorder: string;
+  buttonColor: string;
+  buttonActiveBg: string;
+  buttonActiveBorder: string;
+  buttonActiveColor: string;
   textCategory: string;
   textTitle: string;
   textPrimary: string;
@@ -24,15 +30,52 @@ interface PerfTheme {
   textDim: string;
   levelTrack: string;
   fillInfo: string;
+  fillDim: string;
+  traceBandBg: string;
+  traceMarkerBg: string;
+  traceLaneBg: string;
+  traceCatchupBg: string;
 }
 
 function buildPerfTheme(visualMode: VisualMode): PerfTheme {
+  if (visualMode === 'optic') {
+    return {
+      bg0: CANVAS.optic.bg,
+      bg1: '#f5fafc',
+      bg2: CANVAS.optic.bg2,
+      border: CANVAS.optic.chromeBorder,
+      buttonBg: 'rgba(247,250,252,0.94)',
+      buttonBorder: 'rgba(109,146,165,0.68)',
+      buttonColor: CANVAS.optic.text,
+      buttonActiveBg: 'rgba(229,237,243,0.96)',
+      buttonActiveBorder: CANVAS.optic.chromeBorderActive,
+      buttonActiveColor: CANVAS.optic.trace,
+      textCategory: CANVAS.optic.category,
+      textTitle: CANVAS.optic.text,
+      textPrimary: CANVAS.optic.trace,
+      textSecondary: 'rgba(45,80,100,0.72)',
+      textDim: 'rgba(93,125,143,0.34)',
+      levelTrack: '#d1dce3',
+      fillInfo: 'linear-gradient(90deg, rgba(33,118,160,0.78), rgba(94,163,197,0.92))',
+      fillDim: 'linear-gradient(90deg, rgba(116,136,149,0.52), rgba(84,108,126,0.72))',
+      traceBandBg: 'rgba(221,230,236,0.88)',
+      traceMarkerBg: 'rgba(246,249,251,0.98)',
+      traceLaneBg: 'rgba(231,238,243,0.92)',
+      traceCatchupBg: 'rgba(91,126,154,0.08)',
+    };
+  }
   if (visualMode === 'hyper') {
     return {
       bg0: CANVAS.hyper.bg,
       bg1: '#04091a',
       bg2: CANVAS.hyper.bg2,
       border: CANVAS.hyper.chromeBorder,
+      buttonBg: 'rgba(2,5,18,0.9)',
+      buttonBorder: 'rgba(40,70,180,0.35)',
+      buttonColor: 'rgba(112,180,255,0.5)',
+      buttonActiveBg: 'rgba(6,14,40,0.95)',
+      buttonActiveBorder: 'rgba(98,200,255,0.7)',
+      buttonActiveColor: 'rgba(210,236,255,0.98)',
       textCategory: CANVAS.hyper.category,
       textTitle: CANVAS.hyper.label,
       textPrimary: CANVAS.hyper.trace,
@@ -40,6 +83,11 @@ function buildPerfTheme(visualMode: VisualMode): PerfTheme {
       textDim: 'rgba(84,132,255,0.18)',
       levelTrack: '#040b18',
       fillInfo: 'linear-gradient(90deg, rgba(58,86,200,0.8), rgba(98,232,255,0.88))',
+      fillDim: 'linear-gradient(90deg, rgba(64,64,88,0.72), rgba(96,96,120,0.8))',
+      traceBandBg: 'rgba(8,12,18,0.6)',
+      traceMarkerBg: 'rgba(8,12,18,0.96)',
+      traceLaneBg: 'rgba(8,12,18,0.5)',
+      traceCatchupBg: 'rgba(80,96,192,0.08)',
     };
   }
   if (visualMode === 'nge') {
@@ -48,6 +96,12 @@ function buildPerfTheme(visualMode: VisualMode): PerfTheme {
       bg1: '#07100a',
       bg2: CANVAS.nge.bg2,
       border: CANVAS.nge.chromeBorder,
+      buttonBg: 'rgba(4,10,4,0.9)',
+      buttonBorder: 'rgba(60,130,30,0.35)',
+      buttonColor: 'rgba(140,210,40,0.5)',
+      buttonActiveBg: 'rgba(10,28,8,0.95)',
+      buttonActiveBorder: 'rgba(120,200,60,0.7)',
+      buttonActiveColor: 'rgba(180,230,80,0.95)',
       textCategory: CANVAS.nge.category,
       textTitle: CANVAS.nge.label,
       textPrimary: CANVAS.nge.trace,
@@ -55,6 +109,11 @@ function buildPerfTheme(visualMode: VisualMode): PerfTheme {
       textDim: 'rgba(80,160,50,0.2)',
       levelTrack: '#040a04',
       fillInfo: 'linear-gradient(90deg, rgba(64,128,40,0.8), rgba(160,216,64,0.88))',
+      fillDim: 'linear-gradient(90deg, rgba(64,64,88,0.72), rgba(96,96,120,0.8))',
+      traceBandBg: 'rgba(8,12,18,0.6)',
+      traceMarkerBg: 'rgba(8,12,18,0.96)',
+      traceLaneBg: 'rgba(8,12,18,0.5)',
+      traceCatchupBg: 'rgba(80,96,192,0.08)',
     };
   }
   if (visualMode === 'eva') {
@@ -63,6 +122,12 @@ function buildPerfTheme(visualMode: VisualMode): PerfTheme {
       bg1: '#0f0a24',
       bg2: CANVAS.eva.bg2,
       border: CANVAS.eva.chromeBorder,
+      buttonBg: 'rgba(8,4,26,0.9)',
+      buttonBorder: 'rgba(120,50,200,0.35)',
+      buttonColor: 'rgba(170,90,255,0.5)',
+      buttonActiveBg: 'rgba(20,10,50,0.95)',
+      buttonActiveBorder: 'rgba(255,123,0,0.7)',
+      buttonActiveColor: 'rgba(255,180,80,0.98)',
       textCategory: CANVAS.eva.category,
       textTitle: CANVAS.eva.label,
       textPrimary: CANVAS.eva.trace,
@@ -70,6 +135,11 @@ function buildPerfTheme(visualMode: VisualMode): PerfTheme {
       textDim: 'rgba(120,50,200,0.18)',
       levelTrack: '#0a0618',
       fillInfo: 'linear-gradient(90deg, rgba(120,50,200,0.8), rgba(255,123,0,0.88))',
+      fillDim: 'linear-gradient(90deg, rgba(64,64,88,0.72), rgba(96,96,120,0.8))',
+      traceBandBg: 'rgba(8,12,18,0.6)',
+      traceMarkerBg: 'rgba(8,12,18,0.96)',
+      traceLaneBg: 'rgba(8,12,18,0.5)',
+      traceCatchupBg: 'rgba(80,96,192,0.08)',
     };
   }
   return {
@@ -77,6 +147,12 @@ function buildPerfTheme(visualMode: VisualMode): PerfTheme {
     bg1: COLORS.bg1,
     bg2: COLORS.bg2,
     border: COLORS.border,
+    buttonBg: COLORS.bg3,
+    buttonBorder: COLORS.border,
+    buttonColor: COLORS.textSecondary,
+    buttonActiveBg: COLORS.bg2,
+    buttonActiveBorder: COLORS.borderActive,
+    buttonActiveColor: COLORS.textPrimary,
     textCategory: COLORS.textCategory,
     textTitle: COLORS.textTitle,
     textPrimary: COLORS.textPrimary,
@@ -84,6 +160,11 @@ function buildPerfTheme(visualMode: VisualMode): PerfTheme {
     textDim: COLORS.textDim,
     levelTrack: COLORS.levelTrack,
     fillInfo: 'linear-gradient(90deg, rgba(80,96,192,0.8), rgba(120,154,255,0.88))',
+    fillDim: 'linear-gradient(90deg, rgba(64,64,88,0.72), rgba(96,96,120,0.8))',
+    traceBandBg: 'rgba(8,12,18,0.6)',
+    traceMarkerBg: 'rgba(8,12,18,0.96)',
+    traceLaneBg: 'rgba(8,12,18,0.5)',
+    traceCatchupBg: 'rgba(80,96,192,0.08)',
   };
 }
 interface LogTheme {
@@ -106,6 +187,26 @@ interface LogTheme {
 }
 
 function buildLogTheme(visualMode: VisualMode): LogTheme {
+  if (visualMode === 'optic') {
+    return {
+      wrapBorder: 'rgba(109,146,165,0.64)',
+      headerBg: '#f6fafc',
+      headerBorder: CANVAS.optic.chromeBorderActive,
+      scrollBg: '#edf3f7',
+      buttonBg: 'rgba(247,250,252,0.94)',
+      buttonBorder: 'rgba(109,146,165,0.68)',
+      buttonColor: CANVAS.optic.text,
+      buttonActiveBg: 'rgba(229,237,243,0.96)',
+      buttonActiveBorder: CANVAS.optic.chromeBorderActive,
+      buttonActiveColor: CANVAS.optic.trace,
+      headerLabel: CANVAS.optic.category,
+      headerMeta: 'rgba(70,103,121,0.78)',
+      clockColor: 'rgba(70,103,121,0.74)',
+      sourceColor: CANVAS.optic.category,
+      toneInfo: CANVAS.optic.trace,
+      toneDim: 'rgba(47,80,100,0.72)',
+    };
+  }
   if (visualMode === 'nge') {
     return {
       wrapBorder: 'rgba(60,140,30,0.3)',
@@ -911,6 +1012,18 @@ export function PerformanceDiagnostics({ visualMode = 'default' }: { visualMode?
 
   const panelStyle: React.CSSProperties = { ...perfPanelStyle, background: theme.bg1, border: `1px solid ${theme.border}` };
   const sectionTitleStyle: React.CSSProperties = { ...perfSectionTitleStyle, color: theme.textCategory };
+  const perfActionButtonStyle: React.CSSProperties = {
+    ...actionButtonStyle,
+    background: theme.buttonBg,
+    borderColor: theme.buttonBorder,
+    color: theme.buttonColor,
+  };
+  const perfActionButtonActiveStyle: React.CSSProperties = {
+    ...actionButtonActiveStyle,
+    background: theme.buttonActiveBg,
+    borderColor: theme.buttonActiveBorder,
+    color: theme.buttonActiveColor,
+  };
 
   return (
     <div style={{ ...perfWrapStyle, background: theme.bg0 }}>
@@ -921,10 +1034,10 @@ export function PerformanceDiagnostics({ visualMode = 'default' }: { visualMode?
           <div style={{ ...perfHealthDetailStyle, color: theme.textSecondary }}>{health.detail}</div>
         </div>
         <div style={perfActionsStyle}>
-          <button style={actionButtonStyle} onClick={onCopy}>
+          <button style={perfActionButtonStyle} onClick={onCopy}>
             {copyState === 'copied' ? 'COPIED' : copyState === 'failed' ? 'COPY FAIL' : 'COPY SNAPSHOT'}
           </button>
-          <button style={actionButtonStyle} onClick={onClear}>CLEAR TRACE</button>
+          <button style={perfActionButtonStyle} onClick={onClear}>CLEAR TRACE</button>
         </div>
       </div>
 
@@ -944,8 +1057,8 @@ export function PerformanceDiagnostics({ visualMode = 'default' }: { visualMode?
             <button
               key={option.value}
               style={{
-                ...actionButtonStyle,
-                ...(performanceProfile.preference === option.value ? actionButtonActiveStyle : {}),
+                ...perfActionButtonStyle,
+                ...(performanceProfile.preference === option.value ? perfActionButtonActiveStyle : {}),
               }}
               onClick={() => onSetProfilePreference(option.value)}
               title={option.detail}
@@ -1072,7 +1185,7 @@ function PerformanceMeter({
       ? 'linear-gradient(90deg, rgba(176,144,48,0.85), rgba(200,146,42,0.92))'
       : tone === 'info'
         ? theme.fillInfo
-        : 'linear-gradient(90deg, rgba(64,64,88,0.72), rgba(96,96,120,0.8))';
+        : theme.fillDim;
 
   return (
     <div style={perfMeterWrapStyle}>
@@ -1275,7 +1388,7 @@ function PerformanceTracePanel({
 
   const tickFractions = [0, 0.2, 0.4, 0.6, 0.8, 1];
   const contactColor = (tone: 'dim' | 'info' | 'warn'): string =>
-    tone === 'warn' ? COLORS.waveform : tone === 'info' ? COLORS.borderHighlight : COLORS.textLabel;
+    tone === 'warn' ? COLORS.waveform : tone === 'info' ? theme.textPrimary : theme.textCategory;
   const catchupBandW = Math.max(5, svgViewW / Math.max(40, samples.length * 0.92));
 
   // Shared styles for HTML rail cells
@@ -1322,7 +1435,7 @@ function PerformanceTracePanel({
             style={{ display: 'block', width: '100%', height: svgH, flexShrink: 0 }}
           >
             {/* Event band background */}
-            <rect x={0} y={0} width={svgViewW} height={eventBandH} fill="rgba(8,12,18,0.6)" />
+            <rect x={0} y={0} width={svgViewW} height={eventBandH} fill={theme.traceBandBg} />
 
             {/* Vertical tick grid lines */}
             {tickFractions.map((f, i) => (
@@ -1345,7 +1458,7 @@ function PerformanceTracePanel({
               return (
                 <g key={`cm-${marker.atMs}-${index}`}>
                   <line x1={x} y1={my + 9} x2={x} y2={laneMid} stroke={color} strokeOpacity={0.2} strokeDasharray="2 5" />
-                  <rect x={x - 14} y={my} width={28} height={10} rx={1.5} fill="rgba(8,12,18,0.96)" stroke={color} strokeOpacity={0.56} />
+                  <rect x={x - 14} y={my} width={28} height={10} rx={1.5} fill={theme.traceMarkerBg} stroke={color} strokeOpacity={0.56} />
                   <text x={x} y={my + 7.4} fill={color} fontFamily={FONTS.mono} fontSize={7} textAnchor="middle" letterSpacing="0.3">{marker.label}</text>
                   <circle cx={x} cy={laneMid} r={2} fill={color} />
                 </g>
@@ -1360,10 +1473,10 @@ function PerformanceTracePanel({
               const areaPath = lane.centered ? '' : buildAreaPath(lane.selector, lane.max, i);
               return (
                 <g key={lane.code}>
-                  <rect x={0} y={top} width={svgViewW} height={laneH} fill="rgba(8,12,18,0.5)" />
+                  <rect x={0} y={top} width={svgViewW} height={laneH} fill={theme.traceLaneBg} />
                   {i < lanes.length - 1 ? <rect x={0} y={top + laneH} width={svgViewW} height={laneGap} fill={theme.bg2} /> : null}
                   {i === 1 ? samples.map((s) => s.videoCatchupActive ? (
-                    <rect key={`cu-${s.atMs}`} x={xForTime(s.atMs) - catchupBandW * 0.5} y={top} width={catchupBandW} height={laneH} fill="rgba(80,96,192,0.08)" />
+                    <rect key={`cu-${s.atMs}`} x={xForTime(s.atMs) - catchupBandW * 0.5} y={top} width={catchupBandW} height={laneH} fill={theme.traceCatchupBg} />
                   ) : null) : null}
                   <line x1={0} y1={baseline} x2={svgViewW} y2={baseline} stroke={lane.centered ? lane.color : theme.border} strokeOpacity={lane.centered ? 0.38 : 0.1} />
                   {areaPath ? <path d={areaPath} fill={lane.fill} /> : null}

@@ -26,6 +26,11 @@ const HYPER_PERSISTENCE_FILL = CANVAS.hyper.persistenceFill;
 const HYPER_TRACE = CANVAS.hyper.trace;
 const HYPER_GRID = CANVAS.hyper.grid;
 const HYPER_LABEL = CANVAS.hyper.label;
+const OPTIC_BG = CANVAS.optic.bg2;
+const OPTIC_PERSISTENCE_FILL = CANVAS.optic.persistenceFill;
+const OPTIC_TRACE = CANVAS.optic.trace;
+const OPTIC_GRID = CANVAS.optic.grid;
+const OPTIC_LABEL = CANVAS.optic.label;
 const EVA_BG = CANVAS.eva.bg2;
 const EVA_PERSISTENCE_FILL = CANVAS.eva.persistenceFill;
 const EVA_TRACE = CANVAS.eva.trace;
@@ -37,6 +42,8 @@ const NGE_BG_RGB = hexToRgb(NGE_BG);
 const NGE_TRACE_RGB = hexToRgb(NGE_TRACE);
 const HYPER_BG_RGB = hexToRgb(HYPER_BG);
 const HYPER_TRACE_RGB = hexToRgb(HYPER_TRACE);
+const OPTIC_BG_RGB = hexToRgb(OPTIC_BG);
+const OPTIC_TRACE_RGB = hexToRgb(OPTIC_TRACE);
 const EVA_BG_RGB = hexToRgb(EVA_BG);
 const EVA_TRACE_RGB = hexToRgb(EVA_TRACE);
 const TD_BUF = new Float32Array(CANVAS.fftSize);
@@ -71,6 +78,18 @@ function getVisualPalette(mode: VisualMode): {
       labelColor: HYPER_LABEL,
       backgroundFillRgb: HYPER_BG_RGB,
       traceColorRgb: HYPER_TRACE_RGB,
+    };
+  }
+
+  if (mode === 'optic') {
+    return {
+      backgroundFill: OPTIC_BG,
+      persistenceFill: OPTIC_PERSISTENCE_FILL,
+      traceColor: OPTIC_TRACE,
+      gridColor: OPTIC_GRID,
+      labelColor: OPTIC_LABEL,
+      backgroundFillRgb: OPTIC_BG_RGB,
+      traceColorRgb: OPTIC_TRACE_RGB,
     };
   }
 
@@ -513,7 +532,7 @@ export function WaveformScrollPanel(): React.ReactElement {
   }, [audioEngine, displayMode, scrollSpeed, theaterMode]);
 
   return (
-    <div style={panelStyle}>
+    <div style={{ ...panelStyle, background: getVisualPalette(displayMode.mode).backgroundFill }}>
       <canvas
         ref={canvasRef}
         style={canvasStyle}
