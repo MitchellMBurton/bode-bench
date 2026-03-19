@@ -7,6 +7,7 @@ import { FrameBus } from '../audio/frameBus';
 import { ScrollSpeedStore } from '../audio/scrollSpeed';
 import { DiagnosticsLogStore, PerformanceDiagnosticsStore } from '../diagnostics/logStore';
 import { PerformanceProfileStore, type PerformanceProfileSnapshot } from '../runtime/performanceProfile';
+import { VideoSyncController } from '../runtime/videoSyncController';
 import { TheaterModeStore } from '../video/theaterMode';
 
 export interface AppSession {
@@ -17,6 +18,7 @@ export interface AppSession {
   diagnosticsLog: DiagnosticsLogStore;
   performanceDiagnostics: PerformanceDiagnosticsStore;
   performanceProfile: PerformanceProfileStore;
+  videoSyncController: VideoSyncController;
   theaterMode: TheaterModeStore;
 }
 
@@ -43,6 +45,7 @@ export function createAppSession(): AppSession {
     diagnosticsLog,
     performanceDiagnostics,
     performanceProfile,
+    videoSyncController: new VideoSyncController(),
     theaterMode,
   };
 }
@@ -110,6 +113,10 @@ export function usePerformanceProfile(): PerformanceProfileSnapshot {
     performanceProfile.getSnapshot,
     performanceProfile.getSnapshot,
   );
+}
+
+export function useVideoSyncController(): VideoSyncController {
+  return useAppSession().videoSyncController;
 }
 
 export function useTheaterModeStore(): TheaterModeStore {
