@@ -3,7 +3,7 @@
 // toggles. Compact utility controls that sit above diagnostics.
 // ============================================================
 
-import { useCallback, useEffect, useEffectEvent, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useAudioEngine, useScrollSpeed } from '../core/session';
 import type { VisualMode } from '../audio/displayMode';
@@ -65,7 +65,6 @@ interface Props {
   onGrayscale: (v: boolean) => void;
   visualMode: VisualMode;
   onVisualMode: (mode: VisualMode) => void;
-  resetKey?: number;
 }
 
 function fillWidth(value: number, min: number, max: number): string {
@@ -89,7 +88,6 @@ export function SessionControls({
   onGrayscale,
   visualMode,
   onVisualMode,
-  resetKey,
 }: Props): React.ReactElement {
   const audioEngine = useAudioEngine();
   const scrollSpeed = useScrollSpeed();
@@ -182,13 +180,6 @@ export function SessionControls({
       scrollFillRef.current.style.width = fillWidth(SCROLL_DEFAULT, SCROLL_MIN, SCROLL_MAX);
     }
   }, [audioEngine, onGrayscale, onVisualMode, scrollSpeed]);
-
-  // External reset trigger — fires when parent increments resetKey.
-  const handleExternalReset = useEffectEvent(onResetSettings);
-  useEffect(() => {
-    if (!resetKey) return;
-    handleExternalReset();
-  }, [resetKey]);
 
   const volPct = Math.round(volume * 100);
   const rateLabel = formatMultiplier(rate);

@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useSyncExternalStore } from 'react';
 import { AudioEngine } from '../audio/engine';
-import { DisplayModeStore } from '../audio/displayMode';
+import { DisplayModeStore, type VisualMode } from '../audio/displayMode';
 import { FrameBus } from '../audio/frameBus';
 import { ScrollSpeedStore } from '../audio/scrollSpeed';
 import { DiagnosticsLogStore, PerformanceDiagnosticsStore } from '../diagnostics/logStore';
@@ -76,6 +76,15 @@ export function useFrameBus(): FrameBus {
 
 export function useDisplayMode(): DisplayModeStore {
   return useAppSession().displayMode;
+}
+
+export function useVisualMode(): VisualMode {
+  const displayMode = useDisplayMode();
+  return useSyncExternalStore(
+    displayMode.subscribe,
+    displayMode.getSnapshot,
+    displayMode.getSnapshot,
+  );
 }
 
 export function useScrollSpeed(): ScrollSpeedStore {

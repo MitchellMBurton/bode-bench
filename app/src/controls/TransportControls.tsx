@@ -125,6 +125,15 @@ const TRANSPORT_THEMES: Record<VisualMode, TransportTheme> = {
   },
 };
 
+const INGEST_DRAG_BACKGROUNDS: Record<VisualMode, string> = {
+  default: COLORS.accentGlow,
+  nge: COLORS.accentGlow,
+  hyper: COLORS.accentGlow,
+  eva: COLORS.accentGlow,
+  optic: 'rgba(97,176,214,0.18)',
+  red: 'rgba(255,90,74,0.16)',
+};
+
 const VIDEO_HEIGHT_MIN = 72;
 const VIDEO_HEIGHT_DEFAULT = 160;
 const VIDEO_TIME_DISPLAY_MS = 100;
@@ -432,7 +441,8 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
   const performanceDiagnostics = usePerformanceDiagnosticsStore();
   const theaterModeStore = useTheaterModeStore();
   const displayMode = useDisplayMode();
-  const tt = TRANSPORT_THEMES[displayMode.mode];
+  const visualMode = displayMode.mode;
+  const tt = TRANSPORT_THEMES[visualMode];
   const [transport, setTransport] = useState<TransportState>({
     isPlaying: false,
     currentTime: 0,
@@ -1494,13 +1504,7 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
         style={{
           ...ingestStyle,
           borderColor: isDragging ? tt.seekFillColor : tt.btnBorder,
-          background: isDragging
-            ? displayMode.mode === 'optic'
-              ? 'rgba(97,176,214,0.18)'
-              : displayMode.mode === 'red'
-                ? 'rgba(255,90,74,0.16)'
-              : COLORS.accentGlow
-            : tt.btnBg,
+          background: isDragging ? INGEST_DRAG_BACKGROUNDS[visualMode] : tt.btnBg,
         }}
         onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
         onDragLeave={() => setIsDragging(false)}
@@ -1532,25 +1536,7 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
         <div
           style={{
             ...loadNoticeStyle,
-            ...(loadNotice.tone === 'warn'
-              ? displayMode.mode === 'optic'
-                ? { borderColor: 'rgba(79,134,163,0.58)', background: 'rgba(231,240,246,0.90)' }
-                : displayMode.mode === 'red'
-                ? { borderColor: 'rgba(156,52,46,0.58)', background: 'rgba(36,8,9,0.90)' }
-                : displayMode.mode === 'nge'
-                ? { borderColor: 'rgba(160,200,40,0.55)', background: 'rgba(10,24,4,0.55)' }
-                : displayMode.mode === 'hyper'
-                  ? { borderColor: 'rgba(98,200,255,0.45)', background: 'rgba(4,10,32,0.55)' }
-                  : loadNoticeWarnStyle
-              : displayMode.mode === 'optic'
-                ? { borderColor: 'rgba(109,146,165,0.60)', background: 'rgba(243,248,251,0.92)' }
-                : displayMode.mode === 'red'
-                ? { borderColor: 'rgba(124,40,39,0.60)', background: 'rgba(22,6,7,0.92)' }
-                : displayMode.mode === 'nge'
-                ? { borderColor: 'rgba(80,160,30,0.35)', background: 'rgba(6,16,4,0.50)' }
-                : displayMode.mode === 'hyper'
-                  ? { borderColor: 'rgba(60,100,220,0.35)', background: 'rgba(4,8,28,0.50)' }
-                  : loadNoticeInfoStyle),
+            ...LOAD_NOTICE_THEMES[loadNotice.tone][visualMode],
           }}
         >
           <span style={{ ...loadNoticeMessageStyle, color: tt.btnColor }}>{loadNotice.message}</span>
@@ -1818,6 +1804,25 @@ const loadNoticeWarnStyle: React.CSSProperties = {
 const loadNoticeInfoStyle: React.CSSProperties = {
   borderColor: COLORS.borderHighlight,
   background: 'rgba(18, 26, 60, 0.28)',
+};
+
+const LOAD_NOTICE_THEMES: Record<LoadNotice['tone'], Record<VisualMode, React.CSSProperties>> = {
+  warn: {
+    default: loadNoticeWarnStyle,
+    nge: { borderColor: 'rgba(160,200,40,0.55)', background: 'rgba(10,24,4,0.55)' },
+    hyper: { borderColor: 'rgba(98,200,255,0.45)', background: 'rgba(4,10,32,0.55)' },
+    eva: loadNoticeWarnStyle,
+    optic: { borderColor: 'rgba(79,134,163,0.58)', background: 'rgba(231,240,246,0.90)' },
+    red: { borderColor: 'rgba(156,52,46,0.58)', background: 'rgba(36,8,9,0.90)' },
+  },
+  info: {
+    default: loadNoticeInfoStyle,
+    nge: { borderColor: 'rgba(80,160,30,0.35)', background: 'rgba(6,16,4,0.50)' },
+    hyper: { borderColor: 'rgba(60,100,220,0.35)', background: 'rgba(4,8,28,0.50)' },
+    eva: loadNoticeInfoStyle,
+    optic: { borderColor: 'rgba(109,146,165,0.60)', background: 'rgba(243,248,251,0.92)' },
+    red: { borderColor: 'rgba(124,40,39,0.60)', background: 'rgba(22,6,7,0.92)' },
+  },
 };
 
 const loadNoticeMessageStyle: React.CSSProperties = {

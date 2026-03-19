@@ -16,8 +16,8 @@ import { usePerformanceMonitoring } from './controls/usePerformanceMonitoring';
 import { HotkeyOverlay } from './controls/HotkeyOverlay';
 import { panelsForColumn } from './panels/registry';
 import { WaveformOverviewPanel } from './panels/WaveformOverviewPanel';
-import { useAudioEngine, useDisplayMode, usePerformanceDiagnosticsStore, usePerformanceProfile, useTheaterMode } from './core/session';
-import type { VisualMode } from './audio/displayMode';
+import { useAudioEngine, useDisplayMode, usePerformanceDiagnosticsStore, usePerformanceProfile, useTheaterMode, useVisualMode } from './core/session';
+import { VISUAL_DECORATIONS } from './audio/displayMode';
 import type { Marker } from './types';
 import type { PerformanceDiagnosticsSnapshot } from './diagnostics/logStore';
 import { PRODUCT_NAME } from './constants';
@@ -33,9 +33,10 @@ function getRuntimeStatus(snapshot: PerformanceDiagnosticsSnapshot): string {
 
 export default function App(): React.ReactElement {
   const audioEngine = useAudioEngine();
-  const displayMode = useDisplayMode();
+  const displayModeStore = useDisplayMode();
   const performanceDiagnostics = usePerformanceDiagnosticsStore();
   const performanceProfile = usePerformanceProfile();
+  const visualMode = useVisualMode();
   const perfSnapshot = useSyncExternalStore(
     performanceDiagnostics.subscribe,
     performanceDiagnostics.getSnapshot,
@@ -45,7 +46,6 @@ export default function App(): React.ReactElement {
   const [filename, setFilename] = useState<string | null>(null);
   const [performanceLabOpen, setPerformanceLabOpen] = useState(false);
   const [grayscale, setGrayscale] = useState(false);
-  const [visualMode, setVisualMode] = useState<VisualMode>('default');
   const [layoutResetToken, setLayoutResetToken] = useState(0);
   const [markers, setMarkers] = useState<Marker[]>([]);
   const markerCountRef = useRef(0);
@@ -74,10 +74,6 @@ export default function App(): React.ReactElement {
   }, []);
 
   useEffect(() => {
-    displayMode.setMode(visualMode);
-  }, [displayMode, visualMode]);
-
-  useEffect(() => {
     document.documentElement.dataset.visualMode = visualMode;
     return () => {
       delete document.documentElement.dataset.visualMode;
@@ -93,9 +89,7 @@ export default function App(): React.ReactElement {
 
   const fileTitle = filename ? filename.replace(/\.[^/.]+$/, '') : null;
   const panelTitle = fileTitle ?? 'NO SESSION';
-  const showScanLines = visualMode === 'nge' || visualMode === 'hyper' || visualMode === 'eva';
-  const showOpticBloom = visualMode === 'optic';
-  const showRedLighting = visualMode === 'red';
+  const visualDecoration = VISUAL_DECORATIONS[visualMode];
   const runtimeStatus = getRuntimeStatus(perfSnapshot);
 
   useEffect(() => {
@@ -169,7 +163,7 @@ export default function App(): React.ReactElement {
                 grayscale={grayscale}
                 onGrayscale={setGrayscale}
                 visualMode={visualMode}
-                onVisualMode={setVisualMode}
+                onVisualMode={(nextMode) => displayModeStore.setMode(nextMode)}
               />
               <DiagnosticsLog />
             </div>
@@ -253,9 +247,9 @@ export default function App(): React.ReactElement {
           ),
         }}
       />
-      {showOpticBloom && <div style={opticBloomStyle} />}
-      {showRedLighting && <div style={redLightingStyle} />}
-      {showScanLines && <div style={scanLineStyle} />}
+      {visualDecoration === 'optic-bloom' ? <div style={opticBloomStyle} /> : null}
+      {visualDecoration === 'red-lighting' ? <div style={redLightingStyle} /> : null}
+      {visualDecoration === 'scan-lines' ? <div style={scanLineStyle} /> : null}
       <HotkeyOverlay
         open={hotkeyOverlayOpen}
         onClose={() => setHotkeyOverlayOpen(false)}

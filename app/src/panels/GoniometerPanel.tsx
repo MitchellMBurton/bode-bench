@@ -15,6 +15,7 @@
 
 import { useEffect, useRef } from 'react';
 import { useAudioEngine, useDisplayMode, useFrameBus, useTheaterMode } from '../core/session';
+import type { VisualMode } from '../audio/displayMode';
 import { COLORS, FONTS, SPACING, CANVAS } from '../theme';
 import { shouldSkipFrame } from '../utils/rafGuard';
 
@@ -23,6 +24,97 @@ const CORR_BAR_H_CSS = 24; // px (CSS), fixed height for correlation bar
 const DOT_ALPHA = 0.76;     // current frame dot opacity
 const DECAY_FACTOR = 0.13;  // per-frame fade (semi-persistent trail)
 const MAX_TRAIL_FRAMES = 6; // trail depth
+const CORR_NEGATIVE_COLOR = 'rgba(200,60,40,0.8)';
+
+interface GoniometerTheme {
+  readonly panelBackground: string;
+  readonly traceColor: string;
+  readonly labelColor: string;
+  readonly textColor: string;
+  readonly gridColor: string;
+  readonly topBorder: string;
+  readonly divider: string;
+  readonly corrStrong: string;
+  readonly corrMild: string;
+  readonly corrBarBackground: string;
+}
+
+const DEFAULT_GONIOMETER_THEME: GoniometerTheme = {
+  panelBackground: COLORS.bg1,
+  traceColor: COLORS.waveform,
+  labelColor: COLORS.textDim,
+  textColor: COLORS.textSecondary,
+  gridColor: COLORS.border,
+  topBorder: COLORS.border,
+  divider: 'rgba(32,32,48,1)',
+  corrStrong: 'rgba(60,180,80,0.8)',
+  corrMild: 'rgba(200,180,50,0.8)',
+  corrBarBackground: 'rgba(16,16,24,1)',
+};
+
+const GONIOMETER_THEMES: Record<VisualMode, GoniometerTheme> = {
+  default: DEFAULT_GONIOMETER_THEME,
+  nge: {
+    ...DEFAULT_GONIOMETER_THEME,
+    traceColor: '#a0d840',
+    labelColor: 'rgba(140,210,40,0.5)',
+    textColor: 'rgba(140,210,40,0.72)',
+    gridColor: CANVAS.nge.grid,
+    corrStrong: 'rgba(100,200,40,0.8)',
+    corrMild: 'rgba(180,200,40,0.8)',
+  },
+  hyper: {
+    ...DEFAULT_GONIOMETER_THEME,
+    panelBackground: CANVAS.hyper.bg2,
+    traceColor: CANVAS.hyper.trace,
+    labelColor: CANVAS.hyper.label,
+    textColor: CANVAS.hyper.text,
+    gridColor: CANVAS.hyper.grid,
+    topBorder: 'rgba(32,52,110,0.92)',
+    divider: 'rgba(28,42,88,0.92)',
+    corrStrong: 'rgba(80,200,100,0.8)',
+    corrBarBackground: 'rgba(14,22,50,1)',
+  },
+  eva: {
+    ...DEFAULT_GONIOMETER_THEME,
+    panelBackground: CANVAS.eva.bg,
+    traceColor: CANVAS.eva.trace,
+    labelColor: CANVAS.eva.label,
+    textColor: CANVAS.eva.text,
+    gridColor: CANVAS.eva.grid,
+    topBorder: 'rgba(74,26,144,0.92)',
+    divider: 'rgba(22,12,48,1)',
+    corrStrong: 'rgba(255,123,0,0.8)',
+    corrMild: 'rgba(255,160,32,0.8)',
+    corrBarBackground: 'rgba(8,4,26,1)',
+  },
+  optic: {
+    ...DEFAULT_GONIOMETER_THEME,
+    panelBackground: CANVAS.optic.bg2,
+    traceColor: CANVAS.optic.trace,
+    labelColor: CANVAS.optic.label,
+    textColor: CANVAS.optic.text,
+    gridColor: CANVAS.optic.grid,
+    topBorder: 'rgba(159,199,223,0.84)',
+    divider: 'rgba(191,218,233,0.92)',
+    corrStrong: 'rgba(29,169,199,0.82)',
+    corrMild: 'rgba(223,174,88,0.82)',
+    corrBarBackground: 'rgba(232,242,248,0.98)',
+  },
+  red: {
+    ...DEFAULT_GONIOMETER_THEME,
+    panelBackground: CANVAS.red.bg2,
+    traceColor: CANVAS.red.trace,
+    labelColor: CANVAS.red.label,
+    textColor: CANVAS.red.text,
+    gridColor: CANVAS.red.grid,
+    topBorder: 'rgba(124,40,39,0.84)',
+    divider: 'rgba(54,16,18,0.96)',
+    corrStrong: 'rgba(255,120,100,0.82)',
+    corrMild: 'rgba(255,174,96,0.82)',
+    corrBarBackground: 'rgba(18,5,6,1)',
+  },
+};
 
 // ── Component ─────────────────────────────────────────────────────────────────
 export function GoniometerPanel(): React.ReactElement {
@@ -114,21 +206,12 @@ export function GoniometerPanel(): React.ReactElement {
       const W = canvas.width;
       const H = canvas.height;
       const dpr = Math.min(devicePixelRatio, PANEL_DPR_MAX);
-      const nge = displayMode.mode === 'nge';
-      const hyper = displayMode.mode === 'hyper';
-      const optic = displayMode.mode === 'optic';
-      const red = displayMode.mode === 'red';
-      const eva = displayMode.mode === 'eva';
-
-      const traceColor = nge ? '#a0d840' : hyper ? CANVAS.hyper.trace : optic ? CANVAS.optic.trace : red ? CANVAS.red.trace : eva ? CANVAS.eva.trace : COLORS.waveform;
-      const labelColor = nge ? 'rgba(140,210,40,0.5)' : hyper ? CANVAS.hyper.label : optic ? CANVAS.optic.label : red ? CANVAS.red.label : eva ? CANVAS.eva.label : COLORS.textDim;
-      const textColor = nge ? 'rgba(140,210,40,0.72)' : hyper ? CANVAS.hyper.text : optic ? CANVAS.optic.text : red ? CANVAS.red.text : eva ? CANVAS.eva.text : COLORS.textSecondary;
-      const gridColor = nge ? CANVAS.nge.grid : hyper ? CANVAS.hyper.grid : optic ? CANVAS.optic.grid : red ? CANVAS.red.grid : eva ? CANVAS.eva.grid : COLORS.border;
+  const theme = GONIOMETER_THEMES[displayMode.mode];
 
       // Background
-      ctx.fillStyle = hyper ? CANVAS.hyper.bg2 : optic ? CANVAS.optic.bg2 : red ? CANVAS.red.bg2 : eva ? CANVAS.eva.bg : COLORS.bg1;
+  ctx.fillStyle = theme.panelBackground;
       ctx.fillRect(0, 0, W, H);
-      ctx.fillStyle = hyper ? 'rgba(32,52,110,0.92)' : optic ? 'rgba(159,199,223,0.84)' : red ? 'rgba(124,40,39,0.84)' : eva ? 'rgba(74,26,144,0.92)' : COLORS.border;
+  ctx.fillStyle = theme.topBorder;
       ctx.fillRect(0, 0, W, 1);
 
       // ── Correlation bar ────────────────────────────────────────────────
@@ -136,7 +219,7 @@ export function GoniometerPanel(): React.ReactElement {
       const corrY = H - corrH;
 
       // Divider line above bar
-      ctx.fillStyle = hyper ? 'rgba(28,42,88,0.92)' : optic ? 'rgba(191,218,233,0.92)' : red ? 'rgba(54,16,18,0.96)' : eva ? 'rgba(22,12,48,1)' : 'rgba(32,32,48,1)';
+      ctx.fillStyle = theme.divider;
       ctx.fillRect(0, corrY, W, 1);
 
       // Read smoothed phase correlation (updated in frame callback at 20fps)
@@ -145,13 +228,13 @@ export function GoniometerPanel(): React.ReactElement {
       const corrZeroX = W * 0.5;
       const corrNeedleX = corrZeroX + corrVal * corrZeroX;
       const corrColor = corrVal > 0.5
-        ? (nge ? 'rgba(100,200,40,0.8)' : hyper ? 'rgba(80,200,100,0.8)' : optic ? 'rgba(29,169,199,0.82)' : red ? 'rgba(255,120,100,0.82)' : eva ? 'rgba(255,123,0,0.8)' : 'rgba(60,180,80,0.8)')
+        ? theme.corrStrong
         : corrVal > 0
-          ? (nge ? 'rgba(180,200,40,0.8)' : optic ? 'rgba(223,174,88,0.82)' : red ? 'rgba(255,174,96,0.82)' : eva ? 'rgba(255,160,32,0.8)' : 'rgba(200,180,50,0.8)')
-          : 'rgba(200,60,40,0.8)';
+          ? theme.corrMild
+          : CORR_NEGATIVE_COLOR;
 
       // Background bar
-      ctx.fillStyle = hyper ? 'rgba(14,22,50,1)' : optic ? 'rgba(232,242,248,0.98)' : red ? 'rgba(18,5,6,1)' : eva ? 'rgba(8,4,26,1)' : 'rgba(16,16,24,1)';
+      ctx.fillStyle = theme.corrBarBackground;
       ctx.fillRect(0, corrY + 1, W, corrH - 1);
 
       // Fill from centre to needle
@@ -173,7 +256,7 @@ export function GoniometerPanel(): React.ReactElement {
       ctx.stroke();
 
       // Scale tick marks: centre (0) and ±0.5
-      ctx.strokeStyle = gridColor;
+      ctx.strokeStyle = theme.gridColor;
       ctx.lineWidth = 1;
       ctx.globalAlpha = 0.55;
       for (const tx of [corrZeroX, corrZeroX - corrZeroX * 0.5, corrZeroX + corrZeroX * 0.5]) {
@@ -188,13 +271,13 @@ export function GoniometerPanel(): React.ReactElement {
       ctx.font = `${6.5 * dpr}px ${FONTS.mono}`;
       ctx.textBaseline = 'middle';
       const corrMidY = corrY + corrH * 0.5;
-      ctx.fillStyle = labelColor;
+      ctx.fillStyle = theme.labelColor;
       ctx.textAlign = 'left';
       ctx.fillText('−1', SPACING.xs * dpr, corrMidY);
       ctx.textAlign = 'right';
       ctx.fillText('+1', W - SPACING.xs * dpr, corrMidY);
       ctx.textAlign = 'center';
-      ctx.fillStyle = corrVal > 0.5 ? textColor : labelColor;
+      ctx.fillStyle = corrVal > 0.5 ? theme.textColor : theme.labelColor;
       ctx.fillText(`${corrVal >= 0 ? '+' : ''}${corrVal.toFixed(2)}`, corrZeroX, corrMidY);
 
       // ── Goniometer ────────────────────────────────────────────────────
@@ -217,7 +300,7 @@ export function GoniometerPanel(): React.ReactElement {
       ctx.clip();
 
       // Subtle 50% amplitude ring
-      ctx.strokeStyle = gridColor;
+      ctx.strokeStyle = theme.gridColor;
       ctx.lineWidth = 1;
       ctx.globalAlpha = 0.22;
       ctx.beginPath();
@@ -254,7 +337,7 @@ export function GoniometerPanel(): React.ReactElement {
 
       // Axis labels: M at top, L upper-right (pure-L direction), R upper-left (pure-R direction)
       ctx.font = `${6 * dpr}px ${FONTS.mono}`;
-      ctx.fillStyle = labelColor;
+      ctx.fillStyle = theme.labelColor;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'top';
       ctx.fillText('M', cx, cy - halfR + 3 * dpr);
@@ -281,7 +364,7 @@ export function GoniometerPanel(): React.ReactElement {
         if (age === 0) {
           const rGlow = rCore * 2.0;
           ctx.globalAlpha = alpha * 0.12;
-          ctx.fillStyle = traceColor;
+          ctx.fillStyle = theme.traceColor;
           for (let i = 0; i < buf.length; i += step * 2) {
             const s = (buf[i] - buf[i + 1]) * 0.5;
             const m = (buf[i] + buf[i + 1]) * 0.5;
@@ -293,7 +376,7 @@ export function GoniometerPanel(): React.ReactElement {
 
         // Core pass
         ctx.globalAlpha = alpha;
-        ctx.fillStyle = traceColor;
+        ctx.fillStyle = theme.traceColor;
         for (let i = 0; i < buf.length; i += step * 2) {
           const s = (buf[i] - buf[i + 1]) * 0.5;
           const m = (buf[i] + buf[i + 1]) * 0.5;
@@ -307,7 +390,7 @@ export function GoniometerPanel(): React.ReactElement {
       ctx.restore();
 
       // Circle border — drawn after restore so it sits cleanly on top of the plot
-      ctx.strokeStyle = gridColor;
+      ctx.strokeStyle = theme.gridColor;
       ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.arc(cx, cy, halfR + 1.5 * dpr, 0, Math.PI * 2);
@@ -315,7 +398,7 @@ export function GoniometerPanel(): React.ReactElement {
 
       // Panel label
       ctx.font = `${7 * dpr}px ${FONTS.mono}`;
-      ctx.fillStyle = labelColor;
+      ctx.fillStyle = theme.labelColor;
       ctx.textAlign = 'left';
       ctx.textBaseline = 'bottom';
       ctx.fillText('GONIOMETER', SPACING.sm * dpr, corrY - SPACING.xs * dpr);
@@ -326,7 +409,7 @@ export function GoniometerPanel(): React.ReactElement {
   }, [displayMode, theaterMode]);
 
   return (
-    <div style={panelStyle}>
+    <div style={{ ...panelStyle, background: GONIOMETER_THEMES[currentMode].panelBackground }}>
       <canvas ref={canvasRef} style={canvasStyle} />
     </div>
   );
