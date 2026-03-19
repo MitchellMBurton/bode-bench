@@ -217,11 +217,11 @@ export function FrequencyResponsePanel(): React.ReactElement {
       const width = canvas.width;
       const height = canvas.height;
       const dpr = Math.min(devicePixelRatio, PANEL_DPR_MAX);
-      const nge = displayMode.nge;
-      const hyper = displayMode.hyper;
-      const optic = displayMode.optic;
-      const red = displayMode.red;
-      const eva = displayMode.eva;
+      const nge = displayMode.mode === 'nge';
+      const hyper = displayMode.mode === 'hyper';
+      const optic = displayMode.mode === 'optic';
+      const red = displayMode.mode === 'red';
+      const eva = displayMode.mode === 'eva';
       const padX = PAD * dpr;
       const padY = PAD * dpr;
       const axisH = 16 * dpr;

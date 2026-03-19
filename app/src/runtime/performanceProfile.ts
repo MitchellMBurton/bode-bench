@@ -50,28 +50,16 @@ const PROFILE_TIMELINES: Record<PerformanceProfileId, TimelineProfile> = {
 };
 
 function detectRuntimeKind(): RuntimeKind {
-  if (typeof window === 'undefined') return 'web';
-  const maybeTauriWindow = window as Window & {
-    __TAURI__?: unknown;
-    __TAURI_INTERNALS__?: unknown;
-  };
-  if (
-    '__TAURI__' in maybeTauriWindow
-    || '__TAURI_INTERNALS__' in maybeTauriWindow
-    || window.location.protocol === 'tauri:'
-    || window.location.hostname === 'tauri.localhost'
-  ) {
+  const w = window as Window & { __TAURI__?: unknown; __TAURI_INTERNALS__?: unknown };
+  if ('__TAURI__' in w || '__TAURI_INTERNALS__' in w || location.protocol === 'tauri:' || location.hostname === 'tauri.localhost') {
     return 'desktop';
   }
   return 'web';
 }
 
 function readPreference(): PerformanceProfilePreference {
-  if (typeof window === 'undefined') return 'auto';
-  const stored = window.localStorage.getItem(STORAGE_KEY);
-  if (stored === 'auto' || stored === 'web-safe' || stored === 'desktop-high') {
-    return stored;
-  }
+  const stored = localStorage.getItem(STORAGE_KEY);
+  if (stored === 'auto' || stored === 'web-safe' || stored === 'desktop-high') return stored;
   return 'auto';
 }
 
@@ -123,9 +111,7 @@ export class PerformanceProfileStore {
   setPreference(next: PerformanceProfilePreference): void {
     if (next === this.preference) return;
     this.preference = next;
-    if (typeof window !== 'undefined') {
-      window.localStorage.setItem(STORAGE_KEY, next);
-    }
+    localStorage.setItem(STORAGE_KEY, next);
     this.snapshot = buildSnapshot(this.runtimeKind, this.preference);
     this.emit();
   }

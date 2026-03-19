@@ -26,15 +26,15 @@ describe('formatTransportTime', () => {
 
 describe('formatRuntimeMs', () => {
   it('returns -- for null', () => {
-    expect(formatRuntimeMs(null)).toBe('--');
+    expect(formatRuntimeMs(null, 0)).toBe('--');
   });
 
   it('returns -- for Infinity', () => {
-    expect(formatRuntimeMs(Infinity)).toBe('--');
+    expect(formatRuntimeMs(Infinity, 0)).toBe('--');
   });
 
-  it('formats with 0 decimal places by default', () => {
-    expect(formatRuntimeMs(12.6)).toBe('13 ms');
+  it('formats with 0 decimal places', () => {
+    expect(formatRuntimeMs(12.6, 0)).toBe('13 ms');
   });
 
   it('respects digits parameter', () => {

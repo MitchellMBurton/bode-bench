@@ -11,7 +11,7 @@ export function formatTransportTime(seconds: number): string {
 }
 
 /** Format a millisecond measurement for the runtime tray. Returns '--' for null/non-finite. */
-export function formatRuntimeMs(value: number | null, digits = 0): string {
+export function formatRuntimeMs(value: number | null, digits: number): string {
   if (value === null || !Number.isFinite(value)) return '--';
   return `${value.toFixed(digits)} ms`;
 }

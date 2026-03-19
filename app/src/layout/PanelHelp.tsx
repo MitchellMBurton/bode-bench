@@ -4,56 +4,31 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { VisualMode } from '../audio/displayMode';
-import { COLORS, FONTS, CANVAS } from '../theme';
+import { FONTS, MODES } from '../theme';
 
 interface Props {
   text: string;
-  visualMode?: VisualMode;
+  visualMode: VisualMode;
 }
+
+const BTN_COLORS: Record<VisualMode, { idle: string; hover: string }> = {
+  default: { idle: 'rgba(160,140,80,0.30)',  hover: 'rgba(200,175,100,0.70)' },
+  nge:     { idle: 'rgba(140,210,40,0.32)',   hover: 'rgba(140,210,40,0.70)' },
+  optic:   { idle: 'rgba(73,109,129,0.60)',   hover: 'rgba(22,71,98,0.92)' },
+  red:     { idle: 'rgba(214,92,82,0.40)',    hover: 'rgba(255,160,148,0.82)' },
+  hyper:   { idle: 'rgba(98,232,255,0.32)',   hover: 'rgba(98,232,255,0.70)' },
+  eva:     { idle: 'rgba(255,123,0,0.32)',    hover: 'rgba(255,123,0,0.70)' },
+};
 
 export function PanelHelp({ text, visualMode }: Props): React.ReactElement {
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  const nge = visualMode === 'nge';
+  const m = MODES[visualMode];
   const optic = visualMode === 'optic';
   const red = visualMode === 'red';
-  const hyper = visualMode === 'hyper';
-  const eva = visualMode === 'eva';
 
-  const btnColor = nge
-    ? 'rgba(140,210,40,0.32)'
-    : optic
-      ? 'rgba(73,109,129,0.60)'
-    : red
-      ? 'rgba(214,92,82,0.40)'
-    : hyper
-      ? 'rgba(98,232,255,0.32)'
-      : eva
-        ? 'rgba(255,123,0,0.32)'
-        : 'rgba(160,140,80,0.30)';
-  const btnHoverColor = nge
-    ? 'rgba(140,210,40,0.70)'
-    : optic
-      ? 'rgba(22,71,98,0.92)'
-    : red
-      ? 'rgba(255,160,148,0.82)'
-    : hyper
-      ? 'rgba(98,232,255,0.70)'
-      : eva
-        ? 'rgba(255,123,0,0.70)'
-        : 'rgba(200,175,100,0.70)';
-  const popoverBorder = nge
-    ? CANVAS.nge.chromeBorderActive
-    : optic
-      ? CANVAS.optic.chromeBorderActive
-    : red
-      ? CANVAS.red.chromeBorderActive
-    : hyper
-      ? CANVAS.hyper.chromeBorderActive
-      : eva
-        ? CANVAS.eva.chromeBorderActive
-        : COLORS.border;
+  const { idle: btnColor, hover: btnHoverColor } = BTN_COLORS[visualMode];
 
   const toggle = useCallback(() => setOpen((v) => !v), []);
 
@@ -97,7 +72,7 @@ export function PanelHelp({ text, visualMode }: Props): React.ReactElement {
         <div
           style={{
             ...popoverStyle,
-            borderColor: popoverBorder,
+            borderColor: m.chromeBorderActive,
             background: optic ? 'rgba(247,250,252,0.98)' : popoverStyle.background,
             color: optic ? 'rgba(30,63,81,0.90)' : red ? 'rgba(255,208,200,0.88)' : popoverStyle.color,
             boxShadow: optic ? '0 8px 22px rgba(79, 134, 163, 0.16)' : red ? '0 8px 22px rgba(120, 16, 10, 0.28)' : popoverStyle.boxShadow,

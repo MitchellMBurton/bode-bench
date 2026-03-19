@@ -277,3 +277,105 @@ export const CANVAS = {
     { label: 'Air', range: '8-20k Hz', centerHz: 12000, lowHz: 8000, highHz: 20000 },
   ],
 } as const;
+
+// ── Centralised mode palette ─────────────────────────────────────────────────
+// One record lookup replaces every per-component if/else visual-mode chain.
+// Canvas panels still read CANVAS sub-objects for specialised rendering;
+// this palette covers chrome, controls, and layout surfaces.
+
+import type { VisualMode } from '../audio/displayMode';
+
+export interface ModePalette {
+  readonly bg: string;
+  readonly bg2: string;
+  readonly trace: string;
+  readonly grid: string;
+  readonly label: string;
+  readonly text: string;
+  readonly glow: string;
+  readonly chromeBorder: string;
+  readonly chromeBorderActive: string;
+  readonly category: string;
+  readonly stat: string;
+}
+
+export const MODES: Record<VisualMode, ModePalette> = {
+  default: {
+    bg:                COLORS.bg1,
+    bg2:               COLORS.bg2,
+    trace:             COLORS.waveform,
+    grid:              COLORS.waveformGrid,
+    label:             COLORS.textDim,
+    text:              COLORS.textPrimary,
+    glow:              COLORS.waveformGlow,
+    chromeBorder:      COLORS.border,
+    chromeBorderActive: COLORS.borderActive,
+    category:          COLORS.textCategory,
+    stat:              COLORS.waveform,
+  },
+  nge: {
+    bg:                CANVAS.nge.bg,
+    bg2:               CANVAS.nge.bg2,
+    trace:             CANVAS.nge.trace,
+    grid:              CANVAS.nge.grid,
+    label:             CANVAS.nge.label,
+    text:              'rgba(180,230,80,0.9)',
+    glow:              'rgba(160,216,64,0.14)',
+    chromeBorder:      CANVAS.nge.chromeBorder,
+    chromeBorderActive: CANVAS.nge.chromeBorderActive,
+    category:          CANVAS.nge.category,
+    stat:              CANVAS.nge.stat,
+  },
+  hyper: {
+    bg:                CANVAS.hyper.bg,
+    bg2:               CANVAS.hyper.bg2,
+    trace:             CANVAS.hyper.trace,
+    grid:              CANVAS.hyper.grid,
+    label:             CANVAS.hyper.label,
+    text:              CANVAS.hyper.text,
+    glow:              CANVAS.hyper.glow,
+    chromeBorder:      CANVAS.hyper.chromeBorder,
+    chromeBorderActive: CANVAS.hyper.chromeBorderActive,
+    category:          CANVAS.hyper.category,
+    stat:              CANVAS.hyper.stat,
+  },
+  eva: {
+    bg:                CANVAS.eva.bg,
+    bg2:               CANVAS.eva.bg2,
+    trace:             CANVAS.eva.trace,
+    grid:              CANVAS.eva.grid,
+    label:             CANVAS.eva.label,
+    text:              CANVAS.eva.text,
+    glow:              CANVAS.eva.glow,
+    chromeBorder:      CANVAS.eva.chromeBorder,
+    chromeBorderActive: CANVAS.eva.chromeBorderActive,
+    category:          CANVAS.eva.category,
+    stat:              CANVAS.eva.stat,
+  },
+  optic: {
+    bg:                CANVAS.optic.bg,
+    bg2:               CANVAS.optic.bg2,
+    trace:             CANVAS.optic.trace,
+    grid:              CANVAS.optic.grid,
+    label:             CANVAS.optic.label,
+    text:              CANVAS.optic.text,
+    glow:              CANVAS.optic.glow,
+    chromeBorder:      CANVAS.optic.chromeBorder,
+    chromeBorderActive: CANVAS.optic.chromeBorderActive,
+    category:          CANVAS.optic.category,
+    stat:              CANVAS.optic.stat,
+  },
+  red: {
+    bg:                CANVAS.red.bg,
+    bg2:               CANVAS.red.bg2,
+    trace:             CANVAS.red.trace,
+    grid:              CANVAS.red.grid,
+    label:             CANVAS.red.label,
+    text:              CANVAS.red.text,
+    glow:              CANVAS.red.glow,
+    chromeBorder:      CANVAS.red.chromeBorder,
+    chromeBorderActive: CANVAS.red.chromeBorderActive,
+    category:          CANVAS.red.category,
+    stat:              CANVAS.red.stat,
+  },
+};

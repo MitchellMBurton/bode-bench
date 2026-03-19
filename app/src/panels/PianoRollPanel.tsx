@@ -77,8 +77,8 @@ export function PianoRollPanel({ noteEvents }: Props): React.ReactElement {
       const W = canvas.width;
       const H = canvas.height;
       const dpr = Math.min(devicePixelRatio, PANEL_DPR_MAX);
-      const optic = displayMode.optic;
-      const red = displayMode.red;
+      const optic = displayMode.mode === 'optic';
+      const red = displayMode.mode === 'red';
       const backgroundFill = optic ? CANVAS.optic.bg2 : red ? CANVAS.red.bg2 : COLORS.bg1;
       const blackKeyFill = optic ? 'rgba(225,236,244,0.92)' : red ? 'rgba(24,8,9,0.96)' : COLORS.bg0;
       const whiteKeyFill = optic ? 'rgba(247,251,255,0.98)' : red ? 'rgba(34,12,13,0.94)' : COLORS.bg2;
@@ -228,7 +228,7 @@ export function PianoRollPanel({ noteEvents }: Props): React.ReactElement {
   }, [audioEngine, displayMode]);
 
   return (
-    <div style={{ ...panelStyle, background: displayMode.optic ? CANVAS.optic.bg2 : displayMode.red ? CANVAS.red.bg2 : COLORS.bg1 }}>
+    <div style={{ ...panelStyle, background: displayMode.mode === 'optic' ? CANVAS.optic.bg2 : displayMode.mode === 'red' ? CANVAS.red.bg2 : COLORS.bg1 }}>
       <canvas ref={canvasRef} style={canvasStyle} />
     </div>
   );

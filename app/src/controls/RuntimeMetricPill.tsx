@@ -3,40 +3,38 @@
 // ============================================================
 
 import type { VisualMode } from '../audio/displayMode';
-import { CANVAS, COLORS, FONTS, SPACING } from '../theme';
+import { COLORS, FONTS, MODES, SPACING } from '../theme';
 
 export function RuntimeMetricPill({
   label,
   value,
   tone,
-  visualMode = 'default',
+  visualMode,
 }: {
   label: string;
   value: string;
   tone: 'dim' | 'info' | 'warn';
-  visualMode?: VisualMode;
+  visualMode: VisualMode;
 }): React.ReactElement {
-  const nge = visualMode === 'nge';
+  const m = MODES[visualMode];
   const optic = visualMode === 'optic';
   const red = visualMode === 'red';
-  const hyper = visualMode === 'hyper';
-  const eva = visualMode === 'eva';
 
-  const pillBg = optic ? 'rgba(247,250,252,0.96)' : red ? 'rgba(14,4,5,0.86)' : nge ? 'rgba(4,10,4,0.85)' : hyper ? 'rgba(2,5,18,0.85)' : eva ? 'rgba(8,4,26,0.85)' : COLORS.bg1;
-  const labelColor = optic ? CANVAS.optic.category : red ? CANVAS.red.category : nge ? 'rgba(80,160,50,0.55)' : hyper ? CANVAS.hyper.category : eva ? CANVAS.eva.category : COLORS.textCategory;
+  const pillBg = optic ? 'rgba(247,250,252,0.96)' : red ? 'rgba(14,4,5,0.86)' : m.bg;
+  const labelColor = m.category;
 
   const borderColor =
     tone === 'warn'
       ? COLORS.statusWarn
       : tone === 'info'
-        ? optic ? CANVAS.optic.chromeBorderActive : red ? CANVAS.red.chromeBorderActive : nge ? CANVAS.nge.chromeBorder : hyper ? CANVAS.hyper.chromeBorder : eva ? CANVAS.eva.chromeBorder : COLORS.borderHighlight
-        : optic ? 'rgba(109,146,165,0.64)' : red ? 'rgba(124,40,39,0.38)' : nge ? 'rgba(60,130,30,0.38)' : hyper ? 'rgba(40,70,180,0.38)' : eva ? 'rgba(120,50,200,0.38)' : COLORS.border;
+        ? m.chromeBorderActive
+        : m.chromeBorder;
   const textColor =
     tone === 'warn'
       ? COLORS.textPrimary
       : tone === 'info'
-        ? optic ? CANVAS.optic.trace : red ? CANVAS.red.trace : nge ? CANVAS.nge.trace : hyper ? CANVAS.hyper.trace : eva ? CANVAS.eva.trace : COLORS.textPrimary
-        : optic ? 'rgba(55,86,105,0.84)' : red ? 'rgba(255,188,176,0.68)' : nge ? 'rgba(120,200,60,0.75)' : hyper ? 'rgba(112,180,255,0.65)' : eva ? 'rgba(255,140,40,0.65)' : COLORS.textSecondary;
+        ? m.trace
+        : m.text;
 
   return (
     <span style={{ ...pillStyle, borderColor, background: pillBg }}>

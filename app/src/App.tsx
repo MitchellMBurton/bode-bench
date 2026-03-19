@@ -21,7 +21,7 @@ import type { VisualMode } from './audio/displayMode';
 import type { Marker } from './types';
 import type { PerformanceDiagnosticsSnapshot } from './diagnostics/logStore';
 import { PRODUCT_NAME } from './constants';
-import { CANVAS, COLORS, SPACING } from './theme';
+import { COLORS, MODES, SPACING } from './theme';
 import { formatRuntimeMs } from './utils/format';
 
 function getRuntimeStatus(snapshot: PerformanceDiagnosticsSnapshot): string {
@@ -144,7 +144,7 @@ export default function App(): React.ReactElement {
               />
               <RuntimeMetricPill visualMode={visualMode}
                 label="LONG"
-                value={formatRuntimeMs(perfSnapshot.lastLongTaskMs)}
+                value={formatRuntimeMs(perfSnapshot.lastLongTaskMs, 0)}
                 tone={(perfSnapshot.lastLongTaskMs ?? 0) >= 40 ? 'warn' : 'dim'}
               />
             </>
@@ -157,15 +157,11 @@ export default function App(): React.ReactElement {
           help: 'SESSION CONTROLS\n\nLoad a file via drag-drop or the file button. All analysis runs locally — no network required.\n\nVOL: output volume. RATE: playback speed (preserves pitch when pitch mode is on). PITCH: enable real-time pitch shifting on decoded files (< 384 MB).\n\nGREYSCALE: monochrome overlay. OPTIC: white-light dispersion palette. RED: darkroom red-light palette. NGE: phosphor-green palette. HYPER: cyan/indigo palette. EVA: alarm-state violet/orange palette.\n\nKEYBOARD SHORTCUTS: Space play/pause, ← → seek 5 s (Shift: 15 s), S stop, L loop file, M mark, Esc clear loop, ? show all shortcuts.\n\nDiagnostics log captures every transport event and file analysis result.',
           content: (
             <div style={controlPanelStyle}>
-              <MetadataDisplay filename={filename} visualMode={visualMode} />
+              <MetadataDisplay filename={filename} metadata={null} visualMode={visualMode} />
               <div
                 style={{
                   ...dividerStyle,
-                  background: visualMode === 'optic'
-                    ? CANVAS.optic.chromeBorder
-                    : visualMode === 'red'
-                      ? CANVAS.red.chromeBorder
-                      : COLORS.border,
+                  background: MODES[visualMode].chromeBorder,
                 }}
               />
               <TransportControls />

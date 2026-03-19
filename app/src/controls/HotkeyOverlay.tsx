@@ -5,12 +5,12 @@
 
 import { useEffect } from 'react';
 import type { VisualMode } from '../audio/displayMode';
-import { CANVAS, COLORS, FONTS } from '../theme';
+import { COLORS, FONTS, MODES } from '../theme';
 
 interface Props {
   open: boolean;
   onClose: () => void;
-  visualMode?: VisualMode;
+  visualMode: VisualMode;
 }
 
 const HOTKEY_TABLE: readonly { key: string; description: string }[] = [
@@ -27,9 +27,6 @@ const HOTKEY_TABLE: readonly { key: string; description: string }[] = [
 export function HotkeyOverlay({ open, onClose, visualMode }: Props): React.ReactElement | null {
   const optic = visualMode === 'optic';
   const red = visualMode === 'red';
-  const nge = visualMode === 'nge';
-  const hyper = visualMode === 'hyper';
-  const eva = visualMode === 'eva';
 
   // Close on Escape
   useEffect(() => {
@@ -43,39 +40,7 @@ export function HotkeyOverlay({ open, onClose, visualMode }: Props): React.React
 
   if (!open) return null;
 
-  const cardBorder = nge
-    ? CANVAS.nge.chromeBorderActive
-    : optic
-      ? CANVAS.optic.chromeBorderActive
-    : red
-      ? CANVAS.red.chromeBorderActive
-    : hyper
-      ? CANVAS.hyper.chromeBorderActive
-      : eva
-        ? CANVAS.eva.chromeBorderActive
-        : COLORS.borderHighlight;
-  const headerColor = nge
-    ? CANVAS.nge.category
-    : optic
-      ? CANVAS.optic.category
-    : red
-      ? CANVAS.red.category
-    : hyper
-      ? CANVAS.hyper.category
-      : eva
-        ? CANVAS.eva.category
-        : COLORS.textCategory;
-  const keyColor = nge
-    ? CANVAS.nge.trace
-    : optic
-      ? CANVAS.optic.trace
-    : red
-      ? CANVAS.red.trace
-    : hyper
-      ? CANVAS.hyper.trace
-      : eva
-        ? CANVAS.eva.trace
-        : COLORS.textPrimary;
+  const m = MODES[visualMode];
 
   return (
     <div
@@ -93,7 +58,7 @@ export function HotkeyOverlay({ open, onClose, visualMode }: Props): React.React
       <div
         style={{
           ...cardStyle,
-          borderColor: cardBorder,
+          borderColor: m.chromeBorderActive,
           background: optic
             ? 'rgba(248,251,253,0.98)'
             : red
@@ -108,8 +73,8 @@ export function HotkeyOverlay({ open, onClose, visualMode }: Props): React.React
       >
         {/* Header */}
         <div style={headerRowStyle}>
-          <span style={{ ...headerLabelStyle, color: headerColor }}>KEYBOARD SHORTCUTS</span>
-          <button style={{ ...closeBtnStyle, color: optic ? CANVAS.optic.text : red ? CANVAS.red.text : closeBtnStyle.color }} onClick={onClose} aria-label="Close">✕</button>
+          <span style={{ ...headerLabelStyle, color: m.category }}>KEYBOARD SHORTCUTS</span>
+          <button style={{ ...closeBtnStyle, color: optic || red ? m.text : closeBtnStyle.color }} onClick={onClose} aria-label="Close">✕</button>
         </div>
         {/* Divider */}
         <div style={{ ...dividerStyle, background: optic ? 'rgba(109,146,165,0.64)' : red ? 'rgba(124,40,39,0.56)' : dividerStyle.background }} />
@@ -118,7 +83,7 @@ export function HotkeyOverlay({ open, onClose, visualMode }: Props): React.React
           <tbody>
             {HOTKEY_TABLE.map(({ key, description }) => (
               <tr key={key}>
-                <td style={{ ...keyColStyle, color: keyColor }}>{key}</td>
+                <td style={{ ...keyColStyle, color: m.trace }}>{key}</td>
                 <td style={{ ...descColStyle, color: optic ? 'rgba(41,73,92,0.84)' : red ? 'rgba(255,208,200,0.82)' : descColStyle.color }}>{description}</td>
               </tr>
             ))}

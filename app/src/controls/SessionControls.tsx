@@ -7,7 +7,13 @@ import { useCallback, useEffect, useEffectEvent, useRef, useState } from 'react'
 
 import { useAudioEngine, useScrollSpeed } from '../core/session';
 import type { VisualMode } from '../audio/displayMode';
-import { CANVAS, COLORS, FONTS, SPACING } from '../theme';
+import { CANVAS, COLORS, FONTS, SPACING, MODES } from '../theme';
+import {
+  RATE_MIN, RATE_MAX, RATE_DEFAULT,
+  PITCH_MIN, PITCH_MAX, PITCH_DEFAULT,
+  SCROLL_MIN, SCROLL_MAX, SCROLL_DEFAULT,
+  VOLUME_DEFAULT,
+} from '../constants';
 
 interface SessionTheme {
   separator: string;
@@ -21,97 +27,44 @@ interface SessionTheme {
   buttonColor: string;
 }
 
-function buildSessionTheme(visualMode: VisualMode): SessionTheme {
-  if (visualMode === 'optic') {
-    return {
-      separator: 'rgba(96,131,150,0.36)',
-      labelColor: CANVAS.optic.category,
-      trackBg: '#ccd7de',
-      fillAccent: 'rgba(18,118,164,0.86)',
-      fillPitch: 'rgba(76,118,189,0.84)',
-      valueColor: CANVAS.optic.text,
-      buttonBg: 'rgba(247,250,252,0.94)',
-      buttonBorder: 'rgba(109,146,165,0.72)',
-      buttonColor: CANVAS.optic.category,
-    };
-  }
-  if (visualMode === 'red') {
-    return {
-      separator: 'rgba(140,30,28,0.28)',
-      labelColor: CANVAS.red.label,
-      trackBg: 'rgba(12,3,4,0.92)',
-      fillAccent: 'rgba(255,90,74,0.86)',
-      fillPitch: 'rgba(255,132,106,0.82)',
-      valueColor: CANVAS.red.text,
-      buttonBg: 'rgba(12,3,4,0.92)',
-      buttonBorder: 'rgba(124,40,39,0.62)',
-      buttonColor: CANVAS.red.category,
-    };
-  }
-  if (visualMode === 'nge') {
-    return {
-      separator: 'rgba(60,140,30,0.28)',
-      labelColor: 'rgba(140,210,40,0.6)',
-      trackBg: 'rgba(4,12,4,0.9)',
-      fillAccent: 'rgba(120,200,60,0.85)',
-      fillPitch: 'rgba(120,200,60,0.85)',
-      valueColor: 'rgba(180,230,80,0.9)',
-      buttonBg: 'rgba(4,10,4,0.9)',
-      buttonBorder: 'rgba(60,130,30,0.35)',
-      buttonColor: 'rgba(140,210,40,0.5)',
-    };
-  }
-  if (visualMode === 'hyper') {
-    return {
-      separator: 'rgba(60,100,200,0.28)',
-      labelColor: CANVAS.hyper.label,
-      trackBg: 'rgba(4,9,28,0.9)',
-      fillAccent: 'rgba(98,232,255,0.8)',
-      fillPitch: 'rgba(98,232,255,0.8)',
-      valueColor: 'rgba(210,236,255,0.88)',
-      buttonBg: 'rgba(2,5,18,0.9)',
-      buttonBorder: 'rgba(40,70,180,0.35)',
-      buttonColor: 'rgba(112,180,255,0.5)',
-    };
-  }
-  if (visualMode === 'eva') {
-    return {
-      separator: 'rgba(120,50,200,0.28)',
-      labelColor: CANVAS.eva.label,
-      trackBg: 'rgba(8,4,26,0.9)',
-      fillAccent: 'rgba(255,123,0,0.8)',
-      fillPitch: 'rgba(255,123,0,0.8)',
-      valueColor: 'rgba(255,180,80,0.88)',
-      buttonBg: CANVAS.eva.bg,
-      buttonBorder: CANVAS.eva.chromeBorderActive,
-      buttonColor: 'rgba(170,90,255,0.5)',
-    };
-  }
-  return {
-    separator: COLORS.border,
-    labelColor: COLORS.textSecondary,
-    trackBg: COLORS.bg3,
-    fillAccent: COLORS.accent,
-    fillPitch: COLORS.accent,
-    valueColor: COLORS.textSecondary,
-    buttonBg: COLORS.bg3,
-    buttonBorder: COLORS.border,
-    buttonColor: COLORS.textSecondary,
-  };
-}
-import {
-  RATE_MIN, RATE_MAX, RATE_DEFAULT,
-  PITCH_MIN, PITCH_MAX, PITCH_DEFAULT,
-  SCROLL_MIN, SCROLL_MAX, SCROLL_DEFAULT,
-  VOLUME_DEFAULT,
-} from '../constants';
+const SESSION_THEMES: Record<VisualMode, SessionTheme> = {
+  default: {
+    separator: COLORS.border, labelColor: COLORS.textSecondary, trackBg: COLORS.bg3,
+    fillAccent: COLORS.accent, fillPitch: COLORS.accent, valueColor: COLORS.textSecondary,
+    buttonBg: COLORS.bg3, buttonBorder: COLORS.border, buttonColor: COLORS.textSecondary,
+  },
+  nge: {
+    separator: 'rgba(60,140,30,0.28)', labelColor: 'rgba(140,210,40,0.6)', trackBg: 'rgba(4,12,4,0.9)',
+    fillAccent: 'rgba(120,200,60,0.85)', fillPitch: 'rgba(120,200,60,0.85)', valueColor: 'rgba(180,230,80,0.9)',
+    buttonBg: 'rgba(4,10,4,0.9)', buttonBorder: 'rgba(60,130,30,0.35)', buttonColor: 'rgba(140,210,40,0.5)',
+  },
+  hyper: {
+    separator: 'rgba(60,100,200,0.28)', labelColor: CANVAS.hyper.label, trackBg: 'rgba(4,9,28,0.9)',
+    fillAccent: 'rgba(98,232,255,0.8)', fillPitch: 'rgba(98,232,255,0.8)', valueColor: 'rgba(210,236,255,0.88)',
+    buttonBg: 'rgba(2,5,18,0.9)', buttonBorder: 'rgba(40,70,180,0.35)', buttonColor: 'rgba(112,180,255,0.5)',
+  },
+  eva: {
+    separator: 'rgba(120,50,200,0.28)', labelColor: CANVAS.eva.label, trackBg: 'rgba(8,4,26,0.9)',
+    fillAccent: 'rgba(255,123,0,0.8)', fillPitch: 'rgba(255,123,0,0.8)', valueColor: 'rgba(255,180,80,0.88)',
+    buttonBg: CANVAS.eva.bg, buttonBorder: CANVAS.eva.chromeBorderActive, buttonColor: 'rgba(170,90,255,0.5)',
+  },
+  optic: {
+    separator: 'rgba(96,131,150,0.36)', labelColor: CANVAS.optic.category, trackBg: '#ccd7de',
+    fillAccent: 'rgba(18,118,164,0.86)', fillPitch: 'rgba(76,118,189,0.84)', valueColor: CANVAS.optic.text,
+    buttonBg: 'rgba(247,250,252,0.94)', buttonBorder: 'rgba(109,146,165,0.72)', buttonColor: CANVAS.optic.category,
+  },
+  red: {
+    separator: 'rgba(140,30,28,0.28)', labelColor: CANVAS.red.label, trackBg: 'rgba(12,3,4,0.92)',
+    fillAccent: 'rgba(255,90,74,0.86)', fillPitch: 'rgba(255,132,106,0.82)', valueColor: CANVAS.red.text,
+    buttonBg: 'rgba(12,3,4,0.92)', buttonBorder: 'rgba(124,40,39,0.62)', buttonColor: CANVAS.red.category,
+  },
+};
 
 interface Props {
   grayscale: boolean;
   onGrayscale: (v: boolean) => void;
   visualMode: VisualMode;
   onVisualMode: (mode: VisualMode) => void;
-  /** Increment this value to externally trigger a full settings reset. */
   resetKey?: number;
 }
 
@@ -242,12 +195,7 @@ export function SessionControls({
   const pitchLabel = formatPitch(pitch);
   const scrollLabel = formatMultiplier(scroll);
 
-  const isNge = visualMode === 'nge';
-  const isOptic = visualMode === 'optic';
-  const isRed = visualMode === 'red';
-  const isHyper = visualMode === 'hyper';
-  const isEva = visualMode === 'eva';
-  const t = buildSessionTheme(visualMode);
+  const t = SESSION_THEMES[visualMode];
 
   const thSeparator: React.CSSProperties = { ...separatorStyle, background: t.separator };
   const thLabel: React.CSSProperties = { ...labelStyle, color: t.labelColor };
@@ -255,21 +203,8 @@ export function SessionControls({
   const thFill: React.CSSProperties = { ...fillStyle, background: t.fillAccent };
   const thValue: React.CSSProperties = { ...valueStyle, color: t.valueColor };
   const thButton: React.CSSProperties = { ...toggleStyle, background: t.buttonBg, borderColor: t.buttonBorder, color: t.buttonColor };
-  const thToggleActive: React.CSSProperties = isOptic
-    ? {
-        ...toggleActiveStyle,
-        background: 'rgba(226,236,242,0.98)',
-        borderColor: CANVAS.optic.chromeBorderActive,
-        color: CANVAS.optic.text,
-      }
-    : isRed
-      ? {
-          ...toggleActiveStyle,
-          background: 'rgba(34,10,11,0.96)',
-          borderColor: CANVAS.red.chromeBorderActive,
-          color: CANVAS.red.text,
-        }
-    : toggleActiveStyle;
+  const m = MODES[visualMode];
+  const thToggleActive: React.CSSProperties = { ...toggleActiveStyle, background: m.bg2, borderColor: m.chromeBorderActive, color: m.text };
 
   return (
     <div style={wrapStyle}>
@@ -375,61 +310,16 @@ export function SessionControls({
         >
           MONO
         </button>
-
-        <button
-          style={{ ...thButton, ...(isOptic ? opticActiveStyle : {}) }}
-          onClick={() => {
-            const nextMode = isOptic ? 'default' : 'optic';
-            onVisualMode(nextMode);
-          }}
-          title="White-light optics mode"
-        >
-          OPTIC
-        </button>
-
-        <button
-          style={{ ...thButton, ...(isRed ? redActiveStyle : {}) }}
-          onClick={() => {
-            const nextMode = isRed ? 'default' : 'red';
-            onVisualMode(nextMode);
-          }}
-          title="Dark red instrument mode"
-        >
-          RED
-        </button>
-
-        <button
-          style={{ ...thButton, ...(isNge ? ngeActiveStyle : {}) }}
-          onClick={() => {
-            const nextMode = isNge ? 'default' : 'nge';
-            onVisualMode(nextMode);
-          }}
-          title="NGE phosphor mode"
-        >
-          NGE
-        </button>
-
-        <button
-          style={{ ...thButton, ...(isHyper ? hyperActiveStyle : {}) }}
-          onClick={() => {
-            const nextMode = isHyper ? 'default' : 'hyper';
-            onVisualMode(nextMode);
-          }}
-          title="Hyperspectral image mode"
-        >
-          HYPER
-        </button>
-
-        <button
-          style={{ ...thButton, ...(isEva ? evaActiveStyle : {}) }}
-          onClick={() => {
-            const nextMode = isEva ? 'default' : 'eva';
-            onVisualMode(nextMode);
-          }}
-          title="EVA NERV command mode"
-        >
-          EVA
-        </button>
+        {(['optic', 'red', 'nge', 'hyper', 'eva'] as const).map((mode) => (
+          <button
+            key={mode}
+            style={{ ...thButton, ...(visualMode === mode ? MODE_TOGGLE_ACTIVE[mode] : {}) }}
+            onClick={() => onVisualMode(visualMode === mode ? 'default' : mode)}
+            title={MODE_TOGGLE_TITLES[mode]}
+          >
+            {mode.toUpperCase()}
+          </button>
+        ))}
       </div>
     </div>
   );
@@ -543,35 +433,20 @@ const toggleActiveStyle: React.CSSProperties = {
   color: COLORS.textPrimary,
 };
 
-const opticActiveStyle: React.CSSProperties = {
-  background: 'linear-gradient(135deg, rgba(252,254,255,0.99), rgba(230,239,245,0.99))',
-  borderColor: '#4f86a3',
-  color: '#13394f',
-  boxShadow: '0 0 0 1px rgba(79,134,163,0.12)',
+type ToggleMode = 'optic' | 'red' | 'nge' | 'hyper' | 'eva';
+
+const MODE_TOGGLE_ACTIVE: Record<ToggleMode, React.CSSProperties> = {
+  optic: { background: 'linear-gradient(135deg, rgba(252,254,255,0.99), rgba(230,239,245,0.99))', borderColor: '#4f86a3', color: '#13394f', boxShadow: '0 0 0 1px rgba(79,134,163,0.12)' },
+  red:   { background: 'rgba(34,10,11,0.98)', borderColor: '#7c2827', color: '#ffd0c8', boxShadow: '0 0 10px rgba(255,90,74,0.18)' },
+  nge:   { background: 'rgba(30,60,10,1)', borderColor: 'rgba(140,210,40,0.7)', color: 'rgba(160,230,60,1)' },
+  hyper: { background: 'rgba(10,22,56,1)', borderColor: 'rgba(112,208,255,0.72)', color: 'rgba(210,236,255,0.98)', boxShadow: '0 0 10px rgba(98,232,255,0.18)' },
+  eva:   { background: '#3a1070', color: '#ff7b00', borderColor: '#4a1a90' },
 };
 
-const redActiveStyle: React.CSSProperties = {
-  background: 'rgba(34,10,11,0.98)',
-  borderColor: '#7c2827',
-  color: '#ffd0c8',
-  boxShadow: '0 0 10px rgba(255,90,74,0.18)',
-};
-
-const ngeActiveStyle: React.CSSProperties = {
-  background: 'rgba(30,60,10,1)',
-  borderColor: 'rgba(140,210,40,0.7)',
-  color: 'rgba(160,230,60,1)',
-};
-
-const hyperActiveStyle: React.CSSProperties = {
-  background: 'rgba(10,22,56,1)',
-  borderColor: 'rgba(112,208,255,0.72)',
-  color: 'rgba(210,236,255,0.98)',
-  boxShadow: '0 0 10px rgba(98,232,255,0.18)',
-};
-
-const evaActiveStyle: React.CSSProperties = {
-  background: '#3a1070',
-  color: '#ff7b00',
-  borderColor: '#4a1a90',
+const MODE_TOGGLE_TITLES: Record<ToggleMode, string> = {
+  optic: 'White-light optics mode',
+  red:   'Dark red instrument mode',
+  nge:   'NGE phosphor mode',
+  hyper: 'Hyperspectral image mode',
+  eva:   'EVA NERV command mode',
 };

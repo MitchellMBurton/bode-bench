@@ -247,11 +247,11 @@ export function LoudnessMeterPanel(): React.ReactElement {
       const W = canvas.width;
       const H = canvas.height;
       const dpr = Math.min(devicePixelRatio, PANEL_DPR_MAX);
-      const nge = displayMode.nge;
-      const hyper = displayMode.hyper;
-      const optic = displayMode.optic;
-      const red = displayMode.red;
-      const eva = displayMode.eva;
+      const nge = displayMode.mode === 'nge';
+      const hyper = displayMode.mode === 'hyper';
+      const optic = displayMode.mode === 'optic';
+      const red = displayMode.mode === 'red';
+      const eva = displayMode.mode === 'eva';
       const padV = 6 * dpr;
 
       const traceColor = nge ? '#a0d840' : hyper ? CANVAS.hyper.trace : optic ? CANVAS.optic.trace : red ? CANVAS.red.trace : eva ? CANVAS.eva.trace : COLORS.waveform;

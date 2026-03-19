@@ -4,7 +4,7 @@
 // ============================================================
 
 import type { VisualMode } from '../audio/displayMode';
-import { CANVAS, COLORS, FONTS, SPACING } from '../theme';
+import { COLORS, FONTS, MODES, SPACING } from '../theme';
 
 export function TheaterPanelShell({
   active,
@@ -16,9 +16,10 @@ export function TheaterPanelShell({
   active: boolean;
   title: string;
   detail: string;
-  visualMode?: VisualMode;
+  visualMode: VisualMode;
   children: React.ReactNode;
 }): React.ReactElement {
+  const m = MODES[visualMode];
   const optic = visualMode === 'optic';
   const red = visualMode === 'red';
 
@@ -34,11 +35,11 @@ export function TheaterPanelShell({
               : red
                 ? 'linear-gradient(180deg, rgba(22,6,7,0.92), rgba(36,8,9,0.96))'
               : overlayStyle.background,
-            border: optic ? `1px solid ${CANVAS.optic.chromeBorderActive}` : red ? `1px solid ${CANVAS.red.chromeBorderActive}` : undefined,
-            backdropFilter: optic || red ? 'blur(12px)' : undefined,
+            border: (optic || red) ? `1px solid ${m.chromeBorderActive}` : undefined,
+            backdropFilter: (optic || red) ? 'blur(12px)' : undefined,
           }}
         >
-          <div style={{ ...overlayTitleStyle, color: optic ? CANVAS.optic.text : red ? CANVAS.red.text : overlayTitleStyle.color }}>{title}</div>
+          <div style={{ ...overlayTitleStyle, color: m.text }}>{title}</div>
           <div style={{ ...overlayDetailStyle, color: optic ? 'rgba(48,92,120,0.78)' : red ? 'rgba(255,186,172,0.78)' : overlayDetailStyle.color }}>{detail}</div>
         </div>
       ) : null}

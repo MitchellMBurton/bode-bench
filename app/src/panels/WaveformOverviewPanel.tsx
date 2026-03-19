@@ -520,8 +520,8 @@ export function WaveformOverviewPanel({ markers = [], onDeleteMarker, onClearMar
   const frameBus = useFrameBus();
   const audioEngine = useAudioEngine();
   const displayMode = useDisplayMode();
-  const optic = displayMode.optic;
-  const red = displayMode.red;
+  const optic = displayMode.mode === 'optic';
+  const red = displayMode.mode === 'red';
   const performanceProfile = usePerformanceProfile();
   const theaterMode = useTheaterMode();
   const [scrubStyle, setScrubStyle] = useState<ScrubStyle>(() => audioEngine.scrubStyle);
@@ -1375,11 +1375,11 @@ export function WaveformOverviewPanel({ markers = [], onDeleteMarker, onClearMar
       const height = canvas.height;
       const dpr = Math.min(devicePixelRatio, PANEL_DPR_MAX);
       const layout = buildTimelineLayout(width, height, dpr);
-      const nge = displayMode.nge;
-      const hyper = displayMode.hyper;
-      const optic = displayMode.optic;
-      const red = displayMode.red;
-      const eva = displayMode.eva;
+      const nge = displayMode.mode === 'nge';
+      const hyper = displayMode.mode === 'hyper';
+      const optic = displayMode.mode === 'optic';
+      const red = displayMode.mode === 'red';
+      const eva = displayMode.mode === 'eva';
       const backgroundFill = nge ? CANVAS.nge.bg2 : hyper ? CANVAS.hyper.bg2 : optic ? CANVAS.optic.bg2 : red ? CANVAS.red.bg2 : eva ? CANVAS.eva.bg2 : COLORS.bg2;
       const gridColor = nge ? 'rgba(22,54,18,1)' : hyper ? 'rgba(28,42,88,0.92)' : optic ? 'rgba(169,186,197,0.96)' : red ? 'rgba(74,22,24,0.96)' : eva ? 'rgba(74,26,144,0.35)' : COLORS.bg3;
       const textColor = nge ? CANVAS.nge.label : hyper ? CANVAS.hyper.label : optic ? CANVAS.optic.label : red ? CANVAS.red.label : eva ? CANVAS.eva.label : COLORS.textDim;

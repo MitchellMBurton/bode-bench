@@ -26,98 +26,8 @@ interface TransportTheme {
   seekFillColor: string;
 }
 
-function buildTransportTheme(visualMode: VisualMode): TransportTheme {
-  if (visualMode === 'optic') {
-    return {
-      btnBg: 'rgba(247,250,252,0.94)',
-      btnBorder: 'rgba(109,146,165,0.76)',
-      btnColor: CANVAS.optic.text,
-      btnActiveBg: 'linear-gradient(135deg, rgba(252,254,255,0.99), rgba(231,239,245,0.99))',
-      btnActiveBorder: '#4f86a3',
-      btnResetBorder: CANVAS.optic.chromeBorderActive,
-      btnResetBg: 'rgba(239,246,250,0.98)',
-      loopBg: 'rgba(57,126,158,0.10)',
-      loopBorder: 'rgba(79,134,163,0.42)',
-      loopLabel: '#0d7e9e',
-      loopTime: 'rgba(35,67,88,0.86)',
-      loopClear: 'rgba(24,96,132,0.84)',
-      seekTrackBg: '#d0dce3',
-      seekFillColor: '#117aa5',
-    };
-  }
-  if (visualMode === 'red') {
-    return {
-      btnBg: 'rgba(12,3,4,0.92)',
-      btnBorder: 'rgba(124,40,39,0.62)',
-      btnColor: CANVAS.red.text,
-      btnActiveBg: 'rgba(34,10,11,0.96)',
-      btnActiveBorder: CANVAS.red.chromeBorderActive,
-      btnResetBorder: CANVAS.red.chromeBorder,
-      btnResetBg: 'rgba(12,3,4,0.92)',
-      loopBg: 'rgba(120,24,22,0.22)',
-      loopBorder: 'rgba(255,90,74,0.36)',
-      loopLabel: CANVAS.red.trace,
-      loopTime: 'rgba(255,186,172,0.78)',
-      loopClear: 'rgba(255,132,116,0.72)',
-      seekTrackBg: '#1d090a',
-      seekFillColor: '#ff5a4a',
-    };
-  }
-  if (visualMode === 'nge') {
-    return {
-      btnBg: 'rgba(4,10,4,0.9)',
-      btnBorder: 'rgba(60,130,30,0.4)',
-      btnColor: 'rgba(160,230,60,0.9)',
-      btnActiveBg: 'rgba(20,50,8,0.95)',
-      btnActiveBorder: 'rgba(120,200,60,0.75)',
-      btnResetBorder: 'rgba(80,160,40,0.5)',
-      btnResetBg: 'rgba(4,10,4,0.9)',
-      loopBg: 'rgba(20,60,10,0.3)',
-      loopBorder: 'rgba(80,200,60,0.3)',
-      loopLabel: 'rgba(140,230,60,0.9)',
-      loopTime: 'rgba(120,200,60,0.7)',
-      loopClear: 'rgba(120,200,60,0.65)',
-      seekTrackBg: 'rgba(4,12,4,0.9)',
-      seekFillColor: 'rgba(100,190,30,0.88)',
-    };
-  }
-  if (visualMode === 'hyper') {
-    return {
-      btnBg: 'rgba(2,5,18,0.9)',
-      btnBorder: 'rgba(40,70,180,0.4)',
-      btnColor: 'rgba(210,236,255,0.9)',
-      btnActiveBg: 'rgba(8,18,52,0.95)',
-      btnActiveBorder: 'rgba(98,200,255,0.75)',
-      btnResetBorder: CANVAS.hyper.chromeBorder,
-      btnResetBg: 'rgba(2,5,18,0.9)',
-      loopBg: 'rgba(10,20,60,0.3)',
-      loopBorder: 'rgba(80,160,255,0.3)',
-      loopLabel: CANVAS.hyper.trace,
-      loopTime: 'rgba(112,180,255,0.75)',
-      loopClear: 'rgba(98,200,255,0.65)',
-      seekTrackBg: 'rgba(4,8,28,0.9)',
-      seekFillColor: 'rgba(78,200,255,0.85)',
-    };
-  }
-  if (visualMode === 'eva') {
-    return {
-      btnBg: '#0f0a24',
-      btnBorder: '#2a1050',
-      btnColor: 'rgba(255,180,80,0.82)',
-      btnActiveBg: '#3a1070',
-      btnActiveBorder: '#4a1a90',
-      btnResetBorder: CANVAS.eva.chromeBorder,
-      btnResetBg: '#0f0a24',
-      loopBg: 'rgba(60,20,100,0.3)',
-      loopBorder: 'rgba(170,90,255,0.3)',
-      loopLabel: CANVAS.eva.trace,
-      loopTime: 'rgba(255,140,40,0.75)',
-      loopClear: 'rgba(255,123,0,0.65)',
-      seekTrackBg: '#1a0c30',
-      seekFillColor: '#ff7b00',
-    };
-  }
-  return {
+const TRANSPORT_THEMES: Record<VisualMode, TransportTheme> = {
+  default: {
     btnBg: COLORS.bg3,
     btnBorder: COLORS.border,
     btnColor: COLORS.textPrimary,
@@ -132,8 +42,88 @@ function buildTransportTheme(visualMode: VisualMode): TransportTheme {
     loopClear: 'rgba(80,200,120,0.60)',
     seekTrackBg: COLORS.bg3,
     seekFillColor: COLORS.accent,
-  };
-}
+  },
+  optic: {
+    btnBg: 'rgba(247,250,252,0.94)',
+    btnBorder: 'rgba(109,146,165,0.76)',
+    btnColor: CANVAS.optic.text,
+    btnActiveBg: 'linear-gradient(135deg, rgba(252,254,255,0.99), rgba(231,239,245,0.99))',
+    btnActiveBorder: '#4f86a3',
+    btnResetBorder: CANVAS.optic.chromeBorderActive,
+    btnResetBg: 'rgba(239,246,250,0.98)',
+    loopBg: 'rgba(57,126,158,0.10)',
+    loopBorder: 'rgba(79,134,163,0.42)',
+    loopLabel: '#0d7e9e',
+    loopTime: 'rgba(35,67,88,0.86)',
+    loopClear: 'rgba(24,96,132,0.84)',
+    seekTrackBg: '#d0dce3',
+    seekFillColor: '#117aa5',
+  },
+  red: {
+    btnBg: 'rgba(12,3,4,0.92)',
+    btnBorder: 'rgba(124,40,39,0.62)',
+    btnColor: CANVAS.red.text,
+    btnActiveBg: 'rgba(34,10,11,0.96)',
+    btnActiveBorder: CANVAS.red.chromeBorderActive,
+    btnResetBorder: CANVAS.red.chromeBorder,
+    btnResetBg: 'rgba(12,3,4,0.92)',
+    loopBg: 'rgba(120,24,22,0.22)',
+    loopBorder: 'rgba(255,90,74,0.36)',
+    loopLabel: CANVAS.red.trace,
+    loopTime: 'rgba(255,186,172,0.78)',
+    loopClear: 'rgba(255,132,116,0.72)',
+    seekTrackBg: '#1d090a',
+    seekFillColor: '#ff5a4a',
+  },
+  nge: {
+    btnBg: 'rgba(4,10,4,0.9)',
+    btnBorder: 'rgba(60,130,30,0.4)',
+    btnColor: 'rgba(160,230,60,0.9)',
+    btnActiveBg: 'rgba(20,50,8,0.95)',
+    btnActiveBorder: 'rgba(120,200,60,0.75)',
+    btnResetBorder: 'rgba(80,160,40,0.5)',
+    btnResetBg: 'rgba(4,10,4,0.9)',
+    loopBg: 'rgba(20,60,10,0.3)',
+    loopBorder: 'rgba(80,200,60,0.3)',
+    loopLabel: 'rgba(140,230,60,0.9)',
+    loopTime: 'rgba(120,200,60,0.7)',
+    loopClear: 'rgba(120,200,60,0.65)',
+    seekTrackBg: 'rgba(4,12,4,0.9)',
+    seekFillColor: 'rgba(100,190,30,0.88)',
+  },
+  hyper: {
+    btnBg: 'rgba(2,5,18,0.9)',
+    btnBorder: 'rgba(40,70,180,0.4)',
+    btnColor: 'rgba(210,236,255,0.9)',
+    btnActiveBg: 'rgba(8,18,52,0.95)',
+    btnActiveBorder: 'rgba(98,200,255,0.75)',
+    btnResetBorder: CANVAS.hyper.chromeBorder,
+    btnResetBg: 'rgba(2,5,18,0.9)',
+    loopBg: 'rgba(10,20,60,0.3)',
+    loopBorder: 'rgba(80,160,255,0.3)',
+    loopLabel: CANVAS.hyper.trace,
+    loopTime: 'rgba(112,180,255,0.75)',
+    loopClear: 'rgba(98,200,255,0.65)',
+    seekTrackBg: 'rgba(4,8,28,0.9)',
+    seekFillColor: 'rgba(78,200,255,0.85)',
+  },
+  eva: {
+    btnBg: '#0f0a24',
+    btnBorder: '#2a1050',
+    btnColor: 'rgba(255,180,80,0.82)',
+    btnActiveBg: '#3a1070',
+    btnActiveBorder: '#4a1a90',
+    btnResetBorder: CANVAS.eva.chromeBorder,
+    btnResetBg: '#0f0a24',
+    loopBg: 'rgba(60,20,100,0.3)',
+    loopBorder: 'rgba(170,90,255,0.3)',
+    loopLabel: CANVAS.eva.trace,
+    loopTime: 'rgba(255,140,40,0.75)',
+    loopClear: 'rgba(255,123,0,0.65)',
+    seekTrackBg: '#1a0c30',
+    seekFillColor: '#ff7b00',
+  },
+};
 
 const VIDEO_HEIGHT_MIN = 72;
 const VIDEO_HEIGHT_DEFAULT = 160;
@@ -442,7 +432,7 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
   const performanceDiagnostics = usePerformanceDiagnosticsStore();
   const theaterModeStore = useTheaterModeStore();
   const displayMode = useDisplayMode();
-  const tt = buildTransportTheme(displayMode.mode);
+  const tt = TRANSPORT_THEMES[displayMode.mode];
   const [transport, setTransport] = useState<TransportState>({
     isPlaying: false,
     currentTime: 0,

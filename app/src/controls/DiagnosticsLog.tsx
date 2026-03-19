@@ -12,6 +12,7 @@ import { PRODUCT_EXPORT_SLUG, PRODUCT_NAME } from '../constants';
 import { CANVAS, COLORS, FONTS, SPACING } from '../theme';
 import type { VisualMode } from '../audio/displayMode';
 import type { FileAnalysis, TransportState } from '../types';
+import type { DiagnosticsEntry, PerformanceDiagnosticsSnapshot, PerformanceEvent, PerformanceTraceSample } from '../diagnostics/logStore';
 
 interface PerfTheme {
   bg0: string;
@@ -38,138 +39,8 @@ interface PerfTheme {
   traceCatchupBg: string;
 }
 
-function buildPerfTheme(visualMode: VisualMode): PerfTheme {
-  if (visualMode === 'optic') {
-    return {
-      bg0: CANVAS.optic.bg,
-      bg1: '#f5fafc',
-      bg2: CANVAS.optic.bg2,
-      border: CANVAS.optic.chromeBorder,
-      buttonBg: 'rgba(247,250,252,0.94)',
-      buttonBorder: 'rgba(109,146,165,0.68)',
-      buttonColor: CANVAS.optic.text,
-      buttonActiveBg: 'rgba(229,237,243,0.96)',
-      buttonActiveBorder: CANVAS.optic.chromeBorderActive,
-      buttonActiveColor: CANVAS.optic.trace,
-      textCategory: CANVAS.optic.category,
-      textTitle: CANVAS.optic.text,
-      textPrimary: CANVAS.optic.trace,
-      textSecondary: 'rgba(45,80,100,0.72)',
-      textDim: 'rgba(93,125,143,0.34)',
-      levelTrack: '#d1dce3',
-      fillInfo: 'linear-gradient(90deg, rgba(33,118,160,0.78), rgba(94,163,197,0.92))',
-      fillDim: 'linear-gradient(90deg, rgba(116,136,149,0.52), rgba(84,108,126,0.72))',
-      traceBandBg: 'rgba(221,230,236,0.88)',
-      traceMarkerBg: 'rgba(246,249,251,0.98)',
-      traceLaneBg: 'rgba(231,238,243,0.92)',
-      traceCatchupBg: 'rgba(91,126,154,0.08)',
-    };
-  }
-  if (visualMode === 'red') {
-    return {
-      bg0: CANVAS.red.bg,
-      bg1: '#120405',
-      bg2: CANVAS.red.bg2,
-      border: CANVAS.red.chromeBorder,
-      buttonBg: 'rgba(12,3,4,0.92)',
-      buttonBorder: 'rgba(124,40,39,0.64)',
-      buttonColor: CANVAS.red.text,
-      buttonActiveBg: 'rgba(34,10,11,0.96)',
-      buttonActiveBorder: CANVAS.red.chromeBorderActive,
-      buttonActiveColor: CANVAS.red.trace,
-      textCategory: CANVAS.red.category,
-      textTitle: CANVAS.red.text,
-      textPrimary: CANVAS.red.trace,
-      textSecondary: 'rgba(214,108,96,0.72)',
-      textDim: 'rgba(140,58,50,0.34)',
-      levelTrack: '#1d090a',
-      fillInfo: 'linear-gradient(90deg, rgba(156,40,32,0.78), rgba(255,110,92,0.92))',
-      fillDim: 'linear-gradient(90deg, rgba(92,38,38,0.62), rgba(146,72,66,0.82))',
-      traceBandBg: 'rgba(18,6,7,0.84)',
-      traceMarkerBg: 'rgba(18,6,7,0.96)',
-      traceLaneBg: 'rgba(18,6,7,0.72)',
-      traceCatchupBg: 'rgba(255,90,74,0.08)',
-    };
-  }
-  if (visualMode === 'hyper') {
-    return {
-      bg0: CANVAS.hyper.bg,
-      bg1: '#04091a',
-      bg2: CANVAS.hyper.bg2,
-      border: CANVAS.hyper.chromeBorder,
-      buttonBg: 'rgba(2,5,18,0.9)',
-      buttonBorder: 'rgba(40,70,180,0.35)',
-      buttonColor: 'rgba(112,180,255,0.5)',
-      buttonActiveBg: 'rgba(6,14,40,0.95)',
-      buttonActiveBorder: 'rgba(98,200,255,0.7)',
-      buttonActiveColor: 'rgba(210,236,255,0.98)',
-      textCategory: CANVAS.hyper.category,
-      textTitle: CANVAS.hyper.label,
-      textPrimary: CANVAS.hyper.trace,
-      textSecondary: 'rgba(112,180,255,0.45)',
-      textDim: 'rgba(84,132,255,0.18)',
-      levelTrack: '#040b18',
-      fillInfo: 'linear-gradient(90deg, rgba(58,86,200,0.8), rgba(98,232,255,0.88))',
-      fillDim: 'linear-gradient(90deg, rgba(64,64,88,0.72), rgba(96,96,120,0.8))',
-      traceBandBg: 'rgba(8,12,18,0.6)',
-      traceMarkerBg: 'rgba(8,12,18,0.96)',
-      traceLaneBg: 'rgba(8,12,18,0.5)',
-      traceCatchupBg: 'rgba(80,96,192,0.08)',
-    };
-  }
-  if (visualMode === 'nge') {
-    return {
-      bg0: CANVAS.nge.bg,
-      bg1: '#07100a',
-      bg2: CANVAS.nge.bg2,
-      border: CANVAS.nge.chromeBorder,
-      buttonBg: 'rgba(4,10,4,0.9)',
-      buttonBorder: 'rgba(60,130,30,0.35)',
-      buttonColor: 'rgba(140,210,40,0.5)',
-      buttonActiveBg: 'rgba(10,28,8,0.95)',
-      buttonActiveBorder: 'rgba(120,200,60,0.7)',
-      buttonActiveColor: 'rgba(180,230,80,0.95)',
-      textCategory: CANVAS.nge.category,
-      textTitle: CANVAS.nge.label,
-      textPrimary: CANVAS.nge.trace,
-      textSecondary: 'rgba(120,200,74,0.5)',
-      textDim: 'rgba(80,160,50,0.2)',
-      levelTrack: '#040a04',
-      fillInfo: 'linear-gradient(90deg, rgba(64,128,40,0.8), rgba(160,216,64,0.88))',
-      fillDim: 'linear-gradient(90deg, rgba(64,64,88,0.72), rgba(96,96,120,0.8))',
-      traceBandBg: 'rgba(8,12,18,0.6)',
-      traceMarkerBg: 'rgba(8,12,18,0.96)',
-      traceLaneBg: 'rgba(8,12,18,0.5)',
-      traceCatchupBg: 'rgba(80,96,192,0.08)',
-    };
-  }
-  if (visualMode === 'eva') {
-    return {
-      bg0: CANVAS.eva.bg,
-      bg1: '#0f0a24',
-      bg2: CANVAS.eva.bg2,
-      border: CANVAS.eva.chromeBorder,
-      buttonBg: 'rgba(8,4,26,0.9)',
-      buttonBorder: 'rgba(120,50,200,0.35)',
-      buttonColor: 'rgba(170,90,255,0.5)',
-      buttonActiveBg: 'rgba(20,10,50,0.95)',
-      buttonActiveBorder: 'rgba(255,123,0,0.7)',
-      buttonActiveColor: 'rgba(255,180,80,0.98)',
-      textCategory: CANVAS.eva.category,
-      textTitle: CANVAS.eva.label,
-      textPrimary: CANVAS.eva.trace,
-      textSecondary: 'rgba(255,140,40,0.45)',
-      textDim: 'rgba(120,50,200,0.18)',
-      levelTrack: '#0a0618',
-      fillInfo: 'linear-gradient(90deg, rgba(120,50,200,0.8), rgba(255,123,0,0.88))',
-      fillDim: 'linear-gradient(90deg, rgba(64,64,88,0.72), rgba(96,96,120,0.8))',
-      traceBandBg: 'rgba(8,12,18,0.6)',
-      traceMarkerBg: 'rgba(8,12,18,0.96)',
-      traceLaneBg: 'rgba(8,12,18,0.5)',
-      traceCatchupBg: 'rgba(80,96,192,0.08)',
-    };
-  }
-  return {
+const PERF_THEMES: Record<VisualMode, PerfTheme> = {
+  default: {
     bg0: COLORS.bg0,
     bg1: COLORS.bg1,
     bg2: COLORS.bg2,
@@ -192,8 +63,128 @@ function buildPerfTheme(visualMode: VisualMode): PerfTheme {
     traceMarkerBg: 'rgba(8,12,18,0.96)',
     traceLaneBg: 'rgba(8,12,18,0.5)',
     traceCatchupBg: 'rgba(80,96,192,0.08)',
-  };
-}
+  },
+  optic: {
+    bg0: CANVAS.optic.bg,
+    bg1: '#f5fafc',
+    bg2: CANVAS.optic.bg2,
+    border: CANVAS.optic.chromeBorder,
+    buttonBg: 'rgba(247,250,252,0.94)',
+    buttonBorder: 'rgba(109,146,165,0.68)',
+    buttonColor: CANVAS.optic.text,
+    buttonActiveBg: 'rgba(229,237,243,0.96)',
+    buttonActiveBorder: CANVAS.optic.chromeBorderActive,
+    buttonActiveColor: CANVAS.optic.trace,
+    textCategory: CANVAS.optic.category,
+    textTitle: CANVAS.optic.text,
+    textPrimary: CANVAS.optic.trace,
+    textSecondary: 'rgba(45,80,100,0.72)',
+    textDim: 'rgba(93,125,143,0.34)',
+    levelTrack: '#d1dce3',
+    fillInfo: 'linear-gradient(90deg, rgba(33,118,160,0.78), rgba(94,163,197,0.92))',
+    fillDim: 'linear-gradient(90deg, rgba(116,136,149,0.52), rgba(84,108,126,0.72))',
+    traceBandBg: 'rgba(221,230,236,0.88)',
+    traceMarkerBg: 'rgba(246,249,251,0.98)',
+    traceLaneBg: 'rgba(231,238,243,0.92)',
+    traceCatchupBg: 'rgba(91,126,154,0.08)',
+  },
+  red: {
+    bg0: CANVAS.red.bg,
+    bg1: '#120405',
+    bg2: CANVAS.red.bg2,
+    border: CANVAS.red.chromeBorder,
+    buttonBg: 'rgba(12,3,4,0.92)',
+    buttonBorder: 'rgba(124,40,39,0.64)',
+    buttonColor: CANVAS.red.text,
+    buttonActiveBg: 'rgba(34,10,11,0.96)',
+    buttonActiveBorder: CANVAS.red.chromeBorderActive,
+    buttonActiveColor: CANVAS.red.trace,
+    textCategory: CANVAS.red.category,
+    textTitle: CANVAS.red.text,
+    textPrimary: CANVAS.red.trace,
+    textSecondary: 'rgba(214,108,96,0.72)',
+    textDim: 'rgba(140,58,50,0.34)',
+    levelTrack: '#1d090a',
+    fillInfo: 'linear-gradient(90deg, rgba(156,40,32,0.78), rgba(255,110,92,0.92))',
+    fillDim: 'linear-gradient(90deg, rgba(92,38,38,0.62), rgba(146,72,66,0.82))',
+    traceBandBg: 'rgba(18,6,7,0.84)',
+    traceMarkerBg: 'rgba(18,6,7,0.96)',
+    traceLaneBg: 'rgba(18,6,7,0.72)',
+    traceCatchupBg: 'rgba(255,90,74,0.08)',
+  },
+  hyper: {
+    bg0: CANVAS.hyper.bg,
+    bg1: '#04091a',
+    bg2: CANVAS.hyper.bg2,
+    border: CANVAS.hyper.chromeBorder,
+    buttonBg: 'rgba(2,5,18,0.9)',
+    buttonBorder: 'rgba(40,70,180,0.35)',
+    buttonColor: 'rgba(112,180,255,0.5)',
+    buttonActiveBg: 'rgba(6,14,40,0.95)',
+    buttonActiveBorder: 'rgba(98,200,255,0.7)',
+    buttonActiveColor: 'rgba(210,236,255,0.98)',
+    textCategory: CANVAS.hyper.category,
+    textTitle: CANVAS.hyper.label,
+    textPrimary: CANVAS.hyper.trace,
+    textSecondary: 'rgba(112,180,255,0.45)',
+    textDim: 'rgba(84,132,255,0.18)',
+    levelTrack: '#040b18',
+    fillInfo: 'linear-gradient(90deg, rgba(58,86,200,0.8), rgba(98,232,255,0.88))',
+    fillDim: 'linear-gradient(90deg, rgba(64,64,88,0.72), rgba(96,96,120,0.8))',
+    traceBandBg: 'rgba(8,12,18,0.6)',
+    traceMarkerBg: 'rgba(8,12,18,0.96)',
+    traceLaneBg: 'rgba(8,12,18,0.5)',
+    traceCatchupBg: 'rgba(80,96,192,0.08)',
+  },
+  nge: {
+    bg0: CANVAS.nge.bg,
+    bg1: '#07100a',
+    bg2: CANVAS.nge.bg2,
+    border: CANVAS.nge.chromeBorder,
+    buttonBg: 'rgba(4,10,4,0.9)',
+    buttonBorder: 'rgba(60,130,30,0.35)',
+    buttonColor: 'rgba(140,210,40,0.5)',
+    buttonActiveBg: 'rgba(10,28,8,0.95)',
+    buttonActiveBorder: 'rgba(120,200,60,0.7)',
+    buttonActiveColor: 'rgba(180,230,80,0.95)',
+    textCategory: CANVAS.nge.category,
+    textTitle: CANVAS.nge.label,
+    textPrimary: CANVAS.nge.trace,
+    textSecondary: 'rgba(120,200,74,0.5)',
+    textDim: 'rgba(80,160,50,0.2)',
+    levelTrack: '#040a04',
+    fillInfo: 'linear-gradient(90deg, rgba(64,128,40,0.8), rgba(160,216,64,0.88))',
+    fillDim: 'linear-gradient(90deg, rgba(64,64,88,0.72), rgba(96,96,120,0.8))',
+    traceBandBg: 'rgba(8,12,18,0.6)',
+    traceMarkerBg: 'rgba(8,12,18,0.96)',
+    traceLaneBg: 'rgba(8,12,18,0.5)',
+    traceCatchupBg: 'rgba(80,96,192,0.08)',
+  },
+  eva: {
+    bg0: CANVAS.eva.bg,
+    bg1: '#0f0a24',
+    bg2: CANVAS.eva.bg2,
+    border: CANVAS.eva.chromeBorder,
+    buttonBg: 'rgba(8,4,26,0.9)',
+    buttonBorder: 'rgba(120,50,200,0.35)',
+    buttonColor: 'rgba(170,90,255,0.5)',
+    buttonActiveBg: 'rgba(20,10,50,0.95)',
+    buttonActiveBorder: 'rgba(255,123,0,0.7)',
+    buttonActiveColor: 'rgba(255,180,80,0.98)',
+    textCategory: CANVAS.eva.category,
+    textTitle: CANVAS.eva.label,
+    textPrimary: CANVAS.eva.trace,
+    textSecondary: 'rgba(255,140,40,0.45)',
+    textDim: 'rgba(120,50,200,0.18)',
+    levelTrack: '#0a0618',
+    fillInfo: 'linear-gradient(90deg, rgba(120,50,200,0.8), rgba(255,123,0,0.88))',
+    fillDim: 'linear-gradient(90deg, rgba(64,64,88,0.72), rgba(96,96,120,0.8))',
+    traceBandBg: 'rgba(8,12,18,0.6)',
+    traceMarkerBg: 'rgba(8,12,18,0.96)',
+    traceLaneBg: 'rgba(8,12,18,0.5)',
+    traceCatchupBg: 'rgba(80,96,192,0.08)',
+  },
+};
 interface LogTheme {
   wrapBorder: string;
   headerBg: string;
@@ -213,108 +204,8 @@ interface LogTheme {
   toneDim: string;
 }
 
-function buildLogTheme(visualMode: VisualMode): LogTheme {
-  if (visualMode === 'optic') {
-    return {
-      wrapBorder: 'rgba(109,146,165,0.64)',
-      headerBg: '#f6fafc',
-      headerBorder: CANVAS.optic.chromeBorderActive,
-      scrollBg: '#edf3f7',
-      buttonBg: 'rgba(247,250,252,0.94)',
-      buttonBorder: 'rgba(109,146,165,0.68)',
-      buttonColor: CANVAS.optic.text,
-      buttonActiveBg: 'rgba(229,237,243,0.96)',
-      buttonActiveBorder: CANVAS.optic.chromeBorderActive,
-      buttonActiveColor: CANVAS.optic.trace,
-      headerLabel: CANVAS.optic.category,
-      headerMeta: 'rgba(70,103,121,0.78)',
-      clockColor: 'rgba(70,103,121,0.74)',
-      sourceColor: CANVAS.optic.category,
-      toneInfo: CANVAS.optic.trace,
-      toneDim: 'rgba(47,80,100,0.72)',
-    };
-  }
-  if (visualMode === 'red') {
-    return {
-      wrapBorder: 'rgba(124,40,39,0.56)',
-      headerBg: '#120405',
-      headerBorder: CANVAS.red.chromeBorder,
-      scrollBg: '#0a0203',
-      buttonBg: 'rgba(12,3,4,0.92)',
-      buttonBorder: 'rgba(124,40,39,0.56)',
-      buttonColor: CANVAS.red.text,
-      buttonActiveBg: 'rgba(34,10,11,0.96)',
-      buttonActiveBorder: CANVAS.red.chromeBorderActive,
-      buttonActiveColor: CANVAS.red.trace,
-      headerLabel: CANVAS.red.category,
-      headerMeta: 'rgba(214,108,96,0.42)',
-      clockColor: 'rgba(140,58,50,0.40)',
-      sourceColor: CANVAS.red.category,
-      toneInfo: CANVAS.red.trace,
-      toneDim: 'rgba(255,188,176,0.68)',
-    };
-  }
-  if (visualMode === 'nge') {
-    return {
-      wrapBorder: 'rgba(60,140,30,0.3)',
-      headerBg: CANVAS.nge.bg,
-      headerBorder: CANVAS.nge.chromeBorder,
-      scrollBg: '#030703',
-      buttonBg: 'rgba(4,10,4,0.9)',
-      buttonBorder: 'rgba(60,130,30,0.35)',
-      buttonColor: 'rgba(140,210,40,0.5)',
-      buttonActiveBg: 'rgba(10,28,8,0.95)',
-      buttonActiveBorder: 'rgba(120,200,60,0.7)',
-      buttonActiveColor: 'rgba(180,230,80,0.95)',
-      headerLabel: CANVAS.nge.category,
-      headerMeta: 'rgba(80,160,50,0.45)',
-      clockColor: 'rgba(80,160,50,0.45)',
-      sourceColor: CANVAS.nge.category,
-      toneInfo: 'rgba(140,230,60,0.9)',
-      toneDim: 'rgba(100,180,60,0.5)',
-    };
-  }
-  if (visualMode === 'hyper') {
-    return {
-      wrapBorder: 'rgba(60,100,200,0.35)',
-      headerBg: CANVAS.hyper.bg,
-      headerBorder: CANVAS.hyper.chromeBorder,
-      scrollBg: '#020410',
-      buttonBg: 'rgba(2,5,18,0.9)',
-      buttonBorder: 'rgba(40,70,180,0.35)',
-      buttonColor: 'rgba(112,180,255,0.5)',
-      buttonActiveBg: 'rgba(6,14,40,0.95)',
-      buttonActiveBorder: 'rgba(98,200,255,0.7)',
-      buttonActiveColor: 'rgba(210,236,255,0.98)',
-      headerLabel: CANVAS.hyper.category,
-      headerMeta: 'rgba(84,132,255,0.45)',
-      clockColor: 'rgba(84,132,255,0.4)',
-      sourceColor: CANVAS.hyper.category,
-      toneInfo: CANVAS.hyper.trace,
-      toneDim: 'rgba(112,180,255,0.45)',
-    };
-  }
-  if (visualMode === 'eva') {
-    return {
-      wrapBorder: 'rgba(120,50,200,0.35)',
-      headerBg: CANVAS.eva.bg,
-      headerBorder: CANVAS.eva.chromeBorder,
-      scrollBg: '#060318',
-      buttonBg: 'rgba(8,4,26,0.9)',
-      buttonBorder: 'rgba(120,50,200,0.35)',
-      buttonColor: 'rgba(170,90,255,0.5)',
-      buttonActiveBg: 'rgba(20,10,50,0.95)',
-      buttonActiveBorder: 'rgba(255,123,0,0.7)',
-      buttonActiveColor: 'rgba(255,180,80,0.98)',
-      headerLabel: CANVAS.eva.category,
-      headerMeta: 'rgba(120,50,200,0.45)',
-      clockColor: 'rgba(120,50,200,0.4)',
-      sourceColor: CANVAS.eva.category,
-      toneInfo: CANVAS.eva.trace,
-      toneDim: 'rgba(255,140,40,0.45)',
-    };
-  }
-  return {
+const LOG_THEMES: Record<VisualMode, LogTheme> = {
+  default: {
     wrapBorder: COLORS.border,
     headerBg: COLORS.bg1,
     headerBorder: COLORS.border,
@@ -331,10 +222,98 @@ function buildLogTheme(visualMode: VisualMode): LogTheme {
     sourceColor: COLORS.textCategory,
     toneInfo: COLORS.textPrimary,
     toneDim: COLORS.textSecondary,
-  };
-}
-
-import type { DiagnosticsEntry, PerformanceDiagnosticsSnapshot, PerformanceEvent, PerformanceTraceSample } from '../diagnostics/logStore';
+  },
+  optic: {
+    wrapBorder: 'rgba(109,146,165,0.64)',
+    headerBg: '#f6fafc',
+    headerBorder: CANVAS.optic.chromeBorderActive,
+    scrollBg: '#edf3f7',
+    buttonBg: 'rgba(247,250,252,0.94)',
+    buttonBorder: 'rgba(109,146,165,0.68)',
+    buttonColor: CANVAS.optic.text,
+    buttonActiveBg: 'rgba(229,237,243,0.96)',
+    buttonActiveBorder: CANVAS.optic.chromeBorderActive,
+    buttonActiveColor: CANVAS.optic.trace,
+    headerLabel: CANVAS.optic.category,
+    headerMeta: 'rgba(70,103,121,0.78)',
+    clockColor: 'rgba(70,103,121,0.74)',
+    sourceColor: CANVAS.optic.category,
+    toneInfo: CANVAS.optic.trace,
+    toneDim: 'rgba(47,80,100,0.72)',
+  },
+  red: {
+    wrapBorder: 'rgba(124,40,39,0.56)',
+    headerBg: '#120405',
+    headerBorder: CANVAS.red.chromeBorder,
+    scrollBg: '#0a0203',
+    buttonBg: 'rgba(12,3,4,0.92)',
+    buttonBorder: 'rgba(124,40,39,0.56)',
+    buttonColor: CANVAS.red.text,
+    buttonActiveBg: 'rgba(34,10,11,0.96)',
+    buttonActiveBorder: CANVAS.red.chromeBorderActive,
+    buttonActiveColor: CANVAS.red.trace,
+    headerLabel: CANVAS.red.category,
+    headerMeta: 'rgba(214,108,96,0.42)',
+    clockColor: 'rgba(140,58,50,0.40)',
+    sourceColor: CANVAS.red.category,
+    toneInfo: CANVAS.red.trace,
+    toneDim: 'rgba(255,188,176,0.68)',
+  },
+  nge: {
+    wrapBorder: 'rgba(60,140,30,0.3)',
+    headerBg: CANVAS.nge.bg,
+    headerBorder: CANVAS.nge.chromeBorder,
+    scrollBg: '#030703',
+    buttonBg: 'rgba(4,10,4,0.9)',
+    buttonBorder: 'rgba(60,130,30,0.35)',
+    buttonColor: 'rgba(140,210,40,0.5)',
+    buttonActiveBg: 'rgba(10,28,8,0.95)',
+    buttonActiveBorder: 'rgba(120,200,60,0.7)',
+    buttonActiveColor: 'rgba(180,230,80,0.95)',
+    headerLabel: CANVAS.nge.category,
+    headerMeta: 'rgba(80,160,50,0.45)',
+    clockColor: 'rgba(80,160,50,0.45)',
+    sourceColor: CANVAS.nge.category,
+    toneInfo: 'rgba(140,230,60,0.9)',
+    toneDim: 'rgba(100,180,60,0.5)',
+  },
+  hyper: {
+    wrapBorder: 'rgba(60,100,200,0.35)',
+    headerBg: CANVAS.hyper.bg,
+    headerBorder: CANVAS.hyper.chromeBorder,
+    scrollBg: '#020410',
+    buttonBg: 'rgba(2,5,18,0.9)',
+    buttonBorder: 'rgba(40,70,180,0.35)',
+    buttonColor: 'rgba(112,180,255,0.5)',
+    buttonActiveBg: 'rgba(6,14,40,0.95)',
+    buttonActiveBorder: 'rgba(98,200,255,0.7)',
+    buttonActiveColor: 'rgba(210,236,255,0.98)',
+    headerLabel: CANVAS.hyper.category,
+    headerMeta: 'rgba(84,132,255,0.45)',
+    clockColor: 'rgba(84,132,255,0.4)',
+    sourceColor: CANVAS.hyper.category,
+    toneInfo: CANVAS.hyper.trace,
+    toneDim: 'rgba(112,180,255,0.45)',
+  },
+  eva: {
+    wrapBorder: 'rgba(120,50,200,0.35)',
+    headerBg: CANVAS.eva.bg,
+    headerBorder: CANVAS.eva.chromeBorder,
+    scrollBg: '#060318',
+    buttonBg: 'rgba(8,4,26,0.9)',
+    buttonBorder: 'rgba(120,50,200,0.35)',
+    buttonColor: 'rgba(170,90,255,0.5)',
+    buttonActiveBg: 'rgba(20,10,50,0.95)',
+    buttonActiveBorder: 'rgba(255,123,0,0.7)',
+    buttonActiveColor: 'rgba(255,180,80,0.98)',
+    headerLabel: CANVAS.eva.category,
+    headerMeta: 'rgba(120,50,200,0.45)',
+    clockColor: 'rgba(120,50,200,0.4)',
+    sourceColor: CANVAS.eva.category,
+    toneInfo: CANVAS.eva.trace,
+    toneDim: 'rgba(255,140,40,0.45)',
+  },
+};
 
 function formatPlaybackTime(seconds: number): string {
   const minutes = Math.floor(seconds / 60);
@@ -377,7 +356,7 @@ export function DiagnosticsLog(): React.ReactElement {
   const audioEngine = useAudioEngine();
   const diagnosticsLog = useDiagnosticsLog();
   const displayMode = useDisplayMode();
-  const lt = buildLogTheme(displayMode.mode);
+  const lt = LOG_THEMES[displayMode.mode];
   const entries = useSyncExternalStore(
     diagnosticsLog.subscribe,
     diagnosticsLog.getSnapshot,
@@ -1002,7 +981,7 @@ function buildPerformanceExport(snapshot: PerformanceDiagnosticsSnapshot): strin
 }
 
 export function PerformanceDiagnostics({ visualMode = 'default' }: { visualMode?: VisualMode }): React.ReactElement {
-  const theme = buildPerfTheme(visualMode);
+  const theme = PERF_THEMES[visualMode];
   const performanceDiagnostics = usePerformanceDiagnosticsStore();
   const performanceProfileStore = usePerformanceProfileStore();
   const performanceProfile = usePerformanceProfile();

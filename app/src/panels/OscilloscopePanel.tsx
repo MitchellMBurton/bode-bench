@@ -89,11 +89,11 @@ export function OscilloscopePanel(): React.ReactElement {
       const W = canvas.width;
       const H = canvas.height;
       const dpr = Math.min(devicePixelRatio, PANEL_DPR_MAX);
-      const nge = displayMode.nge;
-      const hyper = displayMode.hyper;
-      const optic = displayMode.optic;
-      const red = displayMode.red;
-      const eva = displayMode.eva;
+      const nge = displayMode.mode === 'nge';
+      const hyper = displayMode.mode === 'hyper';
+      const optic = displayMode.mode === 'optic';
+      const red = displayMode.mode === 'red';
+      const eva = displayMode.mode === 'eva';
       const backgroundFill = nge ? NGE_BG : hyper ? HYPER_BG : optic ? OPTIC_BG : red ? RED_BG : eva ? EVA_BG : COLORS.bg2;
       const persistenceFill = nge ? NGE_PERSISTENCE_FILL : hyper ? CANVAS.hyper.persistenceFill : optic ? OPTIC_PERSISTENCE_FILL : red ? RED_PERSISTENCE_FILL : eva ? EVA_PERSISTENCE_FILL : COLORS.bg2;
       const gridColor = nge ? NGE_GRID : hyper ? HYPER_GRID : optic ? OPTIC_GRID : red ? RED_GRID : eva ? EVA_GRID : COLORS.waveformGrid;

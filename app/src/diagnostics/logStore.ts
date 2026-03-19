@@ -15,7 +15,7 @@ type Listener = () => void;
 const MAX_ENTRIES = 256;
 
 let consoleCaptureInstalled = false;
-let activeConsolePush: ((text: string, tone?: DiagnosticsTone, source?: DiagnosticsSource) => void) | null = null;
+let activeConsolePush: ((text: string, tone: DiagnosticsTone, source: DiagnosticsSource) => void) | null = null;
 
 function formatClock(date: Date): string {
   return date.toLocaleTimeString([], {
@@ -36,15 +36,12 @@ function formatConsoleArg(value: unknown): string {
   }
   if (value === null || value === undefined) return String(value);
 
-  try {
-    return JSON.stringify(value);
-  } catch {
-    return Object.prototype.toString.call(value);
-  }
+  try { return JSON.stringify(value); }
+  catch { return '[unserializable]'; }
 }
 
 function installConsoleCapture(): void {
-  if (consoleCaptureInstalled || typeof window === 'undefined') return;
+  if (consoleCaptureInstalled) return;
 
   const originalWarn = console.warn.bind(console);
   const originalError = console.error.bind(console);
@@ -99,7 +96,7 @@ export class DiagnosticsLogStore {
     installConsoleCapture();
   }
 
-  push(text: string, tone: DiagnosticsTone = 'dim', source: DiagnosticsSource = 'system'): void {
+  push(text: string, tone: DiagnosticsTone, source: DiagnosticsSource): void {
     const now = new Date();
     const nextEntry: DiagnosticsEntry = {
       id: this.nextId++,
@@ -209,10 +206,6 @@ const PERF_TRACE_MAX_SAMPLES = 180;
 const PERF_TRACE_SAMPLE_MS = 450;
 const PERF_TRACE_LONG_TASK_HOLD_MS = 2200;
 const PERF_TRACE_LOAD_HOLD_MS = 3000;
-
-function perfNowMs(): number {
-  return typeof performance !== 'undefined' ? performance.now() : Date.now();
-}
 
 function percentile(values: readonly number[], fraction: number): number {
   if (values.length === 0) return 0;
@@ -350,20 +343,33 @@ export class PerformanceDiagnosticsStore {
     let waitCount = this.snapshot.videoWaitCount;
     let stallCount = this.snapshot.videoStallCount;
 
-    if (kind === 'waiting') {
-      nextState = 'waiting';
-      waitCount += 1;
-    } else if (kind === 'stalled') {
-      nextState = 'stalled';
-      stallCount += 1;
-    } else if (kind === 'hard-sync') {
-      nextState = 'sync';
-      hardSyncCount += 1;
-    } else if (kind === 'recover' || kind === 'retune') {
-      nextState = 'sync';
-      if (kind === 'recover') recoveryCount += 1;
-    } else if (kind === 'playing') {
-      nextState = 'playing';
+    switch (kind) {
+      case 'waiting':
+        nextState = 'waiting';
+        waitCount += 1;
+        break;
+      case 'stalled':
+        nextState = 'stalled';
+        stallCount += 1;
+        break;
+      case 'hard-sync':
+        nextState = 'sync';
+        hardSyncCount += 1;
+        break;
+      case 'recover':
+        nextState = 'sync';
+        recoveryCount += 1;
+        break;
+      case 'retune':
+        nextState = 'sync';
+        break;
+      case 'playing':
+        nextState = 'playing';
+        break;
+      default: {
+        const _exhaustive: never = kind;
+        throw new Error(`unhandled video event kind: ${_exhaustive}`);
+      }
     }
 
     this.snapshot = {
@@ -453,7 +459,7 @@ export class PerformanceDiagnosticsStore {
       return;
     }
 
-    const elapsed = perfNowMs() - this.lastEmitAt;
+    const elapsed = performance.now() - this.lastEmitAt;
     const waitMs = Math.max(0, PERF_HOT_EMIT_MS - elapsed);
     if (waitMs === 0) {
       this.emit();
@@ -469,7 +475,7 @@ export class PerformanceDiagnosticsStore {
 
   private emit(): void {
     this.appendTraceSample();
-    this.lastEmitAt = perfNowMs();
+    this.lastEmitAt = performance.now();
     for (const listener of this.listeners) {
       listener();
     }
