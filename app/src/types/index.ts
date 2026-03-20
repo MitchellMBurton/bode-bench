@@ -126,6 +126,119 @@ export interface Marker {
   readonly label: string;
 }
 
+/** A named time range for export, comparison, or repair review. */
+export interface RangeMark {
+  /** Unique sequential id, e.g. 1, 2, 3 */
+  readonly id: number;
+  /** Inclusive range start in seconds from file start. */
+  readonly startS: number;
+  /** Inclusive range end in seconds from file start. */
+  readonly endS: number;
+  /** Short label, e.g. "R1", "R2" */
+  readonly label: string;
+}
+
+export type ProcessorKind = 'ffmpeg' | 'external-cli' | 'python-worker' | 'ai-service';
+export type MediaJobKind = 'clip-export' | 'audio-repair' | 'video-repair';
+export type MediaJobStatus = 'queued' | 'running' | 'completed' | 'failed' | 'canceled';
+export type MediaQualityMode = 'copy-fast' | 'exact-master';
+export type DerivedArtifactRole = 'media' | 'manifest' | 'preview' | 'report' | 'confidence' | 'mask' | 'stems' | 'frames';
+export type JobSettingValue = string | number | boolean | null;
+
+export interface ProcessorDescriptor {
+  readonly kind: ProcessorKind;
+  readonly name: string;
+  readonly version: string | null;
+}
+
+export interface ExportPreset {
+  readonly id: string;
+  readonly label: string;
+  readonly container: string;
+  readonly audioCodec: string | null;
+  readonly videoCodec: string | null;
+  readonly qualityMode: MediaQualityMode;
+}
+
+export interface ClipSpec {
+  readonly startS: number;
+  readonly endS: number;
+  readonly presetId: string;
+}
+
+export interface RepairRecipe {
+  readonly id: string;
+  readonly label: string;
+  readonly target: 'audio' | 'video';
+  readonly processorKind: ProcessorKind;
+  readonly settings: Readonly<Record<string, JobSettingValue>>;
+}
+
+export interface DerivedArtifact {
+  readonly id: string;
+  readonly role: DerivedArtifactRole;
+  readonly path: string;
+  readonly sha256: string | null;
+  readonly createdAtMs: number;
+}
+
+export type MediaJobSpec =
+  | {
+      readonly kind: 'clip-export';
+      readonly sourceAssetId: string;
+      readonly label: string;
+      readonly clip: ClipSpec;
+      readonly preset: ExportPreset;
+      readonly processor: ProcessorDescriptor;
+    }
+  | {
+      readonly kind: 'audio-repair';
+      readonly sourceAssetId: string;
+      readonly label: string;
+      readonly range: RangeMark;
+      readonly recipe: RepairRecipe;
+      readonly processor: ProcessorDescriptor;
+    }
+  | {
+      readonly kind: 'video-repair';
+      readonly sourceAssetId: string;
+      readonly label: string;
+      readonly range: RangeMark;
+      readonly recipe: RepairRecipe;
+      readonly processor: ProcessorDescriptor;
+    };
+
+export interface MediaJobProgress {
+  readonly percent: number;
+  readonly message: string;
+}
+
+export interface MediaJobResult {
+  readonly artifacts: readonly DerivedArtifact[];
+  readonly metrics: Readonly<Record<string, number>>;
+}
+
+export interface MediaJobManifest {
+  readonly version: 1;
+  readonly jobId: string;
+  readonly sourceAssetId: string;
+  readonly processor: ProcessorDescriptor;
+  readonly completedAtMs: number;
+  readonly artifacts: readonly DerivedArtifact[];
+}
+
+export interface MediaJobRecord {
+  readonly id: string;
+  readonly spec: MediaJobSpec;
+  readonly status: MediaJobStatus;
+  readonly queuedAtMs: number;
+  readonly startedAtMs: number | null;
+  readonly finishedAtMs: number | null;
+  readonly progress: MediaJobProgress | null;
+  readonly result: MediaJobResult | null;
+  readonly errorText: string | null;
+}
+
 // ----------------------------------------------------------
 // Score Domain
 // ----------------------------------------------------------

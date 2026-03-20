@@ -6,9 +6,11 @@ import { DisplayModeStore, type VisualMode } from '../audio/displayMode';
 import { FrameBus } from '../audio/frameBus';
 import { ScrollSpeedStore } from '../audio/scrollSpeed';
 import { DiagnosticsLogStore, PerformanceDiagnosticsStore } from '../diagnostics/logStore';
+import { DerivedMediaStore, type DerivedMediaSnapshot } from '../runtime/derivedMedia';
 import { PerformanceProfileStore, type PerformanceProfileSnapshot } from '../runtime/performanceProfile';
 import { VideoSyncController } from '../runtime/videoSyncController';
 import { TheaterModeStore } from '../video/theaterMode';
+import type { Marker, MediaJobRecord, RangeMark } from '../types';
 
 export interface AppSession {
   audioEngine: AudioEngine;
@@ -16,6 +18,7 @@ export interface AppSession {
   displayMode: DisplayModeStore;
   scrollSpeed: ScrollSpeedStore;
   diagnosticsLog: DiagnosticsLogStore;
+  derivedMedia: DerivedMediaStore;
   performanceDiagnostics: PerformanceDiagnosticsStore;
   performanceProfile: PerformanceProfileStore;
   videoSyncController: VideoSyncController;
@@ -43,6 +46,7 @@ export function createAppSession(): AppSession {
     displayMode: new DisplayModeStore(),
     scrollSpeed: new ScrollSpeedStore(),
     diagnosticsLog,
+    derivedMedia: new DerivedMediaStore(),
     performanceDiagnostics,
     performanceProfile,
     videoSyncController: new VideoSyncController(),
@@ -96,6 +100,35 @@ export function useScrollSpeed(): ScrollSpeedStore {
 
 export function useDiagnosticsLog(): DiagnosticsLogStore {
   return useAppSession().diagnosticsLog;
+}
+
+export function useDerivedMediaStore(): DerivedMediaStore {
+  return useAppSession().derivedMedia;
+}
+
+export function useDerivedMediaSnapshot(): DerivedMediaSnapshot {
+  const derivedMedia = useDerivedMediaStore();
+  return useSyncExternalStore(
+    derivedMedia.subscribe,
+    derivedMedia.getSnapshot,
+    derivedMedia.getSnapshot,
+  );
+}
+
+export function useMarkers(): readonly Marker[] {
+  return useDerivedMediaSnapshot().markers;
+}
+
+export function usePendingRangeStart(): number | null {
+  return useDerivedMediaSnapshot().pendingRangeStartS;
+}
+
+export function useRangeMarks(): readonly RangeMark[] {
+  return useDerivedMediaSnapshot().rangeMarks;
+}
+
+export function useOfflineJobs(): readonly MediaJobRecord[] {
+  return useDerivedMediaSnapshot().jobs;
 }
 
 export function usePerformanceDiagnosticsStore(): PerformanceDiagnosticsStore {

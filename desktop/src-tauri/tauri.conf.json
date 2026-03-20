@@ -36,6 +36,9 @@
     "targets": [
       "nsis"
     ],
+    "resources": [
+      "resources/ffmpeg/*"
+    ],
     "windows": {
       "webviewInstallMode": {
         "type": "embedBootstrapper",

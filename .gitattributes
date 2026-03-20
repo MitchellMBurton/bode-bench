@@ -1,3 +1,5 @@
 # Normalize line endings to LF in the repo, checkout as-is on Windows
 * text=auto eol=lf
 *.bat text eol=crlf
+desktop/src-tauri/resources/ffmpeg/ffmpeg.exe filter=lfs diff=lfs merge=lfs -text
+desktop/src-tauri/resources/ffmpeg/ffprobe.exe filter=lfs diff=lfs merge=lfs -text

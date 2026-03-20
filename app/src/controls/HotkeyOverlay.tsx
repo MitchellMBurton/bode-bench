@@ -21,6 +21,8 @@ const HOTKEY_TABLE: readonly { key: string; description: string }[] = [
   { key: 'L',          description: 'Toggle loop (full file)' },
   { key: 'Escape',     description: 'Clear loop region' },
   { key: 'M',          description: 'Place marker at playhead' },
+  { key: 'I',          description: 'Set review in-point at playhead' },
+  { key: 'O',          description: 'Commit review range to playhead' },
   { key: '?',          description: 'Show / hide this overlay' },
 ];
 

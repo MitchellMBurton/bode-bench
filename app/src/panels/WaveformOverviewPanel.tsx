@@ -3,7 +3,8 @@ import { useAudioEngine, useDisplayMode, useFrameBus, usePerformanceProfile, use
 import type { TimelineProfile } from '../runtime/performanceProfile';
 import { CANVAS, COLORS, FONTS, SPACING } from '../theme';
 import { shouldSkipFrame } from '../utils/rafGuard';
-import type { FileAnalysis, Marker, ScrubStyle, TransportState } from '../types';
+import type { FileAnalysis, Marker, RangeMark, ScrubStyle, TransportState } from '../types';
+import { formatTransportTime } from '../utils/format';
 
 interface EnvelopeData {
   peakEnv: Float32Array;
@@ -511,12 +512,26 @@ function drawBadge(
 }
 
 interface WaveformOverviewPanelProps {
-  markers?: Marker[];
+  markers?: readonly Marker[];
+  rangeMarks?: readonly RangeMark[];
+  pendingRangeStartS?: number | null;
+  selectedRangeId?: number | null;
   onDeleteMarker?: (id: number) => void;
   onClearMarkers?: () => void;
+  onClearRanges?: () => void;
+  onSelectRange?: (id: number) => void;
 }
 
-export function WaveformOverviewPanel({ markers = [], onDeleteMarker, onClearMarkers }: WaveformOverviewPanelProps): React.ReactElement {
+export function WaveformOverviewPanel({
+  markers = [],
+  rangeMarks = [],
+  pendingRangeStartS = null,
+  selectedRangeId = null,
+  onDeleteMarker,
+  onClearMarkers,
+  onClearRanges,
+  onSelectRange,
+}: WaveformOverviewPanelProps): React.ReactElement {
   const frameBus = useFrameBus();
   const audioEngine = useAudioEngine();
   const displayMode = useDisplayMode();
@@ -525,12 +540,22 @@ export function WaveformOverviewPanel({ markers = [], onDeleteMarker, onClearMar
   const performanceProfile = usePerformanceProfile();
   const theaterMode = useTheaterMode();
   const [scrubStyle, setScrubStyle] = useState<ScrubStyle>(() => audioEngine.scrubStyle);
-  const markersRef = useRef<Marker[]>(markers);
+  const markersRef = useRef<readonly Marker[]>(markers);
   markersRef.current = markers;
+  const rangeMarksRef = useRef<readonly RangeMark[]>(rangeMarks);
+  rangeMarksRef.current = rangeMarks;
+  const pendingRangeStartRef = useRef<number | null>(pendingRangeStartS);
+  pendingRangeStartRef.current = pendingRangeStartS;
+  const selectedRangeIdRef = useRef<number | null>(selectedRangeId);
+  selectedRangeIdRef.current = selectedRangeId;
   const onDeleteMarkerRef = useRef(onDeleteMarker);
   onDeleteMarkerRef.current = onDeleteMarker;
   const onClearMarkersRef = useRef(onClearMarkers);
   onClearMarkersRef.current = onClearMarkers;
+  const onClearRangesRef = useRef(onClearRanges);
+  onClearRangesRef.current = onClearRanges;
+  const onSelectRangeRef = useRef(onSelectRange);
+  onSelectRangeRef.current = onSelectRange;
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const peakEnvRef = useRef<Float32Array | null>(null);
   const rmsEnvRef = useRef<Float32Array | null>(null);
@@ -1562,6 +1587,93 @@ export function WaveformOverviewPanel({ markers = [], onDeleteMarker, onClearMar
         ctx.stroke();
       };
 
+      const drawRangeOverlays = (rect: TimelineRect, start: number, end: number): void => {
+        const ranges = rangeMarksRef.current;
+        const pendingStart = pendingRangeStartRef.current;
+        const activeRangeId = selectedRangeIdRef.current;
+        if (ranges.length === 0 && pendingStart === null) return;
+
+        const rangeStroke = nge ? 'rgba(160,230,60,0.56)' : hyper ? 'rgba(98,200,255,0.86)' : optic ? 'rgba(17,122,165,0.88)' : red ? 'rgba(130,176,255,0.90)' : eva ? 'rgba(255,150,80,0.84)' : 'rgba(124,182,255,0.84)';
+        const rangeFill = nge ? 'rgba(80,140,38,0.14)' : hyper ? 'rgba(32,118,167,0.16)' : optic ? 'rgba(17,122,165,0.12)' : red ? 'rgba(64,90,170,0.18)' : eva ? 'rgba(160,90,255,0.12)' : 'rgba(92,126,214,0.14)';
+        const selectedRangeStroke = nge ? 'rgba(210,255,148,0.90)' : hyper ? 'rgba(170,230,255,0.98)' : optic ? 'rgba(11,96,130,0.98)' : red ? 'rgba(206,224,255,0.98)' : eva ? 'rgba(255,192,118,0.98)' : 'rgba(196,220,255,0.98)';
+        const selectedRangeFill = nge ? 'rgba(120,176,56,0.24)' : hyper ? 'rgba(48,138,188,0.26)' : optic ? 'rgba(17,122,165,0.20)' : red ? 'rgba(86,112,200,0.28)' : eva ? 'rgba(182,104,255,0.20)' : 'rgba(112,146,232,0.24)';
+        const rangeLabelBg = optic ? 'rgba(243,248,251,0.96)' : red ? 'rgba(20,6,7,0.92)' : 'rgba(8,10,18,0.74)';
+        const rangeLabelColor = nge ? 'rgba(180,240,100,0.92)' : hyper ? 'rgba(152,220,255,0.94)' : optic ? 'rgba(17,122,165,0.96)' : red ? 'rgba(186,208,255,0.92)' : eva ? 'rgba(255,170,88,0.9)' : 'rgba(152,196,255,0.94)';
+
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(rect.x, rect.y, rect.w, rect.h);
+        ctx.clip();
+
+        for (const rangeMark of ranges) {
+          if (rangeMark.endS <= start || rangeMark.startS >= end) continue;
+          const isSelected = activeRangeId === rangeMark.id;
+          const overlapStart = Math.max(start, rangeMark.startS);
+          const overlapEnd = Math.min(end, rangeMark.endS);
+          const x1 = timeToX(overlapStart, start, end, rect);
+          const x2 = timeToX(overlapEnd, start, end, rect);
+          const rangeWidth = Math.max(1, x2 - x1);
+
+          ctx.fillStyle = isSelected ? selectedRangeFill : rangeFill;
+          ctx.fillRect(x1, rect.y, rangeWidth, rect.h);
+          ctx.strokeStyle = isSelected ? selectedRangeStroke : rangeStroke;
+          ctx.lineWidth = isSelected ? Math.max(1.75 * dpr, 1.5) : dpr;
+          ctx.beginPath();
+          ctx.moveTo(x1, rect.y);
+          ctx.lineTo(x1, rect.y + rect.h);
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.moveTo(x2, rect.y);
+          ctx.lineTo(x2, rect.y + rect.h);
+          ctx.stroke();
+
+          if (rangeWidth >= 34 * dpr) {
+            ctx.font = `${6.5 * dpr}px ${FONTS.mono}`;
+            const textWidth = ctx.measureText(rangeMark.label).width;
+            const pad = 2 * dpr;
+            const badgeWidth = textWidth + pad * 2;
+            const badgeHeight = 8.5 * dpr;
+            const badgeX = Math.min(x1 + 2 * dpr, rect.x + rect.w - badgeWidth - dpr);
+            const badgeY = rect.y + rect.h - badgeHeight - 2 * dpr;
+            ctx.fillStyle = isSelected ? (optic ? 'rgba(231,242,249,0.98)' : 'rgba(16,20,34,0.88)') : rangeLabelBg;
+            ctx.fillRect(badgeX, badgeY, badgeWidth, badgeHeight);
+            ctx.fillStyle = isSelected ? selectedRangeStroke : rangeLabelColor;
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'top';
+            ctx.fillText(rangeMark.label, badgeX + pad, badgeY + dpr);
+          }
+        }
+
+        if (pendingStart !== null && pendingStart >= start - 0.001 && pendingStart <= end + 0.001) {
+          const pendingX = Math.round(timeToX(pendingStart, start, end, rect)) + 0.5;
+          ctx.strokeStyle = rangeStroke;
+          ctx.lineWidth = dpr;
+          ctx.setLineDash([3 * dpr, 2 * dpr]);
+          ctx.beginPath();
+          ctx.moveTo(pendingX, rect.y);
+          ctx.lineTo(pendingX, rect.y + rect.h);
+          ctx.stroke();
+          ctx.setLineDash([]);
+
+          ctx.font = `${6.5 * dpr}px ${FONTS.mono}`;
+          const label = 'IN';
+          const textWidth = ctx.measureText(label).width;
+          const pad = 2 * dpr;
+          const badgeWidth = textWidth + pad * 2;
+          const badgeHeight = 8.5 * dpr;
+          const badgeX = Math.min(pendingX + 2 * dpr, rect.x + rect.w - badgeWidth - dpr);
+          const badgeY = rect.y + 1.5 * dpr;
+          ctx.fillStyle = rangeLabelBg;
+          ctx.fillRect(badgeX, badgeY, badgeWidth, badgeHeight);
+          ctx.fillStyle = rangeLabelColor;
+          ctx.textAlign = 'left';
+          ctx.textBaseline = 'top';
+          ctx.fillText(label, badgeX + pad, badgeY + dpr);
+        }
+
+        ctx.restore();
+      };
+
       const drawMarkers = (rect: TimelineRect, start: number, end: number): void => {
         const mks = markersRef.current;
         if (!mks.length) return;
@@ -1915,6 +2027,7 @@ export function WaveformOverviewPanel({ markers = [], onDeleteMarker, onClearMar
           }
         }
 
+        drawRangeOverlays(rect, start, end);
         drawLoopOverlay(rect, start, end);
         drawMarkers(rect, start, end);
         drawPlayCursor(rect, start, end, true);
@@ -2269,6 +2382,7 @@ export function WaveformOverviewPanel({ markers = [], onDeleteMarker, onClearMar
           }
         }
 
+        drawRangeOverlays(rect, start, end);
         drawLoopOverlay(rect, start, end);
         drawMarkers(rect, start, end);
         drawPlayCursor(rect, start, end, options.fillPlayback ?? false);
@@ -2322,6 +2436,7 @@ export function WaveformOverviewPanel({ markers = [], onDeleteMarker, onClearMar
             peakNormalizer: sessionPeakNormalizer,
           },
         );
+        drawRangeOverlays(layout.session, 0, duration);
       }
       ctx.strokeStyle = viewWindowStroke;
       ctx.lineWidth = 1.2 * dpr;
@@ -2425,6 +2540,11 @@ export function WaveformOverviewPanel({ markers = [], onDeleteMarker, onClearMar
       } else {
         drawBadge(ctx, 'DBL-CLICK CLEAR / DRAG TO SET', optic ? CANVAS.optic.label : red ? CANVAS.red.label : COLORS.textDim, badgeX, layout.loop.y + 1 * dpr, dpr, badgeBackground);
       }
+      if (rangeMarksRef.current.length > 0) {
+        drawBadge(ctx, `RANGES ${rangeMarksRef.current.length}`, optic ? CANVAS.optic.trace : red ? CANVAS.red.trace : COLORS.borderActive, badgeX, layout.detail.y + 4 * dpr, dpr, badgeBackground);
+      } else if (pendingRangeStartRef.current !== null) {
+        drawBadge(ctx, `IN ${formatTransportTime(pendingRangeStartRef.current)}`, optic ? CANVAS.optic.trace : red ? CANVAS.red.trace : COLORS.borderActive, badgeX, layout.detail.y + 4 * dpr, dpr, badgeBackground);
+      }
 
       const centroid = centroidRef.current;
       if (centroid > 0) {
@@ -2524,6 +2644,20 @@ export function WaveformOverviewPanel({ markers = [], onDeleteMarker, onClearMar
             CLEAR {markers.length} MARKER{markers.length !== 1 ? 'S' : ''}
           </button>
         )}
+        {rangeMarks.length > 0 && onClearRangesRef.current && (
+          <button
+            type="button"
+            style={{
+              ...clearMarkersButtonStyle,
+              color: optic ? 'rgba(50,84,102,0.84)' : red ? 'rgba(186,208,255,0.84)' : clearMarkersButtonStyle.color,
+            }}
+            onClick={() => onClearRangesRef.current?.()}
+            data-shell-interactive="true"
+            title={`Clear all ${rangeMarks.length} editorial range(s)`}
+          >
+            CLEAR {rangeMarks.length} RANGE{rangeMarks.length !== 1 ? 'S' : ''}
+          </button>
+        )}
       </div>
       <canvas
         ref={canvasRef}
@@ -2542,6 +2676,41 @@ export function WaveformOverviewPanel({ markers = [], onDeleteMarker, onClearMar
 
           const dprVal = Math.min(devicePixelRatio, PANEL_DPR_MAX);
           const layout = buildTimelineLayout(canvas.width, canvas.height, dprVal);
+          const currentView = normalizeViewRange(
+            viewRangeRef.current.start,
+            viewRangeRef.current.end || pickDefaultViewSpan(duration),
+            duration,
+            Math.min(MIN_VIEWPORT_SECONDS, duration),
+          );
+
+          if (onSelectRangeRef.current) {
+            const hitRange = (
+              rect: TimelineRect,
+              start: number,
+              end: number,
+            ): RangeMark | null => {
+              if (y < rect.y || y > rect.y + rect.h) return null;
+              for (let index = rangeMarksRef.current.length - 1; index >= 0; index--) {
+                const rangeMark = rangeMarksRef.current[index];
+                const overlapStart = Math.max(start, rangeMark.startS);
+                const overlapEnd = Math.min(end, rangeMark.endS);
+                if (overlapEnd <= overlapStart) continue;
+                const x1 = timeToX(overlapStart, start, end, rect);
+                const x2 = timeToX(overlapEnd, start, end, rect);
+                if (x >= x1 && x <= x2) {
+                  return rangeMark;
+                }
+              }
+              return null;
+            };
+
+            const rangeHit = hitRange(layout.detail, currentView.start, currentView.end)
+              ?? hitRange(layout.session, 0, duration);
+            if (rangeHit) {
+              onSelectRangeRef.current(rangeHit.id);
+              return;
+            }
+          }
 
           // Marker click-to-delete: check session strip before entering gesture logic
           if (onDeleteMarkerRef.current && y >= layout.session.y && y <= layout.session.y + layout.session.h) {
@@ -2554,14 +2723,7 @@ export function WaveformOverviewPanel({ markers = [], onDeleteMarker, onClearMar
               }
             }
           }
-
           const hit = hitTestTimeline(x, y, layout, duration);
-          const currentView = normalizeViewRange(
-            viewRangeRef.current.start,
-            viewRangeRef.current.end || pickDefaultViewSpan(duration),
-            duration,
-            Math.min(MIN_VIEWPORT_SECONDS, duration),
-          );
 
           event.currentTarget.setPointerCapture(event.pointerId);
 

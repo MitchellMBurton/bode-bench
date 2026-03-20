@@ -2,13 +2,12 @@
 // App root - wires layout, panels, controls, and score loader.
 // ============================================================
 
-import { useState, useEffect, useRef, useSyncExternalStore, useCallback } from 'react';
+import { useState, useEffect, useRef, useSyncExternalStore } from 'react';
 import { ConsoleLayout } from './layout/ConsoleLayout';
 import { SplitPane } from './layout/SplitPane';
 import { TheaterPanelShell } from './layout/TheaterPanelShell';
 import { TransportControls } from './controls/TransportControls';
 import { MetadataDisplay } from './controls/MetadataDisplay';
-import { SessionControls } from './controls/SessionControls';
 import { DiagnosticsLog, PerformanceDiagnostics } from './controls/DiagnosticsLog';
 import { RuntimeMetricPill } from './controls/RuntimeMetricPill';
 import { useGlobalHotkeys } from './controls/useGlobalHotkeys';
@@ -16,9 +15,8 @@ import { usePerformanceMonitoring } from './controls/usePerformanceMonitoring';
 import { HotkeyOverlay } from './controls/HotkeyOverlay';
 import { panelsForColumn } from './panels/registry';
 import { WaveformOverviewPanel } from './panels/WaveformOverviewPanel';
-import { useAudioEngine, useDisplayMode, usePerformanceDiagnosticsStore, usePerformanceProfile, useTheaterMode, useVisualMode } from './core/session';
+import { useAudioEngine, useDerivedMediaSnapshot, useDerivedMediaStore, useMarkers, usePendingRangeStart, usePerformanceDiagnosticsStore, usePerformanceProfile, useRangeMarks, useTheaterMode, useVisualMode } from './core/session';
 import { VISUAL_DECORATIONS } from './audio/displayMode';
-import type { Marker } from './types';
 import type { PerformanceDiagnosticsSnapshot } from './diagnostics/logStore';
 import { PRODUCT_NAME } from './constants';
 import { COLORS, MODES, SPACING } from './theme';
@@ -31,12 +29,23 @@ function getRuntimeStatus(snapshot: PerformanceDiagnosticsSnapshot): string {
   return 'CLEAN';
 }
 
+function buildTransportMediaKey(filename: string | null, duration: number): string | null {
+  if (!filename) return null;
+  const safeDuration = Number.isFinite(duration) && duration > 0 ? duration : 0;
+  return `${filename}:${safeDuration.toFixed(3)}`;
+}
+
 export default function App(): React.ReactElement {
   const audioEngine = useAudioEngine();
-  const displayModeStore = useDisplayMode();
+  const derivedMedia = useDerivedMediaStore();
   const performanceDiagnostics = usePerformanceDiagnosticsStore();
   const performanceProfile = usePerformanceProfile();
   const visualMode = useVisualMode();
+  const markers = useMarkers();
+  const pendingRangeStartS = usePendingRangeStart();
+  const rangeMarks = useRangeMarks();
+  const derivedMediaSnapshot = useDerivedMediaSnapshot();
+  const selectedRangeId = derivedMediaSnapshot.selectedRangeId;
   const perfSnapshot = useSyncExternalStore(
     performanceDiagnostics.subscribe,
     performanceDiagnostics.getSnapshot,
@@ -47,31 +56,24 @@ export default function App(): React.ReactElement {
   const [performanceLabOpen, setPerformanceLabOpen] = useState(false);
   const [grayscale, setGrayscale] = useState(false);
   const [layoutResetToken, setLayoutResetToken] = useState(0);
-  const [markers, setMarkers] = useState<Marker[]>([]);
-  const markerCountRef = useRef(0);
   const [hotkeyOverlayOpen, setHotkeyOverlayOpen] = useState(false);
+  const activeMediaKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     return audioEngine.onTransport((state) => {
+      const nextMediaKey = buildTransportMediaKey(state.filename, state.duration);
+      if (nextMediaKey !== activeMediaKeyRef.current) {
+        activeMediaKeyRef.current = nextMediaKey;
+        derivedMedia.reset();
+      }
       setFilename(state.filename);
       performanceDiagnostics.noteTransport(state);
     });
-  }, [audioEngine, performanceDiagnostics]);
+  }, [audioEngine, derivedMedia, performanceDiagnostics]);
 
-  // Clear markers when a new file is loaded
   useEffect(() => audioEngine.onReset(() => {
-    setMarkers([]);
-    markerCountRef.current = 0;
-  }), [audioEngine]);
-
-  const deleteMarker = useCallback((id: number) => {
-    setMarkers((prev) => prev.filter((m) => m.id !== id));
-  }, []);
-
-  const clearMarkers = useCallback(() => {
-    setMarkers([]);
-    markerCountRef.current = 0;
-  }, []);
+    derivedMedia.reset();
+  }), [audioEngine, derivedMedia]);
 
   useEffect(() => {
     document.documentElement.dataset.visualMode = visualMode;
@@ -82,8 +84,6 @@ export default function App(): React.ReactElement {
 
   usePerformanceMonitoring();
   useGlobalHotkeys({
-    setMarkers,
-    markerCountRef,
     onShowHotkeyOverlay: () => setHotkeyOverlayOpen(true),
   });
 
@@ -148,31 +148,32 @@ export default function App(): React.ReactElement {
         topLeft={{
           category: 'SESSION CONSOLE',
           title: panelTitle,
-          help: 'SESSION CONTROLS\n\nLoad a file via drag-drop or the file button. All analysis runs locally — no network required.\n\nVOL: output volume. RATE: playback speed (preserves pitch when pitch mode is on). PITCH: enable real-time pitch shifting on decoded files (< 384 MB).\n\nGREYSCALE: monochrome overlay. OPTIC: white-light dispersion palette. RED: darkroom red-light palette. NGE: phosphor-green palette. HYPER: cyan/indigo palette. EVA: alarm-state violet/orange palette.\n\nKEYBOARD SHORTCUTS: Space play/pause, ← → seek 5 s (Shift: 15 s), S stop, L loop file, M mark, Esc clear loop, ? show all shortcuts.\n\nDiagnostics log captures every transport event and file analysis result.',
+          help: 'SESSION CONTROLS\n\nLoad a file via drag-drop or the file button. All analysis runs locally — no network required.\n\nVOL: output volume. RATE: playback speed (preserves pitch when pitch mode is on). PITCH: enable real-time pitch shifting on decoded files (< 384 MB).\n\nGREYSCALE: monochrome overlay. OPTIC: white-light dispersion palette. RED: darkroom red-light palette. NGE: phosphor-green palette. HYPER: cyan/indigo palette. EVA: alarm-state violet/orange palette.\n\nKEYBOARD SHORTCUTS: Space play/pause, ← → seek 5 s (Shift: 15 s), S stop, L loop file, M mark, I set review in, O commit review out, Esc clear loop, ? show all shortcuts.\n\nDiagnostics log captures every transport event and file analysis result.',
           content: (
             <div style={controlPanelStyle}>
-              <MetadataDisplay filename={filename} metadata={null} visualMode={visualMode} />
-              <div
-                style={{
-                  ...dividerStyle,
-                  background: MODES[visualMode].chromeBorder,
-                }}
-              />
-              <TransportControls />
-              <SessionControls
-                grayscale={grayscale}
-                onGrayscale={setGrayscale}
-                visualMode={visualMode}
-                onVisualMode={(nextMode) => displayModeStore.setMode(nextMode)}
-              />
-              <DiagnosticsLog />
+              <div style={controlPanelScrollStyle}>
+                <MetadataDisplay filename={filename} metadata={null} visualMode={visualMode} />
+                <div
+                  style={{
+                    ...dividerStyle,
+                    background: MODES[visualMode].chromeBorder,
+                  }}
+                />
+                <TransportControls
+                  grayscale={grayscale}
+                  onGrayscale={setGrayscale}
+                />
+              </div>
+              <div style={diagnosticsDockStyle}>
+                <DiagnosticsLog />
+              </div>
             </div>
           ),
         }}
         topRight={{
           category: 'LIVE DIAGNOSTIC',
-          title: 'OVERVIEW / WAVEFORM / PITCH / OSC / RESPONSE',
-          help: 'LIVE DIAGNOSTIC SURFACES\n\nOVERVIEW — Full-file waveform envelope. Drag the view window to zoom; drag loop handles to set loop region. Session map fills in progressively for large files.\n\nWAVEFORM — Scrolling amplitude tape. Hover to read ±amplitude and dBFS at any height.\n\nF0 TRACK — Pitch history (60–900 Hz, log scale). Newest data scrolls from right. Hover to read note name and cents deviation.\n\nOSCILLOSCOPE — Triggered waveform cycle. Shows signal morphology at playback rate.\n\nFREQ RESPONSE — Smoothed L/R frequency curves (20 Hz–20 kHz). Hover for exact Hz + dB. Dim labels above show band boundaries.',
+          title: 'REVIEW / OVERVIEW / WAVEFORM / PITCH / OSC / RESPONSE',
+          help: 'LIVE DIAGNOSTIC SURFACES\n\nREVIEW — Editorial range staging. SET IN captures a persistent in-point, SET OUT commits a range, and FROM LOOP promotes the audible loop to a persistent review range. Loop remains audible context; ranges stay available for clip, compare, and repair work.\n\nOVERVIEW — Full-file waveform envelope. Drag the view window to zoom; drag loop handles to set loop region. Session map fills in progressively for large files. Range overlays remain visible on the session map and detail waveform.\n\nWAVEFORM — Scrolling amplitude tape. Hover to read ±amplitude and dBFS at any height.\n\nF0 TRACK — Pitch history (60–900 Hz, log scale). Newest data scrolls from right. Hover to read note name and cents deviation.\n\nOSCILLOSCOPE — Triggered waveform cycle. Shows signal morphology at playback rate.\n\nFREQ RESPONSE — Smoothed L/R frequency curves (20 Hz–20 kHz). Hover for exact Hz + dB. Dim labels above show band boundaries.',
           content: (
             <TheaterPanelShell
               active={theaterMode}
@@ -182,14 +183,14 @@ export default function App(): React.ReactElement {
             >
               <SplitPane
                 direction="column"
-                initialSizes={[24, 18, 9, 9, 10, 30]}
-                minSizePx={[96, 72, 56, 56, 56, 80]}
+                initialSizes={[9, 21, 16, 8, 8, 10, 28]}
+                minSizePx={[58, 96, 72, 56, 56, 56, 80]}
                 resetToken={layoutResetToken}
                 persistKey="console:top-right-stack"
               >
                 {panelsForColumn('top-right').map(({ id, component: Panel }) =>
                   id === 'overview'
-                    ? <WaveformOverviewPanel key={id} markers={markers} onDeleteMarker={deleteMarker} onClearMarkers={clearMarkers} />
+                    ? <WaveformOverviewPanel key={id} markers={markers} rangeMarks={rangeMarks} pendingRangeStartS={pendingRangeStartS} selectedRangeId={selectedRangeId} onDeleteMarker={(id) => derivedMedia.deleteMarker(id)} onClearMarkers={() => derivedMedia.clearMarkers()} onClearRanges={() => derivedMedia.clearRanges()} onSelectRange={(id) => derivedMedia.selectRange(id)} />
                     : <Panel key={id} />
                 )}
               </SplitPane>
@@ -263,6 +264,22 @@ const controlPanelStyle: React.CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
   height: '100%',
+  minHeight: 0,
+  overflow: 'hidden',
+};
+
+const controlPanelScrollStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  minHeight: 0,
+  flex: 1,
+  overflowY: 'auto',
+};
+
+const diagnosticsDockStyle: React.CSSProperties = {
+  display: 'flex',
+  minHeight: 180,
+  flex: '0 0 220px',
   overflow: 'hidden',
 };
 

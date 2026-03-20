@@ -1,0 +1,1307 @@
+import { useCallback, useEffect, useState } from 'react';
+import type { VisualMode } from '../audio/displayMode';
+import {
+  useAudioEngine,
+  useDerivedMediaSnapshot,
+  useDerivedMediaStore,
+  useDiagnosticsLog,
+} from '../core/session';
+import {
+  cancelClipExport,
+  getClipExportStatus,
+  isDesktopRuntime,
+  pickClipExportDestination,
+  pickSourceMediaFile,
+  probeExportTools,
+  revealInFolder,
+  sourceMediaPathExists,
+  startClipExport,
+  type ExportToolStatus,
+} from '../runtime/desktopExport';
+import {
+  buildSuggestedClipExportFilename,
+  createClipExportJobSpec,
+  describeExportPreset,
+  getQuickClipExportPreset,
+  type SourceKind,
+} from '../runtime/exportPresets';
+import { CANVAS, COLORS, FONTS, SPACING } from '../theme';
+import type { MediaQualityMode, RangeMark, TransportState } from '../types';
+import { formatTransportTime } from '../utils/format';
+
+interface Props {
+  transport: TransportState;
+  sourceKind: SourceKind;
+  sourcePath: string | null;
+  visualMode: VisualMode;
+}
+
+interface DockTheme {
+  readonly panelBg: string;
+  readonly buttonBg: string;
+  readonly buttonActiveBg: string;
+  readonly border: string;
+  readonly accentBorder: string;
+  readonly text: string;
+  readonly label: string;
+  readonly dim: string;
+  readonly accent: string;
+  readonly ok: string;
+}
+
+type ToolState =
+  | { kind: 'probing' }
+  | ExportToolStatus;
+
+type ExportPhase =
+  | { kind: 'idle' }
+  | { kind: 'linking-source' }
+  | { kind: 'choosing-destination'; qualityMode: MediaQualityMode }
+  | {
+      kind: 'running';
+      recordId: string;
+      desktopJobId: string;
+      range: RangeMark;
+      qualityMode: MediaQualityMode;
+      destinationPath: string;
+    }
+  | { kind: 'failed'; message: string }
+  | { kind: 'done'; outputPath: string; qualityMode: MediaQualityMode };
+
+type SaveDirectory = {
+  kind: 'remembered' | 'source';
+  path: string;
+};
+
+type LinkedSource =
+  | { kind: 'none' }
+  | { kind: 'linked'; path: string }
+  | { kind: 'remembered'; path: string }
+  | { kind: 'missing'; rememberedPath: string };
+
+type SourceStatus =
+  | { kind: 'none' }
+  | { kind: 'loaded'; path: string }
+  | { kind: 'linked'; path: string }
+  | { kind: 'remembered'; path: string }
+  | { kind: 'missing'; rememberedPath: string };
+
+type Gate =
+  | { kind: 'needs-range' }
+  | { kind: 'desktop-only' }
+  | { kind: 'probing' }
+  | { kind: 'missing-tools'; message: string }
+  | { kind: 'needs-source' }
+  | { kind: 'ready'; saveDirectory: SaveDirectory };
+
+const EXPORT_FOLDER_STORAGE_KEY = 'console:last-export-folder';
+const SOURCE_PATH_STORAGE_KEY = 'console:source-paths';
+
+const DOCK_THEMES: Record<VisualMode, DockTheme> = {
+  default: {
+    panelBg: COLORS.bg1,
+    buttonBg: COLORS.bg3,
+    buttonActiveBg: COLORS.bg2,
+    border: COLORS.border,
+    accentBorder: COLORS.borderActive,
+    text: COLORS.textPrimary,
+    label: COLORS.textCategory,
+    dim: COLORS.textDim,
+    accent: COLORS.accent,
+    ok: COLORS.statusOk,
+  },
+  optic: {
+    panelBg: 'linear-gradient(180deg, rgba(248,251,253,0.99), rgba(238,245,249,0.99))',
+    buttonBg: 'rgba(247,250,252,0.96)',
+    buttonActiveBg: 'linear-gradient(135deg, rgba(252,254,255,0.99), rgba(231,239,245,0.99))',
+    border: 'rgba(109,146,165,0.72)',
+    accentBorder: CANVAS.optic.chromeBorderActive,
+    text: CANVAS.optic.text,
+    label: CANVAS.optic.category,
+    dim: 'rgba(63,95,114,0.72)',
+    accent: '#117aa5',
+    ok: '#1c8f66',
+  },
+  red: {
+    panelBg: 'linear-gradient(180deg, rgba(18,6,7,0.99), rgba(28,9,10,0.99))',
+    buttonBg: 'rgba(18,6,7,0.94)',
+    buttonActiveBg: 'linear-gradient(135deg, rgba(36,10,11,0.99), rgba(52,14,16,0.99))',
+    border: 'rgba(124,40,39,0.72)',
+    accentBorder: CANVAS.red.chromeBorderActive,
+    text: CANVAS.red.text,
+    label: CANVAS.red.category,
+    dim: 'rgba(255,186,172,0.72)',
+    accent: 'rgba(255,132,116,0.96)',
+    ok: 'rgba(124,232,182,0.96)',
+  },
+  nge: {
+    panelBg: COLORS.bg1,
+    buttonBg: 'rgba(4,10,4,0.9)',
+    buttonActiveBg: 'rgba(20,50,8,0.95)',
+    border: 'rgba(60,130,30,0.4)',
+    accentBorder: 'rgba(120,200,60,0.72)',
+    text: 'rgba(160,230,60,0.9)',
+    label: 'rgba(100,180,50,0.7)',
+    dim: 'rgba(120,200,60,0.54)',
+    accent: 'rgba(160,230,60,0.92)',
+    ok: 'rgba(182,244,122,0.96)',
+  },
+  hyper: {
+    panelBg: COLORS.bg1,
+    buttonBg: 'rgba(2,5,18,0.9)',
+    buttonActiveBg: 'rgba(8,18,52,0.95)',
+    border: 'rgba(40,70,180,0.42)',
+    accentBorder: 'rgba(98,200,255,0.75)',
+    text: 'rgba(210,236,255,0.9)',
+    label: 'rgba(112,180,255,0.72)',
+    dim: 'rgba(112,180,255,0.54)',
+    accent: 'rgba(98,200,255,0.94)',
+    ok: 'rgba(138,242,208,0.96)',
+  },
+  eva: {
+    panelBg: COLORS.bg1,
+    buttonBg: 'rgba(10,4,20,0.92)',
+    buttonActiveBg: 'rgba(28,10,54,0.96)',
+    border: 'rgba(120,50,200,0.42)',
+    accentBorder: 'rgba(255,123,0,0.76)',
+    text: 'rgba(255,210,140,0.92)',
+    label: 'rgba(170,90,255,0.7)',
+    dim: 'rgba(170,90,255,0.56)',
+    accent: 'rgba(255,123,0,0.96)',
+    ok: 'rgba(164,242,176,0.96)',
+  },
+};
+
+function assert(condition: unknown, message: string): asserts condition {
+  if (!condition) {
+    throw new Error(message);
+  }
+}
+
+function readError(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  if (typeof error === 'string') {
+    return error;
+  }
+  assert(typeof error === 'object' && error !== null, 'desktop command error must be object');
+  const { message } = error as { message: unknown };
+  assert(typeof message === 'string', 'desktop command error object must include message');
+  return message;
+}
+
+function getSelectedRange(rangeMarks: readonly RangeMark[], selectedRangeId: number | null): RangeMark | null {
+  if (selectedRangeId === null) {
+    return null;
+  }
+  const selectedRange = rangeMarks.find((rangeMark) => rangeMark.id === selectedRangeId);
+  assert(selectedRange, 'selected range is missing');
+  return selectedRange;
+}
+
+function getRememberedExportFolder(): string | null {
+  return localStorage.getItem(EXPORT_FOLDER_STORAGE_KEY);
+}
+
+function getRememberedSourcePaths(): Record<string, string> {
+  const raw = localStorage.getItem(SOURCE_PATH_STORAGE_KEY);
+  if (!raw) {
+    return {};
+  }
+  const parsed = JSON.parse(raw) as unknown;
+  assert(typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed), 'source path storage must be an object');
+  return parsed as Record<string, string>;
+}
+
+function getParentFolder(path: string): string {
+  const slashIndex = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+  assert(slashIndex > 0, 'path must include a parent folder');
+  return path.slice(0, slashIndex);
+}
+
+function getRememberedSourceKey(filename: string, durationS: number): string {
+  assert(durationS > 0, 'source duration must be positive');
+  return `${filename}::${Math.round(durationS * 10)}`;
+}
+
+function rememberExportFolder(path: string): void {
+  localStorage.setItem(EXPORT_FOLDER_STORAGE_KEY, getParentFolder(path));
+}
+
+function rememberSourcePath(filename: string, durationS: number, path: string): void {
+  const sourcePaths = getRememberedSourcePaths();
+  sourcePaths[getRememberedSourceKey(filename, durationS)] = path;
+  localStorage.setItem(SOURCE_PATH_STORAGE_KEY, JSON.stringify(sourcePaths));
+}
+
+function getRememberedSourcePath(filename: string, durationS: number): string | null {
+  return getRememberedSourcePaths()[getRememberedSourceKey(filename, durationS)] ?? null;
+}
+
+function getPreferredSaveDirectory(sourcePath: string): SaveDirectory {
+  const remembered = getRememberedExportFolder();
+  if (remembered) {
+    return { path: remembered, kind: 'remembered' };
+  }
+  return { path: getParentFolder(sourcePath), kind: 'source' };
+}
+
+function getSourceStatus(sourcePath: string | null, linkedSource: LinkedSource): SourceStatus {
+  if (sourcePath) {
+    return { kind: 'loaded', path: sourcePath };
+  }
+  return linkedSource;
+}
+
+function getEffectiveSourcePath(sourceStatus: SourceStatus): string | null {
+  switch (sourceStatus.kind) {
+    case 'none':
+    case 'missing':
+      return null;
+    case 'loaded':
+    case 'linked':
+    case 'remembered':
+      return sourceStatus.path;
+    default: {
+      const _exhaustive: never = sourceStatus;
+      return _exhaustive;
+    }
+  }
+}
+
+function getResolvedSourceSummary(sourceStatus: SourceStatus): {
+  label: string;
+  detail: string;
+  path: string;
+} {
+  switch (sourceStatus.kind) {
+    case 'loaded':
+      return {
+        label: 'OPENED FILE',
+        detail: 'Export will use the file you opened.',
+        path: sourceStatus.path,
+      };
+    case 'linked':
+      return {
+        label: 'LINKED THIS SESSION',
+        detail: 'Export will use the original file you linked for this session.',
+        path: sourceStatus.path,
+      };
+    case 'remembered':
+      return {
+        label: 'AUTO-RELINKED',
+        detail: 'Export recovered the last original file you linked for this clip.',
+        path: sourceStatus.path,
+      };
+    case 'none':
+    case 'missing':
+      throw new Error('source is not resolved');
+    default: {
+      const _exhaustive: never = sourceStatus;
+      return _exhaustive;
+    }
+  }
+}
+
+function getRangeDuration(range: RangeMark | null): string {
+  return range ? formatTransportTime(range.endS - range.startS) : '--:--.-';
+}
+
+function getQualityTitle(qualityMode: MediaQualityMode): string {
+  return qualityMode === 'copy-fast' ? 'FAST COPY' : 'EXACT MASTER';
+}
+
+function getModeDescriptor(sourceKind: SourceKind, qualityMode: MediaQualityMode): {
+  title: string;
+  summary: string;
+  detail: string;
+} {
+  const preset = getQuickClipExportPreset(sourceKind, qualityMode);
+  if (qualityMode === 'copy-fast') {
+    return {
+      title: getQualityTitle(qualityMode),
+      summary: 'Best for the quickest review clip.',
+      detail: `Output: ${describeExportPreset(preset)}.`,
+    };
+  }
+
+  return {
+    title: getQualityTitle(qualityMode),
+    summary: sourceKind === 'video'
+      ? 'Best for a dependable final video clip.'
+      : 'Best for a dependable final audio clip.',
+    detail: `Output: ${describeExportPreset(preset)}.`,
+  };
+}
+
+function getStartFailureMessage(message: string): string {
+  if (message === 'Only one clip export can run at a time in this simplified workflow.') {
+    return 'Another export is still in progress. Wait for it to finish or cancel it before starting a new one.';
+  }
+  return message;
+}
+
+export function ClipExportStrip({
+  transport,
+  sourceKind,
+  sourcePath,
+  visualMode,
+}: Props): React.ReactElement {
+  const desktopRuntime = isDesktopRuntime();
+  const audioEngine = useAudioEngine();
+  const derivedMedia = useDerivedMediaStore();
+  const snapshot = useDerivedMediaSnapshot();
+  const diagnosticsLog = useDiagnosticsLog();
+  const theme = DOCK_THEMES[visualMode];
+  const selectedRange = getSelectedRange(snapshot.rangeMarks, snapshot.selectedRangeId);
+  const [tools, setTools] = useState<ToolState>({ kind: 'probing' });
+  const [phase, setPhase] = useState<ExportPhase>({ kind: 'idle' });
+  const [linkedSource, setLinkedSource] = useState<LinkedSource>({ kind: 'none' });
+  const sourceStatus = getSourceStatus(sourcePath, linkedSource);
+  const effectiveSourcePath = getEffectiveSourcePath(sourceStatus);
+
+  useEffect(() => {
+    if (!desktopRuntime) {
+      return;
+    }
+
+    let cancelled = false;
+    void probeExportTools().then((nextTools) => {
+      if (!cancelled) {
+        setTools(nextTools);
+      }
+    }).catch((error: unknown) => {
+      if (!cancelled) {
+        setTools({
+          kind: 'missing',
+          reason: readError(error),
+        });
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [desktopRuntime]);
+
+  useEffect(() => {
+    if (!transport.filename || !sourcePath || transport.duration <= 0) {
+      return;
+    }
+    rememberSourcePath(transport.filename, transport.duration, sourcePath);
+  }, [sourcePath, transport.duration, transport.filename]);
+
+  useEffect(() => {
+    if (!desktopRuntime || !transport.filename || transport.duration <= 0 || sourcePath) {
+      return;
+    }
+
+    const rememberedPath = getRememberedSourcePath(transport.filename, transport.duration);
+    if (!rememberedPath) {
+      return;
+    }
+
+    let cancelled = false;
+    void sourceMediaPathExists(rememberedPath).then((exists) => {
+      if (cancelled) {
+        return;
+      }
+      if (exists) {
+        setLinkedSource({ kind: 'remembered', path: rememberedPath });
+        diagnosticsLog.push(`export source recovered ${rememberedPath}`, 'dim', 'transport');
+        return;
+      }
+      setLinkedSource({ kind: 'missing', rememberedPath });
+      diagnosticsLog.push(`export source missing ${rememberedPath}`, 'warn', 'transport');
+    }).catch((error: unknown) => {
+      if (cancelled) {
+        return;
+      }
+      const message = readError(error);
+      diagnosticsLog.push(`export source lookup failed ${message}`, 'warn', 'transport');
+      setLinkedSource({ kind: 'missing', rememberedPath });
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [desktopRuntime, diagnosticsLog, sourcePath, transport.duration, transport.filename]);
+
+  useEffect(() => {
+    if (phase.kind !== 'running') {
+      return;
+    }
+
+    let cancelled = false;
+    let timer = 0;
+
+    const poll = async (): Promise<void> => {
+      try {
+        const status = await getClipExportStatus(phase.desktopJobId);
+        if (cancelled) {
+          return;
+        }
+
+        switch (status.status) {
+          case 'queued':
+          case 'running':
+            derivedMedia.markJobRunning(phase.recordId, status.progressPercent, status.message);
+            timer = window.setTimeout(() => {
+              void poll();
+            }, 350);
+            return;
+          case 'completed':
+            rememberExportFolder(status.outputPath);
+            derivedMedia.completeJob(phase.recordId, {
+              artifacts: [
+                {
+                  id: `${phase.recordId}-media`,
+                  role: 'media',
+                  path: status.outputPath,
+                  sha256: null,
+                  createdAtMs: Date.now(),
+                },
+              ],
+              metrics: {
+                durationS: phase.range.endS - phase.range.startS,
+              },
+            });
+            diagnosticsLog.push(`export complete ${status.outputPath}`, 'info', 'transport');
+            setPhase({ kind: 'done', outputPath: status.outputPath, qualityMode: phase.qualityMode });
+            return;
+          case 'failed': {
+            const message = phase.qualityMode === 'copy-fast'
+              ? `${status.errorText} Retry with Export Master if exact trimming is acceptable.`
+              : status.errorText;
+            derivedMedia.failJob(phase.recordId, message);
+            diagnosticsLog.push(`export failed ${status.errorText}`, 'warn', 'transport');
+            setPhase({ kind: 'failed', message });
+            return;
+          }
+          case 'canceled':
+            derivedMedia.cancelJob(phase.recordId);
+            diagnosticsLog.push('export canceled', 'dim', 'transport');
+            setPhase({ kind: 'idle' });
+            return;
+          default: {
+            const _exhaustive: never = status;
+            return _exhaustive;
+          }
+        }
+      } catch (error) {
+        const message = readError(error);
+        derivedMedia.failJob(phase.recordId, message);
+        diagnosticsLog.push(`export poll failed ${message}`, 'warn', 'transport');
+        setPhase({ kind: 'failed', message });
+      }
+    };
+
+    void poll();
+
+    return () => {
+      cancelled = true;
+      if (timer) {
+        window.clearTimeout(timer);
+      }
+    };
+  }, [derivedMedia, diagnosticsLog, phase]);
+
+  const onAuditionRange = useCallback(() => {
+    if (!selectedRange) {
+      return;
+    }
+    audioEngine.setLoop(selectedRange.startS, selectedRange.endS);
+    audioEngine.seek(selectedRange.startS);
+    diagnosticsLog.push(
+      `loop audition ${selectedRange.label} ${formatTransportTime(selectedRange.startS)} -> ${formatTransportTime(selectedRange.endS)}`,
+      'info',
+      'transport',
+    );
+  }, [audioEngine, diagnosticsLog, selectedRange]);
+
+  const onResolveSource = useCallback(async () => {
+    if (!desktopRuntime) {
+      setPhase({ kind: 'failed', message: 'Source relinking is available in the desktop runtime.' });
+      return;
+    }
+    assert(transport.filename, 'transport filename is missing');
+
+    try {
+      setPhase({ kind: 'linking-source' });
+      const sourceFile = await pickSourceMediaFile({
+        filename: transport.filename,
+        sourceKind,
+      });
+      if (sourceFile.kind === 'canceled') {
+        setPhase({ kind: 'idle' });
+        return;
+      }
+      assert(transport.duration > 0, 'transport duration must be positive');
+      rememberSourcePath(transport.filename, transport.duration, sourceFile.path);
+      setLinkedSource({ kind: 'linked', path: sourceFile.path });
+      diagnosticsLog.push(`export source linked ${sourceFile.path}`, 'info', 'transport');
+      setPhase({ kind: 'idle' });
+    } catch (error) {
+      const message = readError(error);
+      diagnosticsLog.push(`export source link failed ${message}`, 'warn', 'transport');
+      setPhase({ kind: 'failed', message });
+    }
+  }, [desktopRuntime, diagnosticsLog, sourceKind, transport.duration, transport.filename]);
+
+  const onStartExport = async (qualityMode: MediaQualityMode): Promise<void> => {
+    if (phase.kind === 'linking-source' || phase.kind === 'choosing-destination' || phase.kind === 'running') {
+      return;
+    }
+    if (!selectedRange) {
+      setPhase({ kind: 'failed', message: 'Set a review range in REVIEW or with I / O' });
+      return;
+    }
+    if (!desktopRuntime) {
+      setPhase({ kind: 'failed', message: 'Clip export is available in the desktop runtime.' });
+      return;
+    }
+    switch (tools.kind) {
+      case 'probing':
+        setPhase({ kind: 'failed', message: 'Checking ffmpeg...' });
+        return;
+      case 'missing':
+        setPhase({ kind: 'failed', message: tools.reason });
+        return;
+      case 'ready':
+        break;
+      default: {
+        const _exhaustive: never = tools;
+        return _exhaustive;
+      }
+    }
+
+    assert(transport.filename, 'transport filename is missing');
+    assert(transport.duration > 0, 'transport duration must be positive');
+    if (!effectiveSourcePath) {
+      setPhase({ kind: 'failed', message: 'Locate the original source file to unlock export.' });
+      return;
+    }
+
+    let recordId: string | null = null;
+
+    try {
+      setPhase({ kind: 'choosing-destination', qualityMode });
+      const destination = await pickClipExportDestination({
+        defaultDirectory: getPreferredSaveDirectory(effectiveSourcePath).path,
+        defaultFileName: buildSuggestedClipExportFilename({
+          filename: transport.filename,
+          range: selectedRange,
+          sourceKind,
+          qualityMode,
+        }),
+        sourceKind,
+        qualityMode,
+      });
+      if (destination.kind === 'canceled') {
+        setPhase({ kind: 'idle' });
+        return;
+      }
+
+      const job = derivedMedia.enqueueJob(createClipExportJobSpec({
+        filename: transport.filename,
+        durationS: transport.duration,
+        range: selectedRange,
+        sourceKind,
+        qualityMode,
+      }));
+      recordId = job.id;
+
+      const { jobId } = await startClipExport({
+        sourcePath: effectiveSourcePath,
+        sourceKind,
+        startS: selectedRange.startS,
+        endS: selectedRange.endS,
+        qualityMode,
+        destinationPath: destination.path,
+      });
+
+      derivedMedia.markJobRunning(job.id, 0, `Exporting ${selectedRange.label}...`);
+      diagnosticsLog.push(
+        `export start ${selectedRange.label} ${qualityMode === 'copy-fast' ? 'fast' : 'master'} -> ${destination.path}`,
+        'info',
+        'transport',
+      );
+      setPhase({
+        kind: 'running',
+        recordId: job.id,
+        desktopJobId: jobId,
+        range: selectedRange,
+        qualityMode,
+        destinationPath: destination.path,
+      });
+    } catch (error) {
+      const message = getStartFailureMessage(readError(error));
+      if (recordId) {
+        derivedMedia.failJob(recordId, message);
+      }
+      diagnosticsLog.push(`export start failed ${message}`, 'warn', 'transport');
+      setPhase({ kind: 'failed', message });
+    }
+  };
+
+  const onCancelExport = useCallback(async () => {
+    if (phase.kind !== 'running') {
+      return;
+    }
+    try {
+      await cancelClipExport(phase.desktopJobId);
+    } catch (error) {
+      const message = readError(error);
+      diagnosticsLog.push(`export cancel failed ${message}`, 'warn', 'transport');
+      setPhase({ kind: 'failed', message });
+    }
+  }, [diagnosticsLog, phase]);
+
+  const onRevealOutput = useCallback(() => {
+    if (phase.kind !== 'done') {
+      return;
+    }
+    void revealInFolder(phase.outputPath).catch((error: unknown) => {
+      const message = readError(error);
+      diagnosticsLog.push(`export reveal failed ${message}`, 'warn', 'transport');
+      setPhase({ kind: 'failed', message });
+    });
+  }, [diagnosticsLog, phase]);
+
+  let gate: Gate;
+  if (!selectedRange) {
+    gate = { kind: 'needs-range' };
+  } else if (!desktopRuntime) {
+    gate = { kind: 'desktop-only' };
+  } else {
+    switch (tools.kind) {
+      case 'probing':
+        gate = { kind: 'probing' };
+        break;
+      case 'missing':
+        gate = { kind: 'missing-tools', message: tools.reason };
+        break;
+      case 'ready':
+        gate = effectiveSourcePath
+          ? { kind: 'ready', saveDirectory: getPreferredSaveDirectory(effectiveSourcePath) }
+          : { kind: 'needs-source' };
+        break;
+      default: {
+        const _exhaustive: never = tools;
+        gate = _exhaustive;
+      }
+    }
+  }
+
+  const exportBusy =
+    phase.kind === 'linking-source' ||
+    phase.kind === 'choosing-destination' ||
+    phase.kind === 'running';
+  const exportDisabled = gate.kind !== 'ready' || exportBusy;
+  const activeQualityMode =
+    phase.kind === 'choosing-destination' || phase.kind === 'running' || phase.kind === 'done'
+      ? phase.qualityMode
+      : null;
+
+  let readinessLabel = 'READY';
+  switch (phase.kind) {
+    case 'idle':
+      switch (gate.kind) {
+        case 'needs-range':
+          readinessLabel = 'RANGE NEEDED';
+          break;
+        case 'desktop-only':
+          readinessLabel = 'DESKTOP ONLY';
+          break;
+        case 'probing':
+          readinessLabel = 'CHECKING TOOLS';
+          break;
+        case 'missing-tools':
+          readinessLabel = 'UNAVAILABLE';
+          break;
+        case 'needs-source':
+          readinessLabel = sourceStatus.kind === 'missing' ? 'SOURCE MOVED' : 'LINK SOURCE';
+          break;
+        case 'ready':
+          readinessLabel = 'READY';
+          break;
+        default: {
+          const _exhaustive: never = gate;
+          readinessLabel = _exhaustive;
+        }
+      }
+      break;
+    case 'linking-source':
+      readinessLabel = 'LINKING';
+      break;
+    case 'choosing-destination':
+      readinessLabel = 'SAVE AS';
+      break;
+    case 'running':
+      readinessLabel = `EXPORTING ${activeQualityMode === 'copy-fast' ? 'FAST' : 'MASTER'}`;
+      break;
+    case 'done':
+      readinessLabel = 'EXPORTED';
+      break;
+    case 'failed':
+      readinessLabel = 'CHECK STATUS';
+      break;
+    default: {
+      const _exhaustive: never = phase;
+      readinessLabel = _exhaustive;
+    }
+  }
+
+  const readySaveDirectory = gate.kind === 'ready' ? gate.saveDirectory : null;
+  const sourceActionLabel = readySaveDirectory ? 'CHANGE SOURCE' : 'LINK ORIGINAL FILE';
+  const showStatusPanel = phase.kind !== 'idle';
+  const resolvedSource = readySaveDirectory ? getResolvedSourceSummary(sourceStatus) : null;
+
+  let guidance: {
+    title: string;
+    detail: string;
+    tone: string;
+    actionLabel: string | null;
+    path: string | null;
+  } | null = null;
+  switch (gate.kind) {
+    case 'needs-range':
+      guidance = {
+        title: 'SELECT A SAVED RANGE',
+        detail: 'Commit a range in REVIEW, then export it here.',
+        tone: theme.dim,
+        actionLabel: null,
+        path: null,
+      };
+      break;
+    case 'desktop-only':
+      guidance = {
+        title: 'DESKTOP EXPORT ONLY',
+        detail: 'Use the installed desktop app to export clips.',
+        tone: theme.dim,
+        actionLabel: null,
+        path: null,
+      };
+      break;
+    case 'probing':
+      guidance = {
+        title: 'CHECKING EXPORT TOOLS',
+        detail: 'Looking for ffmpeg and ffprobe...',
+        tone: theme.accent,
+        actionLabel: null,
+        path: null,
+      };
+      break;
+    case 'missing-tools':
+      guidance = {
+        title: 'EXPORT TOOLS UNAVAILABLE',
+        detail: gate.message,
+        tone: COLORS.statusErr,
+        actionLabel: null,
+        path: null,
+      };
+      break;
+    case 'needs-source':
+      assert(sourceStatus.kind === 'none' || sourceStatus.kind === 'missing', 'source must be unresolved');
+      if (sourceStatus.kind === 'missing') {
+        guidance = {
+          title: 'LAST SOURCE PATH IS GONE',
+          detail: 'We looked in the last known original location and did not find the file there. Link it again to continue.',
+          tone: COLORS.statusWarn,
+          actionLabel: sourceActionLabel,
+          path: sourceStatus.rememberedPath,
+        };
+        break;
+      }
+      guidance = {
+        title: 'LINK ORIGINAL FILE ONCE',
+        detail: 'This load did not include a usable disk path. Link the original file once and this clip will reopen export-ready next time.',
+        tone: theme.accent,
+        actionLabel: sourceActionLabel,
+        path: null,
+      };
+      break;
+    case 'ready':
+      guidance = null;
+      break;
+    default: {
+      const _exhaustive: never = gate;
+      guidance = _exhaustive;
+    }
+  }
+
+  let status: { tone: string; text: string; path: string | null };
+  switch (phase.kind) {
+    case 'idle':
+      status = { tone: theme.dim, text: '', path: null };
+      break;
+    case 'linking-source':
+      status = {
+        tone: theme.accent,
+        text: 'Locate the original media file once. The app will remember it for this clip and go straight to Save As after that.',
+        path: null,
+      };
+      break;
+    case 'choosing-destination':
+      status = {
+        tone: theme.accent,
+        text: `Save As is open for ${phase.qualityMode === 'copy-fast' ? 'FAST COPY' : 'EXACT MASTER'}. Choose the folder and file name to continue.`,
+        path: null,
+      };
+      break;
+    case 'running':
+      status = {
+        tone: theme.accent,
+        text: `Exporting ${phase.qualityMode === 'copy-fast' ? 'FAST COPY' : 'EXACT MASTER'}...`,
+        path: phase.destinationPath,
+      };
+      break;
+    case 'failed':
+      status = { tone: COLORS.statusErr, text: phase.message, path: null };
+      break;
+    case 'done':
+      status = {
+        tone: theme.ok,
+        text: `${getQualityTitle(phase.qualityMode)} complete.`,
+        path: phase.outputPath,
+      };
+      break;
+    default: {
+      const _exhaustive: never = phase;
+      status = _exhaustive;
+    }
+  }
+
+  return (
+    <div style={{ ...wrapStyle, background: theme.panelBg, borderColor: theme.border }}>
+      <div style={headerRowStyle}>
+        <div style={titleClusterStyle}>
+          <div style={{ ...eyebrowStyle, color: theme.label }}>CLIP EXPORT</div>
+          <div style={summaryClusterStyle}>
+            <div style={{ ...metricBlockStyle, minWidth: 78 }}>
+              <span style={{ ...metricLabelStyle, color: theme.label }}>CLIP</span>
+              <span style={{ ...metricValueStyle, color: selectedRange ? theme.text : theme.dim }}>
+                {selectedRange ? selectedRange.label : 'NO RANGE'}
+              </span>
+            </div>
+            <div style={metricBlockStyle}>
+              <span style={{ ...metricLabelStyle, color: theme.label }}>START</span>
+              <span style={{ ...metricValueStyle, color: selectedRange ? theme.text : theme.dim }}>
+                {selectedRange ? formatTransportTime(selectedRange.startS) : '--:--.-'}
+              </span>
+            </div>
+            <div style={metricBlockStyle}>
+              <span style={{ ...metricLabelStyle, color: theme.label }}>END</span>
+              <span style={{ ...metricValueStyle, color: selectedRange ? theme.text : theme.dim }}>
+                {selectedRange ? formatTransportTime(selectedRange.endS) : '--:--.-'}
+              </span>
+            </div>
+            <div style={metricBlockStyle}>
+              <span style={{ ...metricLabelStyle, color: theme.label }}>LEN</span>
+              <span style={{ ...metricValueStyle, color: selectedRange ? theme.accent : theme.dim }}>
+                {getRangeDuration(selectedRange)}
+              </span>
+            </div>
+          </div>
+        </div>
+        <div style={badgeRowStyle}>
+          <span style={{ ...badgeStyle, borderColor: theme.border, color: theme.text }}>{sourceKind.toUpperCase()}</span>
+          <span style={{ ...badgeStyle, borderColor: theme.accentBorder, color: theme.accent }}>
+            {readinessLabel}
+          </span>
+        </div>
+      </div>
+
+      {guidance ? (
+        <div style={{ ...guidancePanelStyle, borderColor: guidance.tone === COLORS.statusErr ? COLORS.statusErr : theme.border }}>
+          <div style={{ ...metricLabelStyle, color: theme.label }}>NEXT STEP</div>
+          <div style={{ ...statusValueStyle, color: guidance.tone }}>{guidance.title}</div>
+          <div style={{ ...detailTextStyle, color: theme.dim }}>{guidance.detail}</div>
+          {guidance.path ? (
+            <div style={{ ...pathTextStyle, color: guidance.tone }}>{guidance.path}</div>
+          ) : null}
+          {guidance.actionLabel ? (
+            <div style={actionRowStyle}>
+              <button
+                type="button"
+                style={{
+                  ...actionButtonStyle,
+                  color: exportBusy ? theme.dim : theme.text,
+                  borderColor: exportBusy ? theme.border : theme.accentBorder,
+                  background: exportBusy ? theme.buttonBg : theme.buttonActiveBg,
+                }}
+                disabled={exportBusy}
+                onClick={() => void onResolveSource()}
+                title="Locate or relink the original source file used for export"
+                data-shell-interactive="true"
+              >
+                {guidance.actionLabel}
+              </button>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {readySaveDirectory && resolvedSource ? (
+        <>
+          <div style={{ ...sourceBarStyle, borderColor: theme.border }} title={effectiveSourcePath ?? undefined}>
+            <div style={sourceMetaGridStyle}>
+              <div style={sourceMetaStyle}>
+                <span style={{ ...metricLabelStyle, color: theme.label }}>SOURCE</span>
+                <span style={{ ...metricValueStyle, color: theme.accent }}>{resolvedSource.label}</span>
+                <div style={{ ...detailTextStyle, color: theme.dim }}>{resolvedSource.detail}</div>
+                <div style={{ ...pathTextStyle, color: theme.dim }}>{resolvedSource.path}</div>
+              </div>
+
+              <div style={sourceMetaStyle}>
+                <span style={{ ...metricLabelStyle, color: theme.label }}>SAVE AS</span>
+                <span style={{ ...metricValueStyle, color: theme.ok }}>
+                  {readySaveDirectory.kind === 'remembered' ? 'LAST EXPORT FOLDER' : 'SOURCE FOLDER'}
+                </span>
+                <div style={{ ...detailTextStyle, color: theme.dim }}>
+                  {readySaveDirectory.kind === 'remembered'
+                    ? 'New exports start in the folder you used last.'
+                    : 'New exports start beside the original media file.'}
+                </div>
+                <div style={{ ...pathTextStyle, color: theme.dim }}>{readySaveDirectory.path}</div>
+              </div>
+            </div>
+            <button
+              type="button"
+              style={{ ...actionButtonStyle, color: exportBusy ? theme.dim : theme.text, borderColor: theme.border, background: theme.buttonBg }}
+              disabled={exportBusy}
+              onClick={() => void onResolveSource()}
+              title="Choose a different original source file"
+              data-shell-interactive="true"
+            >
+              {sourceActionLabel}
+            </button>
+          </div>
+
+          <div style={modeGridStyle}>
+            {(['copy-fast', 'exact-master'] as const).map((qualityMode) => {
+              const mode = getModeDescriptor(sourceKind, qualityMode);
+              const active = activeQualityMode === qualityMode;
+              const buttonLabel = exportBusy && active
+                ? phase.kind === 'choosing-destination'
+                  ? 'SAVE AS...'
+                  : `EXPORTING ${qualityMode === 'copy-fast' ? 'FAST' : 'MASTER'}`
+                : qualityMode === 'copy-fast'
+                  ? 'EXPORT FAST'
+                  : 'EXPORT MASTER';
+
+              return (
+                <div
+                  key={qualityMode}
+                  style={{
+                    ...modeCardStyle,
+                    borderColor: active ? theme.accentBorder : theme.border,
+                    background: active ? theme.buttonActiveBg : theme.buttonBg,
+                  }}
+                >
+                  <div style={modeHeaderStyle}>
+                    <span style={{ ...modeTitleStyle, color: theme.text }}>{mode.title}</span>
+                  </div>
+                  <div style={{ ...modeSummaryStyle, color: theme.text }}>{mode.summary}</div>
+                  <div style={{ ...modeDetailStyle, color: theme.dim }}>{mode.detail}</div>
+                  <button
+                    type="button"
+                    style={{
+                      ...actionButtonStyle,
+                      color: exportDisabled ? theme.dim : theme.text,
+                      borderColor: exportDisabled ? theme.border : active ? theme.accentBorder : theme.border,
+                      background: exportDisabled ? theme.buttonBg : theme.buttonActiveBg,
+                    }}
+                    disabled={exportDisabled}
+                    onClick={() => void onStartExport(qualityMode)}
+                    title={qualityMode === 'copy-fast'
+                      ? 'Quick stream-copy export when possible'
+                      : 'Exact export with a dependable re-encode'}
+                    data-shell-interactive="true"
+                  >
+                    {buttonLabel}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      ) : null}
+
+      <div style={actionRowStyle}>
+        <button
+          type="button"
+          style={{ ...actionButtonStyle, color: selectedRange ? theme.text : theme.dim, borderColor: theme.border, background: theme.buttonBg }}
+          disabled={!selectedRange}
+          onClick={onAuditionRange}
+          title="Audition the selected clip by looping it"
+          data-shell-interactive="true"
+        >
+          PREVIEW CLIP
+        </button>
+        {phase.kind === 'running' ? (
+          <button
+            type="button"
+            style={{ ...actionButtonStyle, color: theme.text, borderColor: theme.border, background: theme.buttonBg }}
+            onClick={() => void onCancelExport()}
+            title="Cancel the current export"
+            data-shell-interactive="true"
+          >
+            CANCEL
+          </button>
+        ) : null}
+        {phase.kind === 'done' ? (
+          <button
+            type="button"
+            style={{ ...actionButtonStyle, color: theme.text, borderColor: theme.border, background: theme.buttonBg }}
+            onClick={onRevealOutput}
+            title="Reveal the last exported clip in its folder"
+            data-shell-interactive="true"
+          >
+            REVEAL IN FOLDER
+          </button>
+        ) : null}
+      </div>
+
+      {showStatusPanel ? (
+        <div style={{ ...statusPanelStyle, borderColor: phase.kind === 'failed' ? COLORS.statusErr : theme.border }}>
+          <div style={statusHeaderStyle}>
+            <span style={{ ...metricLabelStyle, color: theme.label }}>STATUS</span>
+            <span style={{ ...metricLabelStyle, color: theme.dim }}>
+              {exportBusy ? 'WORKING' : phase.kind === 'done' ? 'COMPLETE' : 'CHECK STATUS'}
+            </span>
+          </div>
+          <div style={{ ...statusValueStyle, color: status.tone }}>{status.text}</div>
+          {status.path ? (
+            <div style={{ ...pathTextStyle, color: phase.kind === 'done' ? theme.ok : theme.dim }}>
+              {status.path}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+const wrapStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: SPACING.sm,
+  padding: `${SPACING.xs}px ${SPACING.sm}px`,
+  borderWidth: 1,
+  borderStyle: 'solid',
+  borderRadius: 2,
+  boxSizing: 'border-box',
+};
+
+const headerRowStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'flex-start',
+  justifyContent: 'space-between',
+  gap: SPACING.sm,
+};
+
+const titleClusterStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 4,
+  minWidth: 0,
+  flex: 1,
+};
+
+const eyebrowStyle: React.CSSProperties = {
+  fontFamily: FONTS.mono,
+  fontSize: 9,
+  letterSpacing: '0.14em',
+};
+
+const summaryClusterStyle: React.CSSProperties = {
+  display: 'flex',
+  flexWrap: 'wrap',
+  gap: `${SPACING.xs}px ${SPACING.sm}px`,
+  minWidth: 0,
+};
+
+const metricBlockStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 2,
+  minWidth: 70,
+};
+
+const metricLabelStyle: React.CSSProperties = {
+  fontFamily: FONTS.mono,
+  fontSize: 9,
+  letterSpacing: '0.12em',
+};
+
+const metricValueStyle: React.CSSProperties = {
+  fontFamily: FONTS.mono,
+  fontSize: 11,
+  letterSpacing: '0.05em',
+  whiteSpace: 'nowrap',
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+};
+
+const badgeRowStyle: React.CSSProperties = {
+  display: 'flex',
+  flexWrap: 'wrap',
+  gap: 6,
+  justifyContent: 'flex-end',
+};
+
+const badgeStyle: React.CSSProperties = {
+  fontFamily: FONTS.mono,
+  fontSize: 9,
+  letterSpacing: '0.1em',
+  padding: '3px 6px',
+  borderWidth: 1,
+  borderStyle: 'solid',
+  whiteSpace: 'nowrap',
+};
+
+const modeGridStyle: React.CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(156px, 1fr))',
+  gap: 8,
+};
+
+const guidancePanelStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 6,
+  borderWidth: 1,
+  borderStyle: 'solid',
+  padding: 8,
+  minWidth: 0,
+  boxSizing: 'border-box',
+};
+
+const sourceBarStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'flex-start',
+  justifyContent: 'space-between',
+  gap: 8,
+  borderWidth: 1,
+  borderStyle: 'solid',
+  padding: 8,
+  minWidth: 0,
+  boxSizing: 'border-box',
+};
+
+const sourceMetaGridStyle: React.CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+  gap: 8,
+  minWidth: 0,
+  flex: 1,
+};
+
+const sourceMetaStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 4,
+  minWidth: 0,
+  flex: 1,
+};
+
+const modeCardStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 8,
+  borderWidth: 1,
+  borderStyle: 'solid',
+  padding: 8,
+  minWidth: 0,
+  boxSizing: 'border-box',
+};
+
+const modeHeaderStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  gap: 6,
+};
+
+const modeTitleStyle: React.CSSProperties = {
+  fontFamily: FONTS.mono,
+  fontSize: 10,
+  letterSpacing: '0.08em',
+};
+
+const modeSummaryStyle: React.CSSProperties = {
+  fontFamily: FONTS.mono,
+  fontSize: 10,
+  letterSpacing: '0.03em',
+  lineHeight: 1.45,
+};
+
+const modeDetailStyle: React.CSSProperties = {
+  fontFamily: FONTS.mono,
+  fontSize: 9,
+  letterSpacing: '0.04em',
+  lineHeight: 1.45,
+};
+
+const actionRowStyle: React.CSSProperties = {
+  display: 'flex',
+  flexWrap: 'wrap',
+  gap: 6,
+};
+
+const actionButtonStyle: React.CSSProperties = {
+  fontFamily: FONTS.mono,
+  fontSize: 9,
+  letterSpacing: '0.08em',
+  borderWidth: 1,
+  borderStyle: 'solid',
+  padding: '4px 8px',
+  cursor: 'pointer',
+};
+
+const statusPanelStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 6,
+  borderWidth: 1,
+  borderStyle: 'solid',
+  padding: 8,
+  minWidth: 0,
+  boxSizing: 'border-box',
+};
+
+const statusHeaderStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  gap: 8,
+};
+
+const statusValueStyle: React.CSSProperties = {
+  fontFamily: FONTS.mono,
+  fontSize: 10,
+  letterSpacing: '0.04em',
+  lineHeight: 1.5,
+  minWidth: 0,
+  overflowWrap: 'anywhere',
+};
+
+const detailTextStyle: React.CSSProperties = {
+  fontFamily: FONTS.mono,
+  fontSize: 9,
+  letterSpacing: '0.04em',
+  lineHeight: 1.5,
+  minWidth: 0,
+  overflowWrap: 'anywhere',
+};
+
+const pathTextStyle: React.CSSProperties = {
+  fontFamily: FONTS.mono,
+  fontSize: 9,
+  letterSpacing: '0.03em',
+  lineHeight: 1.45,
+  minWidth: 0,
+  overflowWrap: 'anywhere',
+};

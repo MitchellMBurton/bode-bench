@@ -1,0 +1,179 @@
+import type {
+  ExportPreset,
+  MediaJobSpec,
+  MediaQualityMode,
+  RangeMark,
+} from '../types';
+
+export type SourceKind = 'audio' | 'video';
+
+function assert(condition: unknown, message: string): asserts condition {
+  if (!condition) {
+    throw new Error(message);
+  }
+}
+
+const QUICK_AUDIO_EXPORT_PRESETS: Readonly<Record<MediaQualityMode, ExportPreset>> = {
+  'copy-fast': {
+    id: 'audio-copy-fast',
+    label: 'FAST COPY',
+    container: 'source',
+    audioCodec: 'copy',
+    videoCodec: null,
+    qualityMode: 'copy-fast',
+  },
+  'exact-master': {
+    id: 'audio-exact-master',
+    label: 'PCM 24 MASTER',
+    container: 'wav',
+    audioCodec: 'pcm_s24le',
+    videoCodec: null,
+    qualityMode: 'exact-master',
+  },
+};
+
+const QUICK_VIDEO_EXPORT_PRESETS: Readonly<Record<MediaQualityMode, ExportPreset>> = {
+  'copy-fast': {
+    id: 'video-copy-fast',
+    label: 'FAST COPY',
+    container: 'source',
+    audioCodec: 'copy',
+    videoCodec: 'copy',
+    qualityMode: 'copy-fast',
+  },
+  'exact-master': {
+    id: 'video-exact-master',
+    label: 'H264 MASTER',
+    container: 'mp4',
+    audioCodec: 'aac',
+    videoCodec: 'libx264',
+    qualityMode: 'exact-master',
+  },
+};
+
+function sanitizeAssetToken(value: string): string {
+  const token = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80);
+  assert(token, 'source asset filename is empty');
+  return token;
+}
+
+export function buildSourceAssetId(filename: string, durationS: number): string {
+  assert(Number.isFinite(durationS) && durationS > 0, 'source duration must be positive');
+  return `${sanitizeAssetToken(filename)}:${durationS.toFixed(3)}`;
+}
+
+export function getQuickClipExportPreset(
+  sourceKind: SourceKind,
+  qualityMode: MediaQualityMode,
+): ExportPreset {
+  return sourceKind === 'video'
+    ? QUICK_VIDEO_EXPORT_PRESETS[qualityMode]
+    : QUICK_AUDIO_EXPORT_PRESETS[qualityMode];
+}
+
+export function describeExportMode(qualityMode: MediaQualityMode): string {
+  return qualityMode === 'copy-fast' ? 'STREAM COPY' : 'EXACT MASTER';
+}
+
+export function describeExportPreset(preset: ExportPreset): string {
+  if (preset.qualityMode === 'copy-fast') {
+    return 'source container / no re-encode';
+  }
+
+  const codecParts = [preset.videoCodec, preset.audioCodec]
+    .filter((part): part is string => part !== null)
+    .map((part) => part.toUpperCase());
+
+  return `${preset.container.toUpperCase()} / ${codecParts.join(' + ')}`;
+}
+
+function sanitizeFilenameToken(value: string): string {
+  const withoutControlChars = Array.from(value)
+    .filter((character) => character >= ' ')
+    .join('');
+
+  const token = withoutControlChars
+    .trim()
+    .replace(/\.[^/.]+$/, '')
+    .replace(/[<>:"/\\|?*]+/g, '-')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80);
+  assert(token, 'export filename is empty');
+  return token;
+}
+
+function formatExportTimeUnit(value: number): string {
+  return String(Math.max(0, value)).padStart(2, '0');
+}
+
+export function formatExportTimeToken(seconds: number): string {
+  assert(Number.isFinite(seconds) && seconds >= 0, 'export time must be non-negative');
+  const minutes = Math.floor(seconds / 60);
+  const wholeSeconds = Math.floor(seconds % 60);
+  const tenths = Math.floor((seconds - Math.floor(seconds)) * 10 + 1e-6);
+  return `${formatExportTimeUnit(minutes)}-${formatExportTimeUnit(wholeSeconds)}-${tenths}`;
+}
+
+export function getSuggestedExportExtension(
+  sourceKind: SourceKind,
+  qualityMode: MediaQualityMode,
+  sourceFilename: string,
+): string {
+  const preset = getQuickClipExportPreset(sourceKind, qualityMode);
+  if (preset.container !== 'source') {
+    return preset.container;
+  }
+
+  const match = sourceFilename.match(/\.([a-z0-9]+)$/i);
+  assert(match?.[1], 'source filename is missing an extension');
+  return match[1].toLowerCase();
+}
+
+export function buildSuggestedClipExportFilename(options: {
+  filename: string;
+  range: RangeMark;
+  sourceKind: SourceKind;
+  qualityMode: MediaQualityMode;
+}): string {
+  const stem = sanitizeFilenameToken(options.filename);
+  const label = sanitizeFilenameToken(options.range.label);
+  const startToken = formatExportTimeToken(options.range.startS);
+  const endToken = formatExportTimeToken(options.range.endS);
+  const modeToken = options.qualityMode === 'copy-fast' ? 'fast' : 'master';
+  const extension = getSuggestedExportExtension(options.sourceKind, options.qualityMode, options.filename);
+  return `${stem}__${label}__${startToken}_to_${endToken}__${modeToken}.${extension}`;
+}
+
+export function createClipExportJobSpec(options: {
+  filename: string;
+  durationS: number;
+  range: RangeMark;
+  sourceKind: SourceKind;
+  qualityMode: MediaQualityMode;
+}): Extract<MediaJobSpec, { kind: 'clip-export' }> {
+  const preset = getQuickClipExportPreset(options.sourceKind, options.qualityMode);
+
+  return {
+    kind: 'clip-export',
+    sourceAssetId: buildSourceAssetId(options.filename, options.durationS),
+    label: `${options.range.label} ${describeExportMode(options.qualityMode)}`,
+    clip: {
+      startS: options.range.startS,
+      endS: options.range.endS,
+      presetId: preset.id,
+    },
+    preset,
+    processor: {
+      kind: 'ffmpeg',
+      name: 'ffmpeg',
+      version: null,
+    },
+  };
+}

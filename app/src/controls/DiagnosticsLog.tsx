@@ -383,7 +383,7 @@ export function DiagnosticsLog(): React.ReactElement {
   }, [entries, warnOnly]);
 
   const warnCount = useMemo(() => entries.filter((entry) => entry.tone === 'warn').length, [entries]);
-  const exportText = useMemo(() => diagnosticsLog.exportText(visibleEntries), [diagnosticsLog, visibleEntries]);
+  const exportText = useMemo(() => diagnosticsLog.exportText(entries), [diagnosticsLog, entries]);
 
   const scrollToBottom = useCallback(() => {
     const node = scrollRef.current;
@@ -718,9 +718,9 @@ export function DiagnosticsLog(): React.ReactElement {
             {followTail ? 'FOLLOW' : 'REVIEW'}
           </button>
           <button style={ltBtn} onClick={onCopy}>
-            {copyState === 'copied' ? 'COPIED' : copyState === 'failed' ? 'COPY FAIL' : 'COPY'}
+            {copyState === 'copied' ? 'COPIED' : copyState === 'failed' ? 'COPY FAIL' : 'COPY ALL'}
           </button>
-          <button style={ltBtn} onClick={onSave}>SAVE TXT</button>
+          <button style={ltBtn} onClick={onSave}>SAVE ALL</button>
           <button style={ltBtn} onClick={onClear}>CLEAR</button>
         </div>
       </div>
@@ -1822,3 +1822,4 @@ const perfEmptyStyle: React.CSSProperties = {
   lineHeight: 1.6,
   letterSpacing: '0.03em',
 };
+

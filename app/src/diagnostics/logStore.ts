@@ -1,4 +1,4 @@
-export type DiagnosticsTone = 'dim' | 'info' | 'warn';
+﻿export type DiagnosticsTone = 'dim' | 'info' | 'warn';
 export type DiagnosticsSource = 'system' | 'transport' | 'decode' | 'video' | 'console';
 
 export interface DiagnosticsEntry {
@@ -12,7 +12,7 @@ export interface DiagnosticsEntry {
 
 type Listener = () => void;
 
-const MAX_ENTRIES = 256;
+const MAX_ENTRIES = 2048;
 
 let consoleCaptureInstalled = false;
 let activeConsolePush: ((text: string, tone: DiagnosticsTone, source: DiagnosticsSource) => void) | null = null;
@@ -513,3 +513,4 @@ export class PerformanceDiagnosticsStore {
     this.lastTraceSampleAt = stamp;
   }
 }
+

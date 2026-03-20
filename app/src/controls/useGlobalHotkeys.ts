@@ -3,9 +3,8 @@
 // ============================================================
 
 import { useEffect } from 'react';
-import { useAudioEngine, useDiagnosticsLog } from '../core/session';
+import { useAudioEngine, useDerivedMediaStore, useDiagnosticsLog } from '../core/session';
 import { formatTransportTime } from '../utils/format';
-import type { Marker } from '../types';
 
 const SEEK_STEP = 5;
 const SEEK_STEP_LARGE = 15;
@@ -33,14 +32,13 @@ function shouldIgnoreGlobalTransportHotkeys(target: EventTarget | null): boolean
 }
 
 export interface UseGlobalHotkeysOptions {
-  setMarkers: React.Dispatch<React.SetStateAction<Marker[]>>;
-  markerCountRef: React.MutableRefObject<number>;
   onShowHotkeyOverlay?: () => void;
 }
 
 export function useGlobalHotkeys(options: UseGlobalHotkeysOptions): void {
-  const { setMarkers, markerCountRef, onShowHotkeyOverlay } = options;
+  const { onShowHotkeyOverlay } = options;
   const audioEngine = useAudioEngine();
+  const derivedMedia = useDerivedMediaStore();
   const diagnosticsLog = useDiagnosticsLog();
 
   useEffect(() => {
@@ -90,18 +88,33 @@ export function useGlobalHotkeys(options: UseGlobalHotkeysOptions): void {
         case 'KeyM':
           e.preventDefault();
           if (audioEngine.duration > 0) {
-            const t = audioEngine.currentTime;
-            markerCountRef.current += 1;
-            const id = markerCountRef.current;
-            const label = `M${id}`;
-            const newMarker: Marker = { id, time: t, label };
-            setMarkers((prev) => [...prev, newMarker]);
-            diagnosticsLog.push(`marker ${label} @ ${formatTransportTime(t)}`, 'info', 'transport');
+            const marker = derivedMedia.addMarker(audioEngine.currentTime);
+            diagnosticsLog.push(`marker ${marker.label} @ ${formatTransportTime(marker.time)}`, 'info', 'transport');
           }
           break;
+        case 'KeyI':
+          e.preventDefault();
+          if (audioEngine.duration > 0) {
+            const startS = derivedMedia.setPendingRangeStart(audioEngine.currentTime);
+            diagnosticsLog.push(`range in @ ${formatTransportTime(startS)}`, 'info', 'transport');
+          }
+          break;
+        case 'KeyO': {
+          e.preventDefault();
+          const pendingRangeStartS = derivedMedia.getSnapshot().pendingRangeStartS;
+          if (
+            audioEngine.duration > 0
+            && pendingRangeStartS !== null
+            && Math.abs(audioEngine.currentTime - pendingRangeStartS) >= 0.01
+          ) {
+            const range = derivedMedia.commitPendingRange(audioEngine.currentTime);
+            diagnosticsLog.push(`range ${range.label} ${formatTransportTime(range.startS)} -> ${formatTransportTime(range.endS)}`, 'info', 'transport');
+          }
+          break;
+        }
       }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [audioEngine, diagnosticsLog, setMarkers, markerCountRef, onShowHotkeyOverlay]);
+  }, [audioEngine, derivedMedia, diagnosticsLog, onShowHotkeyOverlay]);
 }

@@ -5,6 +5,8 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useAudioEngine, useDiagnosticsLog, useDisplayMode, usePerformanceDiagnosticsStore, useTheaterModeStore, useVideoSyncController } from '../core/session';
+import { ClipExportStrip } from './ClipExportStrip';
+import { SessionControls } from './SessionControls';
 import {
   decideVideoSyncDecision,
   getAdaptiveVideoSyncProfile,
@@ -193,6 +195,8 @@ interface LoadNotice {
   readonly message: string;
 }
 
+type DesktopFile = File & { path?: string };
+
 function formatTime(s: number): string {
   const m = Math.floor(s / 60);
   const sec = Math.floor(s % 60);
@@ -202,6 +206,13 @@ function formatTime(s: number): string {
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
+}
+
+function getDesktopSourcePath(file: File): string | null {
+  const desktopFile = file as DesktopFile;
+  return typeof desktopFile.path === 'string' && desktopFile.path.trim()
+    ? desktopFile.path
+    : null;
 }
 
 function describeLoadError(error: unknown): string {
@@ -247,6 +258,8 @@ function isFullFileLoopActive(transport: TransportState): boolean {
 }
 
 interface Props {
+  grayscale: boolean;
+  onGrayscale: (value: boolean) => void;
   onFileLoaded?: () => void;
 }
 
@@ -395,7 +408,7 @@ function resizeWindowRectFromDrag(
   });
 }
 
-export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
+export function TransportControls({ grayscale, onGrayscale, onFileLoaded }: Props): React.ReactElement {
   const audioEngine = useAudioEngine();
   const diagnosticsLog = useDiagnosticsLog();
   const performanceDiagnostics = usePerformanceDiagnosticsStore();
@@ -417,6 +430,13 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
     loopStart: null,
     loopEnd: null,
   });
+  const transportStatusLabel = !transport.filename
+    ? 'LOAD A FILE'
+    : transport.isPlaying
+      ? 'PLAYING'
+      : transport.currentTime > 0
+        ? 'PAUSED'
+        : 'READY';
   const [displayCurrentTime, setDisplayCurrentTime] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -429,6 +449,7 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
   const [videoWindowRect, setVideoWindowRect] = useState<VideoWindowRect>(() => createDefaultWindowRect(null));
   const [videoSyncIndicator, setVideoSyncIndicator] = useState<VideoSyncIndicator>(null);
   const [loadNotice, setLoadNotice] = useState<LoadNotice | null>(null);
+  const [sourcePath, setSourcePath] = useState<string | null>(null);
 
   const seekInputRef = useRef<HTMLInputElement>(null);
   const seekFillRef = useRef<HTMLDivElement>(null);
@@ -1255,6 +1276,7 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
       setVideoResolution(null);
       setVideoSourceSize(null);
       setDisplayCurrentTime(0);
+      setSourcePath(null);
       if (videoRef.current) {
         videoRef.current.pause();
         videoRef.current.currentTime = 0;
@@ -1270,10 +1292,12 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
   }, [audioEngine, clearFileInput, clearVideoPreview, performanceDiagnostics, videoSyncController]);
 
   const handleFile = useCallback(async (file: File) => {
+    const nextSourcePath = getDesktopSourcePath(file);
     clearVideoPreview();
     setVideoResolution(null);
     setVideoSourceSize(null);
     setLoadNotice(null);
+    setSourcePath(null);
     videoEventTimesRef.current = {};
     lastVideoRateRef.current = 1;
     lastVideoRateSetAtRef.current = 0;
@@ -1291,18 +1315,20 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
     setIsLoading(true);
     try {
       await audioEngine.load(file);
-        if (audioEngine.backendMode === 'streamed') {
-          setLoadNotice({
-            tone: 'info',
-            message: 'Large media mode active: streamed playback is enabled for stability. Pitch shift comes online live, the session map fills continuously at low resolution, and the detail waveform plus waveform history learn as you play and seek.',
-          });
-        } else {
+      setSourcePath(nextSourcePath);
+      if (audioEngine.backendMode === 'streamed') {
+        setLoadNotice({
+          tone: 'info',
+          message: 'Large media mode active: streamed playback is enabled for stability. Pitch shift comes online live, the session map fills continuously at low resolution, and the detail waveform plus waveform history learn as you play and seek.',
+        });
+      } else {
         setLoadNotice(null);
       }
       onFileLoaded?.();
     } catch (error) {
       const message = describeLoadError(error);
       clearVideoPreview();
+      setSourcePath(null);
       setLoadNotice({ tone: 'warn', message });
       diagnosticsLog.push(`load failed for ${file.name} - ${message}`, 'warn', 'transport');
       console.error('media load failed', error);
@@ -1544,86 +1570,119 @@ export function TransportControls({ onFileLoaded }: Props): React.ReactElement {
         </div>
       )}
 
-      <div style={timeRowStyle}>
-        <span style={timeStyle}>{formatTime(displayCurrentTime)}</span>
-        <span style={timeSepStyle}>/</span>
-        <span style={{ ...timeStyle, color: COLORS.textDim }}>{formatTime(transport.duration)}</span>
-      </div>
+      <div style={operationsGridStyle}>
+        <div style={{ ...deckStyle, borderColor: tt.btnBorder }}>
+          <div style={deckHeaderStyle}>
+            <span style={{ ...deckEyebrowStyle, color: COLORS.textCategory }}>TRANSPORT DECK</span>
+            <span style={{ ...deckMetaStyle, color: transport.filename ? tt.btnColor : COLORS.textDim }}>
+              {transportStatusLabel}
+            </span>
+          </div>
 
-      <div style={{ ...seekTrackStyle, background: tt.seekTrackBg }}>
-        <div
-          ref={seekFillRef}
-          style={{ ...seekFillStyle, width: `${seekFraction * 100}%`, background: tt.seekFillColor }}
-        />
-        <input
-          ref={seekInputRef}
-          type="range"
-          min={0}
-          defaultValue={0}
-          step={0.01}
-          style={seekInputStyle}
-          disabled={isLoading || transport.duration === 0}
-          onPointerDown={onSeekPointerDown}
-          onPointerUp={onSeekPointerUp}
-          onPointerCancel={onSeekPointerUp}
-          onLostPointerCapture={onSeekPointerUp}
-          onInput={onSeekInput}
-        />
-      </div>
+          <div style={timeRowStyle}>
+            <span style={timeStyle}>{formatTime(displayCurrentTime)}</span>
+            <span style={timeSepStyle}>/</span>
+            <span style={{ ...timeStyle, color: COLORS.textDim }}>{formatTime(transport.duration)}</span>
+          </div>
 
-      {transport.loopStart !== null && transport.loopEnd !== null && (
-        <div style={{ ...loopRowStyle, background: tt.loopBg, borderColor: tt.loopBorder }}>
-          <span style={{ ...loopLabelStyle, color: tt.loopLabel }}>LOOP</span>
-          <span style={{ ...loopTimeStyle, color: tt.loopTime }}>
-            {formatTime(transport.loopStart)} {'->'} {formatTime(transport.loopEnd)}
-          </span>
-          <button
-            style={{ ...loopClearStyle, color: tt.loopClear }}
-            onClick={() => audioEngine.clearLoop()}
-            title="Clear loop region"
-          >
-            X
-          </button>
+          <div style={{ ...seekTrackStyle, background: tt.seekTrackBg }}>
+            <div
+              ref={seekFillRef}
+              style={{ ...seekFillStyle, width: `${seekFraction * 100}%`, background: tt.seekFillColor }}
+            />
+            <input
+              ref={seekInputRef}
+              type="range"
+              min={0}
+              defaultValue={0}
+              step={0.01}
+              style={seekInputStyle}
+              disabled={isLoading || transport.duration === 0}
+              onPointerDown={onSeekPointerDown}
+              onPointerUp={onSeekPointerUp}
+              onPointerCancel={onSeekPointerUp}
+              onLostPointerCapture={onSeekPointerUp}
+              onInput={onSeekInput}
+            />
+          </div>
+
+          {transport.loopStart !== null && transport.loopEnd !== null ? (
+            <div style={{ ...loopRowStyle, background: tt.loopBg, borderColor: tt.loopBorder }}>
+              <span style={{ ...loopLabelStyle, color: tt.loopLabel }}>LOOP</span>
+              <span style={{ ...loopTimeStyle, color: tt.loopTime }}>
+                {formatTime(transport.loopStart)} {'->'} {formatTime(transport.loopEnd)}
+              </span>
+              <button
+                style={{ ...loopClearStyle, color: tt.loopClear }}
+                onClick={() => audioEngine.clearLoop()}
+                title="Clear loop region"
+              >
+                X
+              </button>
+            </div>
+          ) : (
+            <div style={{ ...transportHintStyle, color: COLORS.textDim }}>
+              Set a loop or saved range for quick preview and export work.
+            </div>
+          )}
+
+          <div style={buttonRowStyle}>
+            <button
+              style={{ ...btnStyle, background: tt.btnBg, borderColor: tt.btnBorder, color: tt.btnColor }}
+              onClick={() => audioEngine.stop()}
+              disabled={isLoading || !transport.filename}
+              title="Stop - return to start"
+            >
+              STOP
+            </button>
+            <button
+              style={transport.isPlaying
+                ? { ...btnStyle, background: tt.btnActiveBg, borderColor: tt.btnActiveBorder, color: tt.btnColor }
+                : { ...btnStyle, background: tt.btnBg, borderColor: tt.btnBorder, color: tt.btnColor }}
+              onClick={() => transport.isPlaying ? audioEngine.pause() : audioEngine.play()}
+              disabled={isLoading || !transport.filename}
+              title={transport.isPlaying ? 'Pause' : 'Play'}
+            >
+              {transport.isPlaying ? 'PAUSE' : 'PLAY'}
+            </button>
+            <button
+              style={hasLoop
+                ? { ...btnStyle, background: tt.btnActiveBg, borderColor: tt.btnActiveBorder, color: tt.btnColor }
+                : { ...btnStyle, background: tt.btnBg, borderColor: tt.btnBorder, color: tt.btnColor }}
+              onClick={onToggleLoop}
+              disabled={isLoading || !transport.filename}
+              title={hasLoop ? 'Clear current loop region' : 'Loop the full file'}
+            >
+              LOOP
+            </button>
+            <button
+              style={{ ...btnStyle, ...btnResetStyle, background: tt.btnResetBg, borderColor: tt.btnResetBorder, color: tt.btnColor }}
+              onClick={() => audioEngine.reset()}
+              disabled={isLoading || !transport.filename}
+              title="Reset - clear file and all visuals"
+            >
+              RESET
+            </button>
+          </div>
         </div>
-      )}
 
-      <div style={buttonRowStyle}>
-        <button
-          style={{ ...btnStyle, background: tt.btnBg, borderColor: tt.btnBorder, color: tt.btnColor }}
-          onClick={() => audioEngine.stop()}
-          disabled={isLoading || !transport.filename}
-          title="Stop - return to start"
-        >
-          STOP
-        </button>
-        <button
-          style={transport.isPlaying
-            ? { ...btnStyle, background: tt.btnActiveBg, borderColor: tt.btnActiveBorder, color: tt.btnColor }
-            : { ...btnStyle, background: tt.btnBg, borderColor: tt.btnBorder, color: tt.btnColor }}
-          onClick={() => transport.isPlaying ? audioEngine.pause() : audioEngine.play()}
-          disabled={isLoading || !transport.filename}
-          title={transport.isPlaying ? 'Pause' : 'Play'}
-        >
-          {transport.isPlaying ? 'PAUSE' : 'PLAY'}
-        </button>
-        <button
-          style={hasLoop
-            ? { ...btnStyle, background: tt.btnActiveBg, borderColor: tt.btnActiveBorder, color: tt.btnColor }
-            : { ...btnStyle, background: tt.btnBg, borderColor: tt.btnBorder, color: tt.btnColor }}
-          onClick={onToggleLoop}
-          disabled={isLoading || !transport.filename}
-          title={hasLoop ? 'Clear current loop region' : 'Loop the full file'}
-        >
-          LOOP
-        </button>
-        <button
-          style={{ ...btnStyle, ...btnResetStyle, background: tt.btnResetBg, borderColor: tt.btnResetBorder, color: tt.btnColor }}
-          onClick={() => audioEngine.reset()}
-          disabled={isLoading || !transport.filename}
-          title="Reset - clear file and all visuals"
-        >
-          RESET
-        </button>
+        <div style={utilityStackStyle}>
+          {transport.filename ? (
+            <ClipExportStrip
+              key={`${videoUrl ? 'video' : 'audio'}:${transport.filename}:${transport.duration}`}
+              transport={transport}
+              sourceKind={videoUrl ? 'video' : 'audio'}
+              sourcePath={sourcePath}
+              visualMode={visualMode}
+            />
+          ) : null}
+          <SessionControls
+            grayscale={grayscale}
+            onGrayscale={onGrayscale}
+            visualMode={visualMode}
+            onVisualMode={(nextMode) => displayMode.setMode(nextMode)}
+          />
+        </div>
       </div>
     </div>
   );
@@ -1941,6 +2000,60 @@ const buttonRowStyle: React.CSSProperties = {
   display: 'flex',
   gap: SPACING.xs,
   flexShrink: 0,
+};
+
+const operationsGridStyle: React.CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(184px, 1fr))',
+  gap: SPACING.sm,
+  alignItems: 'start',
+};
+
+const deckStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: SPACING.sm,
+  padding: `${SPACING.sm}px ${SPACING.sm}px`,
+  borderWidth: 1,
+  borderStyle: 'solid',
+  borderRadius: 2,
+  background: COLORS.bg1,
+  boxSizing: 'border-box',
+  minWidth: 0,
+};
+
+const utilityStackStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: SPACING.sm,
+  minWidth: 0,
+};
+
+const deckHeaderStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  gap: SPACING.sm,
+};
+
+const deckEyebrowStyle: React.CSSProperties = {
+  fontFamily: FONTS.mono,
+  fontSize: 9,
+  letterSpacing: '0.14em',
+};
+
+const deckMetaStyle: React.CSSProperties = {
+  fontFamily: FONTS.mono,
+  fontSize: 9,
+  letterSpacing: '0.08em',
+};
+
+const transportHintStyle: React.CSSProperties = {
+  fontFamily: FONTS.mono,
+  fontSize: 9,
+  letterSpacing: '0.04em',
+  lineHeight: 1.45,
+  minHeight: 20,
 };
 
 const btnStyle: React.CSSProperties = {
