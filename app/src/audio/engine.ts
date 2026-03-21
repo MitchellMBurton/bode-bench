@@ -620,7 +620,7 @@ export class AudioEngine {
   }
 
   private async activateStreamedMediaLoad(
-    file: File,
+    displayFilename: string,
     media: {
       readonly element: HTMLMediaElement;
       readonly url: string;
@@ -684,12 +684,12 @@ export class AudioEngine {
     this._displayGain = 1;
     this._fileAnalysis = null;
     this._waveformPeaks = null;
-    this._filename = file.name;
+    this._filename = displayFilename;
     this.offsetAt = 0;
     this.fileId++;
 
     this.performanceDiagnostics?.noteLoadSample({
-      filename: file.name,
+      filename: displayFilename,
       totalMs: performance.now() - loadStartedAt,
       readMs,
       decodeMs,
@@ -811,7 +811,7 @@ export class AudioEngine {
     timer = window.setTimeout(step, 0);
   }
 
-  async load(file: File): Promise<void> {
+  async load(file: File, displayFilename = file.name): Promise<void> {
     const ctx = this.ensureContext();
     const loadVersion = ++this.loadVersion;
     const loadStartedAt = performance.now();
@@ -863,7 +863,7 @@ export class AudioEngine {
         }
         if (this.shouldPreferStreamingLoad(file, preflightMedia.duration)) {
           await this.activateStreamedMediaLoad(
-            file,
+            displayFilename,
             preflightMedia,
             loadVersion,
             loadStartedAt,
@@ -887,7 +887,7 @@ export class AudioEngine {
       const streamedMedia = preflightMedia ?? await this.createPreflightMediaElement(file).catch(() => null);
       if (streamedMedia) {
         await this.activateStreamedMediaLoad(
-          file,
+          displayFilename,
           streamedMedia,
           loadVersion,
           loadStartedAt,
@@ -920,7 +920,7 @@ export class AudioEngine {
       const streamedMedia = await this.createPreflightMediaElement(file).catch(() => null);
       if (streamedMedia) {
         await this.activateStreamedMediaLoad(
-          file,
+          displayFilename,
           streamedMedia,
           loadVersion,
           loadStartedAt,
@@ -970,12 +970,12 @@ export class AudioEngine {
     this.pitchShiftAvailable = stretchEnabledForBuffer;
     this.playbackBackend = 'decoded';
     this.buffer = decodedBuffer;
-    this._filename = file.name;
+    this._filename = displayFilename;
     this.offsetAt = 0;
     this.fileId++;
 
     this.performanceDiagnostics?.noteLoadSample({
-      filename: file.name,
+      filename: displayFilename,
       totalMs: performance.now() - loadStartedAt,
       readMs,
       decodeMs,

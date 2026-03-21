@@ -6,7 +6,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useAudioEngine, useDiagnosticsLog, useDisplayMode, usePerformanceDiagnosticsStore, useTheaterModeStore, useVideoSyncController } from '../core/session';
 import { ClipExportStrip } from './ClipExportStrip';
-import { SessionControls } from './SessionControls';
+import { DiagnosticsLog } from './DiagnosticsLog';
 import {
   decideVideoSyncDecision,
   getAdaptiveVideoSyncProfile,
@@ -24,6 +24,7 @@ import {
   decideVideoEndedDecision,
   type VideoBufferingEventKind,
 } from '../runtime/videoSyncEvents';
+import { parseSubtitleFile, type SubtitleCue, type SubtitleFormat } from '../runtime/subtitles';
 import { CANVAS, COLORS, FONTS, SPACING } from '../theme';
 import type { VisualMode } from '../audio/displayMode';
 import type { TransportState } from '../types';
@@ -36,6 +37,10 @@ interface TransportTheme {
   btnActiveBorder: string;
   btnResetBorder: string;
   btnResetBg: string;
+  panelBg: string;
+  panelLabel: string;
+  mutedText: string;
+  secondaryText: string;
   loopBg: string;
   loopBorder: string;
   loopLabel: string;
@@ -54,6 +59,10 @@ const TRANSPORT_THEMES: Record<VisualMode, TransportTheme> = {
     btnActiveBorder: COLORS.accent,
     btnResetBorder: COLORS.borderActive,
     btnResetBg: COLORS.bg1,
+    panelBg: COLORS.bg1,
+    panelLabel: COLORS.textCategory,
+    mutedText: COLORS.textDim,
+    secondaryText: COLORS.textSecondary,
     loopBg: 'rgba(40,120,60,0.15)',
     loopBorder: 'rgba(80,200,120,0.25)',
     loopLabel: 'rgba(80,200,120,0.80)',
@@ -70,6 +79,10 @@ const TRANSPORT_THEMES: Record<VisualMode, TransportTheme> = {
     btnActiveBorder: '#4f86a3',
     btnResetBorder: CANVAS.optic.chromeBorderActive,
     btnResetBg: 'rgba(239,246,250,0.98)',
+    panelBg: 'rgba(231,239,245,0.96)',
+    panelLabel: CANVAS.optic.category,
+    mutedText: 'rgba(58,82,100,0.74)',
+    secondaryText: 'rgba(35,67,88,0.86)',
     loopBg: 'rgba(57,126,158,0.10)',
     loopBorder: 'rgba(79,134,163,0.42)',
     loopLabel: '#0d7e9e',
@@ -86,6 +99,10 @@ const TRANSPORT_THEMES: Record<VisualMode, TransportTheme> = {
     btnActiveBorder: CANVAS.red.chromeBorderActive,
     btnResetBorder: CANVAS.red.chromeBorder,
     btnResetBg: 'rgba(12,3,4,0.92)',
+    panelBg: CANVAS.red.bg2,
+    panelLabel: CANVAS.red.category,
+    mutedText: CANVAS.red.label,
+    secondaryText: 'rgba(255,186,172,0.78)',
     loopBg: 'rgba(120,24,22,0.22)',
     loopBorder: 'rgba(255,90,74,0.36)',
     loopLabel: CANVAS.red.trace,
@@ -102,6 +119,10 @@ const TRANSPORT_THEMES: Record<VisualMode, TransportTheme> = {
     btnActiveBorder: 'rgba(120,200,60,0.75)',
     btnResetBorder: 'rgba(80,160,40,0.5)',
     btnResetBg: 'rgba(4,10,4,0.9)',
+    panelBg: CANVAS.nge.bg2,
+    panelLabel: CANVAS.nge.category,
+    mutedText: CANVAS.nge.label,
+    secondaryText: 'rgba(120,200,60,0.7)',
     loopBg: 'rgba(20,60,10,0.3)',
     loopBorder: 'rgba(80,200,60,0.3)',
     loopLabel: 'rgba(140,230,60,0.9)',
@@ -118,6 +139,10 @@ const TRANSPORT_THEMES: Record<VisualMode, TransportTheme> = {
     btnActiveBorder: 'rgba(98,200,255,0.75)',
     btnResetBorder: CANVAS.hyper.chromeBorder,
     btnResetBg: 'rgba(2,5,18,0.9)',
+    panelBg: CANVAS.hyper.bg2,
+    panelLabel: CANVAS.hyper.category,
+    mutedText: CANVAS.hyper.label,
+    secondaryText: 'rgba(112,180,255,0.75)',
     loopBg: 'rgba(10,20,60,0.3)',
     loopBorder: 'rgba(80,160,255,0.3)',
     loopLabel: CANVAS.hyper.trace,
@@ -134,6 +159,10 @@ const TRANSPORT_THEMES: Record<VisualMode, TransportTheme> = {
     btnActiveBorder: '#4a1a90',
     btnResetBorder: CANVAS.eva.chromeBorder,
     btnResetBg: '#0f0a24',
+    panelBg: CANVAS.eva.bg2,
+    panelLabel: CANVAS.eva.category,
+    mutedText: CANVAS.eva.label,
+    secondaryText: 'rgba(255,140,40,0.75)',
     loopBg: 'rgba(60,20,100,0.3)',
     loopBorder: 'rgba(170,90,255,0.3)',
     loopLabel: CANVAS.eva.trace,
@@ -154,7 +183,7 @@ const INGEST_DRAG_BACKGROUNDS: Record<VisualMode, string> = {
 };
 
 const VIDEO_HEIGHT_MIN = 72;
-const VIDEO_HEIGHT_DEFAULT = 160;
+const VIDEO_HEIGHT_DEFAULT = 220;
 const VIDEO_TIME_DISPLAY_MS = 100;
 const VIDEO_RATE_RAMP_STEP = 0.02;
 const VIDEO_RATE_UPDATE_MIN_MS = 70;
@@ -190,9 +219,47 @@ interface VideoWindowRect {
   readonly height: number;
 }
 
-interface LoadNotice {
-  readonly tone: 'warn' | 'info';
-  readonly message: string;
+type LoadNotice =
+  | {
+      readonly kind: 'compact';
+      readonly tone: 'warn' | 'info';
+      readonly title: string;
+      readonly detail: string;
+    }
+  | {
+      readonly kind: 'banner';
+      readonly tone: 'warn';
+      readonly message: string;
+    };
+
+interface SessionMediaIdentity {
+  readonly filename: string | null;
+  readonly mediaKey: string | null;
+  readonly kind: 'audio' | 'video' | null;
+}
+
+type LoadedLayoutMode = 'empty' | 'audio' | 'video';
+
+interface PrimaryMedia {
+  readonly kind: 'audio' | 'video';
+  readonly file: File;
+  readonly filename: string;
+  readonly sourcePath: string | null;
+  readonly durationS: number;
+  readonly mediaKey: string;
+}
+
+interface ExternalAudioTrack {
+  readonly file: File;
+  readonly filename: string;
+  readonly durationS: number;
+}
+
+interface ExternalSubtitleTrack {
+  readonly file: File;
+  readonly filename: string;
+  readonly format: SubtitleFormat;
+  readonly cues: readonly SubtitleCue[];
 }
 
 type DesktopFile = File & { path?: string };
@@ -215,6 +282,23 @@ function getDesktopSourcePath(file: File): string | null {
     : null;
 }
 
+function buildPrimaryMediaKey(file: File): string {
+  return `${file.name}:${file.size}:${file.lastModified}`;
+}
+
+function isVideoFile(file: File): boolean {
+  return file.type.startsWith('video/');
+}
+
+function getPrimaryKind(file: File): 'audio' | 'video' {
+  return isVideoFile(file) ? 'video' : 'audio';
+}
+
+function getActiveSubtitleCue(track: ExternalSubtitleTrack | null, timeS: number): SubtitleCue | null {
+  if (!track) return null;
+  return track.cues.find((cue) => timeS >= cue.startS && timeS <= cue.endS) ?? null;
+}
+
 function describeLoadError(error: unknown): string {
   if (error instanceof DOMException) {
     if (error.name === 'EncodingError') {
@@ -231,6 +315,14 @@ function describeLoadError(error: unknown): string {
     return error.message.trim();
   }
   return 'This file could not be opened.';
+}
+
+function createCompactNotice(tone: 'warn' | 'info', title: string, detail: string): LoadNotice {
+  return { kind: 'compact', tone, title, detail };
+}
+
+function createBannerNotice(message: string): LoadNotice {
+  return { kind: 'banner', tone: 'warn', message };
 }
 
 function isPlaybackInterruptedError(error: unknown): boolean {
@@ -258,9 +350,8 @@ function isFullFileLoopActive(transport: TransportState): boolean {
 }
 
 interface Props {
-  grayscale: boolean;
-  onGrayscale: (value: boolean) => void;
   onFileLoaded?: () => void;
+  onSessionMediaChange?: (identity: SessionMediaIdentity) => void;
 }
 
 interface VideoSourceSize {
@@ -408,7 +499,10 @@ function resizeWindowRectFromDrag(
   });
 }
 
-export function TransportControls({ grayscale, onGrayscale, onFileLoaded }: Props): React.ReactElement {
+export function TransportControls({
+  onFileLoaded,
+  onSessionMediaChange,
+}: Props): React.ReactElement {
   const audioEngine = useAudioEngine();
   const diagnosticsLog = useDiagnosticsLog();
   const performanceDiagnostics = usePerformanceDiagnosticsStore();
@@ -449,17 +543,28 @@ export function TransportControls({ grayscale, onGrayscale, onFileLoaded }: Prop
   const [videoWindowRect, setVideoWindowRect] = useState<VideoWindowRect>(() => createDefaultWindowRect(null));
   const [videoSyncIndicator, setVideoSyncIndicator] = useState<VideoSyncIndicator>(null);
   const [loadNotice, setLoadNotice] = useState<LoadNotice | null>(null);
+  const [loadNoticeExpanded, setLoadNoticeExpanded] = useState(false);
   const [sourcePath, setSourcePath] = useState<string | null>(null);
+  const [primaryMedia, setPrimaryMedia] = useState<PrimaryMedia | null>(null);
+  const [externalAudio, setExternalAudio] = useState<ExternalAudioTrack | null>(null);
+  const [subtitleTrack, setSubtitleTrack] = useState<ExternalSubtitleTrack | null>(null);
 
   const seekInputRef = useRef<HTMLInputElement>(null);
   const seekFillRef = useRef<HTMLDivElement>(null);
   const isSeekingRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const alternateAudioInputRef = useRef<HTMLInputElement>(null);
+  const subtitleInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const videoWrapRef = useRef<HTMLDivElement>(null);
   const videoUrlRef = useRef<string | null>(null);
   const transportRef = useRef(transport);
   transportRef.current = transport;
+
+  const showLoadNotice = useCallback((nextNotice: LoadNotice | null) => {
+    setLoadNoticeExpanded(false);
+    setLoadNotice(nextNotice);
+  }, []);
   const videoResizeRef = useRef<{ startY: number; startH: number } | null>(null);
   const lastVideoRateRef = useRef(1);
   const lastVideoRateSetAtRef = useRef(0);
@@ -484,6 +589,7 @@ export function TransportControls({ grayscale, onGrayscale, onFileLoaded }: Prop
   const lastVideoTransportStateRef = useRef<TransportState | null>(null);
 
   const videoViewMode: VideoViewMode = videoOverlayMode ?? videoBaseMode;
+  const activeSubtitleCue = getActiveSubtitleCue(subtitleTrack, displayCurrentTime);
 
   useEffect(() => {
     if (_sessionVideoUrl && !videoUrlRef.current) {
@@ -761,6 +867,19 @@ export function TransportControls({ grayscale, onGrayscale, onFileLoaded }: Prop
   const clearFileInput = useCallback(() => {
     if (fileInputRef.current) fileInputRef.current.value = '';
   }, []);
+
+  const clearAttachmentInputs = useCallback(() => {
+    if (alternateAudioInputRef.current) alternateAudioInputRef.current.value = '';
+    if (subtitleInputRef.current) subtitleInputRef.current.value = '';
+  }, []);
+
+  const publishSessionMedia = useCallback((nextMedia: PrimaryMedia | null) => {
+    onSessionMediaChange?.({
+      filename: nextMedia?.filename ?? null,
+      mediaKey: nextMedia?.mediaKey ?? null,
+      kind: nextMedia?.kind ?? null,
+    });
+  }, [onSessionMediaChange]);
 
   const onVideoMetadata = useCallback(() => {
     const video = videoRef.current;
@@ -1272,11 +1391,16 @@ export function TransportControls({ grayscale, onGrayscale, onFileLoaded }: Prop
     return audioEngine.onReset(() => {
       clearVideoPreview();
       clearFileInput();
-      setLoadNotice(null);
+      clearAttachmentInputs();
+      showLoadNotice(null);
       setVideoResolution(null);
       setVideoSourceSize(null);
       setDisplayCurrentTime(0);
       setSourcePath(null);
+      setPrimaryMedia(null);
+      setExternalAudio(null);
+      setSubtitleTrack(null);
+      publishSessionMedia(null);
       if (videoRef.current) {
         videoRef.current.pause();
         videoRef.current.currentTime = 0;
@@ -1289,15 +1413,20 @@ export function TransportControls({ grayscale, onGrayscale, onFileLoaded }: Prop
       performanceDiagnostics.setVideoState('idle');
       setVideoSyncIndicator(null);
     });
-  }, [audioEngine, clearFileInput, clearVideoPreview, performanceDiagnostics, videoSyncController]);
+  }, [audioEngine, clearAttachmentInputs, clearFileInput, clearVideoPreview, performanceDiagnostics, publishSessionMedia, showLoadNotice, videoSyncController]);
 
-  const handleFile = useCallback(async (file: File) => {
+  const loadPrimaryMedia = useCallback(async (file: File) => {
     const nextSourcePath = getDesktopSourcePath(file);
     clearVideoPreview();
     setVideoResolution(null);
     setVideoSourceSize(null);
-    setLoadNotice(null);
+    showLoadNotice(null);
     setSourcePath(null);
+    clearAttachmentInputs();
+    setPrimaryMedia(null);
+    setExternalAudio(null);
+    setSubtitleTrack(null);
+    publishSessionMedia(null);
     videoEventTimesRef.current = {};
     lastVideoRateRef.current = 1;
     lastVideoRateSetAtRef.current = 0;
@@ -1305,7 +1434,7 @@ export function TransportControls({ grayscale, onGrayscale, onFileLoaded }: Prop
     performanceDiagnostics.setVideoState('idle');
     setVideoSyncIndicator(null);
 
-    if (file.type.startsWith('video/')) {
+    if (isVideoFile(file)) {
       const url = URL.createObjectURL(file);
       videoUrlRef.current = url;
       setVideoUrlSession(url);
@@ -1315,41 +1444,206 @@ export function TransportControls({ grayscale, onGrayscale, onFileLoaded }: Prop
     setIsLoading(true);
     try {
       await audioEngine.load(file);
+      const nextPrimaryMedia: PrimaryMedia = {
+        kind: getPrimaryKind(file),
+        file,
+        filename: file.name,
+        sourcePath: nextSourcePath,
+        durationS: audioEngine.duration,
+        mediaKey: buildPrimaryMediaKey(file),
+      };
+      setPrimaryMedia(nextPrimaryMedia);
+      publishSessionMedia(nextPrimaryMedia);
       setSourcePath(nextSourcePath);
       if (audioEngine.backendMode === 'streamed') {
-        setLoadNotice({
-          tone: 'info',
-          message: 'Large media mode active: streamed playback is enabled for stability. Pitch shift comes online live, the session map fills continuously at low resolution, and the detail waveform plus waveform history learn as you play and seek.',
-        });
+        showLoadNotice(createCompactNotice(
+          'info',
+          'LARGE MEDIA MODE ACTIVE',
+          'Streamed playback is enabled for stability. Pitch shift stays live, the session map fills at low resolution, and the detail waveform plus waveform history learn as you play and seek.',
+        ));
       } else {
-        setLoadNotice(null);
+        showLoadNotice(null);
       }
       onFileLoaded?.();
     } catch (error) {
       const message = describeLoadError(error);
       clearVideoPreview();
       setSourcePath(null);
-      setLoadNotice({ tone: 'warn', message });
+      setPrimaryMedia(null);
+      setExternalAudio(null);
+      setSubtitleTrack(null);
+      publishSessionMedia(null);
+      showLoadNotice(createBannerNotice(message));
       diagnosticsLog.push(`load failed for ${file.name} - ${message}`, 'warn', 'transport');
       console.error('media load failed', error);
     } finally {
       clearFileInput();
       setIsLoading(false);
     }
-  }, [audioEngine, clearFileInput, clearVideoPreview, diagnosticsLog, onFileLoaded, performanceDiagnostics, setVideoUrlSession, videoSyncController]);
+  }, [audioEngine, clearAttachmentInputs, clearFileInput, clearVideoPreview, diagnosticsLog, onFileLoaded, performanceDiagnostics, publishSessionMedia, setVideoUrlSession, showLoadNotice, videoSyncController]);
+
+  const loadAlternateAudio = useCallback(async (file: File) => {
+    if (!primaryMedia || primaryMedia.kind !== 'video') {
+      return;
+    }
+
+    setIsLoading(true);
+    showLoadNotice(null);
+    setDisplayCurrentTime(0);
+    videoEventTimesRef.current = {};
+    lastVideoRateRef.current = 1;
+    lastVideoRateSetAtRef.current = 0;
+    videoSyncController.reset();
+    performanceDiagnostics.setVideoState('idle');
+    setVideoSyncIndicator(null);
+
+    try {
+      await audioEngine.load(file, primaryMedia.filename);
+      const nextAudio: ExternalAudioTrack = {
+        file,
+        filename: file.name,
+        durationS: audioEngine.duration,
+      };
+      setExternalAudio(nextAudio);
+      setSourcePath(primaryMedia.sourcePath);
+      if (Math.abs(nextAudio.durationS - primaryMedia.durationS) > 0.75) {
+        showLoadNotice(createCompactNotice(
+          'warn',
+          'EXTERNAL AUDIO ATTACHED',
+          'Duration differs from the original media. Playback now follows the attached audio track, while export still uses the original media file.',
+        ));
+      } else {
+        showLoadNotice(createCompactNotice(
+          'info',
+          'EXTERNAL AUDIO ATTACHED',
+          'Playback now follows the attached track while export still uses the original media file.',
+        ));
+      }
+      diagnosticsLog.push(`external audio attached ${file.name}`, 'info', 'transport');
+      onFileLoaded?.();
+    } catch (error) {
+      const message = describeLoadError(error);
+      showLoadNotice(createBannerNotice(message));
+      diagnosticsLog.push(`external audio failed ${file.name} - ${message}`, 'warn', 'transport');
+      console.error('external audio failed', error);
+    } finally {
+      if (alternateAudioInputRef.current) alternateAudioInputRef.current.value = '';
+      setIsLoading(false);
+    }
+  }, [audioEngine, diagnosticsLog, onFileLoaded, performanceDiagnostics, primaryMedia, showLoadNotice, videoSyncController]);
+
+  const restorePrimaryAudio = useCallback(async () => {
+    if (!primaryMedia) {
+      return;
+    }
+
+    setIsLoading(true);
+    showLoadNotice(null);
+    setDisplayCurrentTime(0);
+    videoEventTimesRef.current = {};
+    lastVideoRateRef.current = 1;
+    lastVideoRateSetAtRef.current = 0;
+    videoSyncController.reset();
+    performanceDiagnostics.setVideoState('idle');
+    setVideoSyncIndicator(null);
+
+    try {
+      await audioEngine.load(primaryMedia.file, primaryMedia.filename);
+      const restoredPrimaryMedia: PrimaryMedia = {
+        ...primaryMedia,
+        durationS: audioEngine.duration,
+      };
+      setPrimaryMedia(restoredPrimaryMedia);
+      publishSessionMedia(restoredPrimaryMedia);
+      setExternalAudio(null);
+      setSourcePath(primaryMedia.sourcePath);
+      if (audioEngine.backendMode === 'streamed') {
+        showLoadNotice(createCompactNotice(
+          'info',
+          'ORIGINAL AUDIO RESTORED',
+          'Large media mode stays active. Playback is stable and the session map continues to fill as you play.',
+        ));
+      } else {
+        showLoadNotice(createCompactNotice(
+          'info',
+          'ORIGINAL AUDIO RESTORED',
+          'Playback is back on the source media track.',
+        ));
+      }
+      diagnosticsLog.push('external audio cleared', 'info', 'transport');
+      onFileLoaded?.();
+    } catch (error) {
+      const message = describeLoadError(error);
+      showLoadNotice(createBannerNotice(message));
+      diagnosticsLog.push(`restore original audio failed - ${message}`, 'warn', 'transport');
+      console.error('restore original audio failed', error);
+    } finally {
+      if (alternateAudioInputRef.current) alternateAudioInputRef.current.value = '';
+      setIsLoading(false);
+    }
+  }, [audioEngine, diagnosticsLog, onFileLoaded, performanceDiagnostics, primaryMedia, publishSessionMedia, showLoadNotice, videoSyncController]);
+
+  const loadSubtitleTrack = useCallback(async (file: File) => {
+    if (!primaryMedia || primaryMedia.kind !== 'video') {
+      return;
+    }
+
+    try {
+      const parsed = parseSubtitleFile(file.name, await file.text());
+      setSubtitleTrack({
+        file,
+        filename: file.name,
+        format: parsed.format,
+        cues: parsed.cues,
+      });
+      showLoadNotice(createCompactNotice(
+        parsed.cues.length > 0 ? 'info' : 'warn',
+        parsed.cues.length > 0 ? 'SUBTITLES ATTACHED' : 'SUBTITLE FILE HAS NO CUES',
+        parsed.cues.length > 0
+          ? 'External subtitles are active for playback.'
+          : 'The file loaded successfully, but it did not contain any usable subtitle cues.',
+      ));
+      diagnosticsLog.push(`subtitles attached ${file.name}`, 'info', 'video');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Subtitles could not be loaded.';
+      showLoadNotice(createBannerNotice(message));
+      diagnosticsLog.push(`subtitle load failed ${file.name} - ${message}`, 'warn', 'video');
+      console.error('subtitle load failed', error);
+    } finally {
+      if (subtitleInputRef.current) subtitleInputRef.current.value = '';
+    }
+  }, [diagnosticsLog, primaryMedia, showLoadNotice]);
+
+  const clearSubtitleTrack = useCallback(() => {
+    setSubtitleTrack(null);
+    if (subtitleInputRef.current) subtitleInputRef.current.value = '';
+    diagnosticsLog.push('subtitles cleared', 'dim', 'video');
+  }, [diagnosticsLog]);
 
   const onDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(false);
     const file = e.dataTransfer.files[0];
-    if (file) void handleFile(file);
-  }, [handleFile]);
+    if (file) void loadPrimaryMedia(file);
+  }, [loadPrimaryMedia]);
 
   const onFileInput = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = '';
-    if (file) void handleFile(file);
-  }, [handleFile]);
+    if (file) void loadPrimaryMedia(file);
+  }, [loadPrimaryMedia]);
+
+  const onAlternateAudioInput = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (file) void loadAlternateAudio(file);
+  }, [loadAlternateAudio]);
+
+  const onSubtitleInput = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (file) void loadSubtitleTrack(file);
+  }, [loadSubtitleTrack]);
 
   const onSeekPointerDown = useCallback(() => {
     isSeekingRef.current = true;
@@ -1386,30 +1680,206 @@ export function TransportControls({ grayscale, onGrayscale, onFileLoaded }: Prop
     }
   }, [audioEngine, hardSyncVideo]);
 
-  const onToggleLoop = useCallback(() => {
-    const { duration, loopStart, loopEnd } = transportRef.current;
-    if (duration <= 0) return;
-    if (loopStart !== null && loopEnd !== null) {
-      audioEngine.clearLoop();
-      diagnosticsLog.push('loop cleared', 'info', 'transport');
-      return;
-    }
-    audioEngine.setLoop(0, duration);
-    diagnosticsLog.push(`loop file 00:00.0 -> ${formatTime(duration)}`, 'info', 'transport');
-  }, [audioEngine, diagnosticsLog]);
-
   const seekFraction = transport.duration > 0 ? displayCurrentTime / transport.duration : 0;
-  const hasLoop = transport.loopStart !== null && transport.loopEnd !== null;
   const videoOverlayActive = videoOverlayMode !== null;
   const showTheaterHint = videoOverlayMode === 'theater';
   const showFullscreenHint = videoOverlayMode === 'full';
   const showWindowHint = videoViewMode === 'window';
+  const sessionFilename = primaryMedia?.filename ?? transport.filename;
+  const sessionDurationS = primaryMedia?.durationS ?? transport.duration;
+  const loadedLayoutMode: LoadedLayoutMode = primaryMedia?.kind ?? (transport.filename ? 'audio' : 'empty');
+  const clipSourceKind = loadedLayoutMode === 'video' ? 'video' : 'audio';
+  const canAttachLinkedTracks = loadedLayoutMode === 'video';
+  const audioStatusLabel = externalAudio ? externalAudio.filename : primaryMedia ? 'ORIGINAL TRACK' : 'NONE';
+  const subtitleStatusLabel = subtitleTrack ? subtitleTrack.filename : canAttachLinkedTracks ? 'NONE' : 'VIDEO ONLY';
+  const videoViewLabel = videoUrl ? (videoViewMode === 'inline' ? 'WINDOW' : 'DOCK') : 'VIDEO ONLY';
+  const ingestLabel = isLoading
+    ? 'DECODING...'
+    : sessionFilename
+      ? 'DROP TO REPLACE / CLICK TO OPEN'
+      : 'DROP AUDIO / VIDEO - OR CLICK TO OPEN';
 
   return (
     <div style={wrapStyle}>
+      <div style={{ ...deckStyle, borderColor: tt.btnBorder, background: tt.panelBg }}>
+        <div style={deckHeaderStyle}>
+          <span style={{ ...deckEyebrowStyle, color: tt.panelLabel }}>TOP CONTROL DECK</span>
+          <span style={{ ...deckMetaStyle, color: sessionFilename ? tt.btnColor : tt.mutedText }}>
+            {transportStatusLabel}
+          </span>
+        </div>
+
+        <div style={topControlGridStyle}>
+          <button
+            style={{
+              ...topControlButtonStyle,
+              background: tt.btnBg,
+              borderColor: tt.btnBorder,
+              color: tt.btnColor,
+            }}
+            onClick={() => {
+              clearFileInput();
+              fileInputRef.current?.click();
+            }}
+            disabled={isLoading}
+            title="Open or replace the main media file"
+          >
+            <span style={topControlLabelStyle}>OPEN MEDIA</span>
+            <span style={{ ...topControlHintStyle, color: tt.mutedText }}>PRIMARY</span>
+          </button>
+          <button
+            style={{
+              ...topControlButtonStyle,
+              background: externalAudio ? tt.btnActiveBg : tt.btnBg,
+              borderColor: externalAudio ? tt.btnActiveBorder : tt.btnBorder,
+              color: tt.btnColor,
+            }}
+            onClick={() => {
+              if (externalAudio) {
+                void restorePrimaryAudio();
+                return;
+              }
+              if (!canAttachLinkedTracks) {
+                return;
+              }
+              if (alternateAudioInputRef.current) alternateAudioInputRef.current.value = '';
+              alternateAudioInputRef.current?.click();
+            }}
+            disabled={isLoading || (!externalAudio && !canAttachLinkedTracks)}
+            title={externalAudio ? 'Restore the original media audio track' : 'Attach an alternate audio file for playback'}
+          >
+            <span style={topControlLabelStyle}>{externalAudio ? 'ORIGINAL AUDIO' : 'ALT AUDIO'}</span>
+            <span style={{ ...topControlHintStyle, color: tt.mutedText }}>{externalAudio ? 'RESTORE' : 'PLAYBACK'}</span>
+          </button>
+          <button
+            style={{
+              ...topControlButtonStyle,
+              background: subtitleTrack ? tt.btnActiveBg : tt.btnBg,
+              borderColor: subtitleTrack ? tt.btnActiveBorder : tt.btnBorder,
+              color: tt.btnColor,
+            }}
+            onClick={() => {
+              if (subtitleTrack) {
+                clearSubtitleTrack();
+                return;
+              }
+              if (!canAttachLinkedTracks) {
+                return;
+              }
+              if (subtitleInputRef.current) subtitleInputRef.current.value = '';
+              subtitleInputRef.current?.click();
+            }}
+            disabled={isLoading || (!subtitleTrack && !canAttachLinkedTracks)}
+            title={subtitleTrack ? 'Clear the current subtitle file' : 'Attach a subtitle file'}
+          >
+            <span style={topControlLabelStyle}>{subtitleTrack ? 'CLEAR SUBS' : 'SUBTITLES'}</span>
+            <span style={{ ...topControlHintStyle, color: tt.mutedText }}>{subtitleTrack ? 'REMOVE' : 'OVERLAY'}</span>
+          </button>
+          <button
+            style={{
+              ...topControlButtonStyle,
+              background: videoViewMode !== 'inline' ? tt.btnActiveBg : tt.btnBg,
+              borderColor: videoViewMode !== 'inline' ? tt.btnActiveBorder : tt.btnBorder,
+              color: tt.btnColor,
+            }}
+            onClick={onToggleWindowed}
+            disabled={isLoading || !videoUrl}
+            title={videoViewMode === 'inline' ? 'Open the video in a movable window' : 'Dock the video back into the session console'}
+          >
+            <span style={topControlLabelStyle}>{videoViewLabel}</span>
+            <span style={{ ...topControlHintStyle, color: tt.mutedText }}>VIDEO</span>
+          </button>
+          <button
+            style={{
+              ...topControlButtonStyle,
+              background: tt.btnBg,
+              borderColor: tt.btnBorder,
+              color: tt.btnColor,
+            }}
+            onClick={() => audioEngine.stop()}
+            disabled={isLoading || !transport.filename}
+            title="Stop and return to the start"
+          >
+            <span style={topControlLabelStyle}>STOP</span>
+            <span style={{ ...topControlHintStyle, color: tt.mutedText }}>START</span>
+          </button>
+          <button
+            style={{
+              ...topControlButtonStyle,
+              background: transport.isPlaying ? tt.btnActiveBg : tt.btnBg,
+              borderColor: transport.isPlaying ? tt.btnActiveBorder : tt.btnBorder,
+              color: tt.btnColor,
+            }}
+            onClick={() => transport.isPlaying ? audioEngine.pause() : audioEngine.play()}
+            disabled={isLoading || !transport.filename}
+            title={transport.isPlaying ? 'Pause playback' : 'Play the loaded file'}
+          >
+            <span style={topControlLabelStyle}>{transport.isPlaying ? 'PAUSE' : 'PLAY'}</span>
+            <span style={{ ...topControlHintStyle, color: tt.mutedText }}>{transport.isPlaying ? 'HOLD' : 'RUN'}</span>
+          </button>
+          <button
+            style={{
+              ...topControlButtonStyle,
+              background: transport.loopStart !== null && transport.loopEnd !== null ? tt.btnActiveBg : tt.btnBg,
+              borderColor: transport.loopStart !== null && transport.loopEnd !== null ? tt.btnActiveBorder : tt.btnBorder,
+              color: tt.btnColor,
+            }}
+            onClick={() => {
+              if (transport.loopStart !== null && transport.loopEnd !== null) {
+                audioEngine.clearLoop();
+                return;
+              }
+              if (transport.duration <= 0) return;
+              audioEngine.setLoop(0, transport.duration);
+            }}
+            disabled={isLoading || !transport.filename}
+            title={transport.loopStart !== null && transport.loopEnd !== null ? 'Clear the current loop region' : 'Loop the full file'}
+          >
+            <span style={topControlLabelStyle}>LOOP</span>
+            <span style={{ ...topControlHintStyle, color: tt.mutedText }}>READY</span>
+          </button>
+          <button
+            style={{
+              ...topControlButtonStyle,
+              background: tt.btnResetBg,
+              borderColor: tt.btnResetBorder,
+              color: tt.btnColor,
+            }}
+            onClick={() => audioEngine.reset()}
+            disabled={isLoading || !transport.filename}
+            title="Reset - clear file and all visuals"
+          >
+            <span style={topControlLabelStyle}>RESET</span>
+            <span style={{ ...topControlHintStyle, color: tt.mutedText }}>CLEAR</span>
+          </button>
+        </div>
+
+        <div style={topStatusGridStyle}>
+          <div style={{ ...topStatusCellStyle, borderColor: tt.btnBorder, background: tt.panelBg }}>
+            <span style={{ ...deckEyebrowStyle, color: tt.panelLabel }}>MEDIA</span>
+            <span style={{ ...topStatusValueStyle, color: sessionFilename ? tt.btnColor : tt.mutedText }}>
+              {sessionFilename ?? 'NONE'}
+            </span>
+          </div>
+          <div style={{ ...topStatusCellStyle, borderColor: tt.btnBorder, background: tt.panelBg }}>
+            <span style={{ ...deckEyebrowStyle, color: tt.panelLabel }}>AUDIO</span>
+            <span style={{ ...topStatusValueStyle, color: primaryMedia ? tt.btnColor : tt.mutedText }}>
+              {audioStatusLabel}
+            </span>
+          </div>
+          <div style={{ ...topStatusCellStyle, borderColor: tt.btnBorder, background: tt.panelBg }}>
+            <span style={{ ...deckEyebrowStyle, color: tt.panelLabel }}>SUBS</span>
+            <span style={{ ...topStatusValueStyle, color: subtitleTrack || canAttachLinkedTracks ? tt.btnColor : tt.mutedText }}>
+              {subtitleStatusLabel}
+            </span>
+          </div>
+        </div>
+      </div>
+
       <div
         style={{
           ...ingestStyle,
+          ...(sessionFilename ? loadedIngestStyle : null),
           borderColor: isDragging ? tt.seekFillColor : tt.btnBorder,
           background: isDragging ? INGEST_DRAG_BACKGROUNDS[visualMode] : tt.btnBg,
         }}
@@ -1428,33 +1898,73 @@ export function TransportControls({ grayscale, onGrayscale, onFileLoaded }: Prop
           style={{ display: 'none' }}
           onChange={onFileInput}
         />
-        {isLoading ? (
-          <span style={{ ...ingestTextStyle, color: tt.btnColor }}>DECODING...</span>
-        ) : transport.filename ? (
-          <span style={{ ...ingestTextStyle, color: tt.btnColor }}>
-            {transport.filename}
-          </span>
-        ) : (
-          <span style={{ ...ingestTextStyle, color: tt.btnColor }}>DROP AUDIO / VIDEO - OR CLICK TO OPEN</span>
-        )}
+        <input
+          ref={alternateAudioInputRef}
+          type="file"
+          accept="audio/*"
+          style={{ display: 'none' }}
+          onChange={onAlternateAudioInput}
+        />
+        <input
+          ref={subtitleInputRef}
+          type="file"
+          accept=".srt,.vtt,text/vtt,application/x-subrip"
+          style={{ display: 'none' }}
+          onChange={onSubtitleInput}
+        />
+        <span style={{ ...ingestTextStyle, color: tt.btnColor }} title={sessionFilename ?? undefined}>
+          {ingestLabel}
+        </span>
       </div>
 
       {loadNotice ? (
-        <div
-          style={{
-            ...loadNoticeStyle,
-            ...LOAD_NOTICE_THEMES[loadNotice.tone][visualMode],
-          }}
-        >
-          <span style={{ ...loadNoticeMessageStyle, color: tt.btnColor }}>{loadNotice.message}</span>
-          <button
-            style={{ ...loadNoticeDismissStyle, borderColor: tt.btnBorder, color: tt.btnColor }}
-            onClick={() => setLoadNotice(null)}
-            title="Dismiss message"
+        loadNotice.kind === 'compact' ? (
+          <div
+            style={{
+              ...compactNoticeStyle,
+              ...COMPACT_NOTICE_THEMES[loadNotice.tone][visualMode],
+            }}
           >
-            X
-          </button>
-        </div>
+            <div style={compactNoticeHeaderStyle}>
+              <span style={{ ...compactNoticeTitleStyle, color: tt.btnColor }}>{loadNotice.title}</span>
+              <div style={compactNoticeActionsStyle}>
+                <button
+                  style={{ ...compactNoticeButtonStyle, borderColor: tt.btnBorder, color: tt.btnColor }}
+                  onClick={() => setLoadNoticeExpanded((open) => !open)}
+                  title={loadNoticeExpanded ? 'Hide details' : 'Show details'}
+                >
+                  {loadNoticeExpanded ? 'HIDE' : 'DETAILS'}
+                </button>
+                <button
+                  style={{ ...compactNoticeButtonStyle, borderColor: tt.btnBorder, color: tt.btnColor }}
+                  onClick={() => showLoadNotice(null)}
+                  title="Dismiss status"
+                >
+                  X
+                </button>
+              </div>
+            </div>
+            {loadNoticeExpanded ? (
+              <div style={{ ...compactNoticeDetailStyle, color: tt.secondaryText }}>{loadNotice.detail}</div>
+            ) : null}
+          </div>
+        ) : (
+          <div
+            style={{
+              ...loadNoticeStyle,
+              ...LOAD_NOTICE_THEMES[loadNotice.tone][visualMode],
+            }}
+          >
+            <span style={{ ...loadNoticeMessageStyle, color: tt.btnColor }}>{loadNotice.message}</span>
+            <button
+              style={{ ...loadNoticeDismissStyle, borderColor: tt.btnBorder, color: tt.btnColor }}
+              onClick={() => showLoadNotice(null)}
+              title="Dismiss message"
+            >
+              X
+            </button>
+          </div>
+        )
       ) : null}
 
       {videoUrl && (
@@ -1464,125 +1974,19 @@ export function TransportControls({ grayscale, onGrayscale, onFileLoaded }: Prop
         />
       )}
 
-      {videoUrl && (
-        <div
-          ref={videoWrapRef}
-          style={
-            videoViewMode === 'theater'
-              ? getTheaterVideoWrapStyle(videoSourceSize)
-              : videoViewMode === 'full'
-                ? getAppFullscreenVideoWrapStyle()
-                : videoViewMode === 'window'
-                  ? getWindowedVideoWrapStyle(videoWindowRect)
-                  : { ...videoWrapStyle, height: videoHeight }
-          }
-        >
-          <video
-            ref={videoRef}
-            src={videoUrl}
-            muted
-            preload="auto"
-            playsInline
-            disablePictureInPicture
-            style={videoStyle}
-            onLoadedMetadata={onVideoMetadata}
-            onCanPlay={onVideoCanPlay}
-            onSeeking={onVideoSeeking}
-            onSeeked={onVideoSeeked}
-            onPlaying={onVideoPlaying}
-            onWaiting={onVideoWaiting}
-            onStalled={onVideoStalled}
-            onEnded={onVideoEnded}
-            onError={onVideoError}
-          />
-          <div style={videoOverlayStyle}>
-            {videoResolution && (
-              <span style={videoBadgeStyle}>{videoResolution}</span>
-            )}
-            {videoSyncIndicator && (
-              <span
-                style={{
-                  ...videoBadgeStyle,
-                  ...(videoSyncIndicator === 'wait' ? videoBadgeWarnStyle : videoBadgeSyncStyle),
-                }}
-              >
-                {videoSyncIndicator === 'wait' ? 'WAIT' : 'SYNC'}
-              </span>
-            )}
-            <button
-              style={{ ...videoFsButtonStyle, ...(videoViewMode === 'window' ? videoFsButtonActiveStyle : {}) }}
-              onClick={onToggleWindowed}
-              title={videoViewMode === 'window' ? 'Dock video back into the session controls' : 'Open a movable window inside the app'}
-            >
-              WND
-            </button>
-            <button
-              style={{ ...videoFsButtonStyle, ...(videoOverlayMode === 'theater' ? videoFsButtonActiveStyle : {}) }}
-              onClick={onToggleTheater}
-              title={videoOverlayMode === 'theater' ? 'Return to the previous video layout' : 'Open theater mode'}
-            >
-              THR
-            </button>
-            <button
-              style={{ ...videoFsButtonStyle, ...(videoOverlayMode === 'full' ? videoFsButtonActiveStyle : {}) }}
-              onClick={onToggleFullscreen}
-              title={videoOverlayMode === 'full' ? 'Return to the previous video layout' : 'Open full screen within the app window'}
-            >
-              FULL
-            </button>
-          </div>
-          {showWindowHint && (
-            <div style={videoWindowDragHandleStyle} onMouseDown={onWindowDragMouseDown}>
-              <span style={videoWindowDragLabelStyle}>WINDOWED VIDEO</span>
-            </div>
-          )}
-          {showTheaterHint && (
-            <div style={theaterHintStyle}>
-              ESC OR CLICK OUTSIDE TO CLOSE
-              {isHighResVideo(videoSourceSize) ? '  /  VIDEO PRIORITY MODE ACTIVE' : ''}
-            </div>
-          )}
-          {showFullscreenHint && (
-            <div style={theaterHintStyle}>
-              IN-APP FULL SCREEN  /  ESC OR CLICK OUTSIDE TO CLOSE
-              {isHighResVideo(videoSourceSize) ? '  /  VIDEO PRIORITY MODE ACTIVE' : ''}
-            </div>
-          )}
-          {showWindowHint && (
-            <div style={windowHintStyle}>
-              DRAG TOP EDGE TO MOVE  /  DRAG CORNER TO RESIZE  /  CLICK WND TO DOCK BACK
-            </div>
-          )}
-          {showWindowHint && (
-            <div
-              style={videoWindowResizeHandleStyle}
-              onMouseDown={onWindowResizeMouseDown}
-              title="Drag to resize"
-            />
-          )}
-          {videoViewMode === 'inline' && (
-            <div
-              style={videoResizeHandleStyle}
-              onMouseDown={onVideoResizeMouseDown}
-              title="Drag to resize"
-            />
-          )}
-        </div>
-      )}
-
-      <div style={operationsGridStyle}>
-        <div style={{ ...deckStyle, borderColor: tt.btnBorder }}>
+      <div style={videoUrl ? sessionStageWithPreviewStyle : sessionStageSingleStyle}>
+        <div style={{ ...deckStyle, borderColor: tt.btnBorder, background: tt.panelBg }}>
           <div style={deckHeaderStyle}>
-            <span style={{ ...deckEyebrowStyle, color: COLORS.textCategory }}>TRANSPORT DECK</span>
-            <span style={{ ...deckMetaStyle, color: transport.filename ? tt.btnColor : COLORS.textDim }}>
+            <span style={{ ...deckEyebrowStyle, color: tt.panelLabel }}>TRANSPORT POSITION</span>
+            <span style={{ ...deckMetaStyle, color: transport.filename ? tt.btnColor : tt.mutedText }}>
               {transportStatusLabel}
             </span>
           </div>
 
           <div style={timeRowStyle}>
-            <span style={timeStyle}>{formatTime(displayCurrentTime)}</span>
+            <span style={{ ...timeStyle, color: tt.btnColor }}>{formatTime(displayCurrentTime)}</span>
             <span style={timeSepStyle}>/</span>
-            <span style={{ ...timeStyle, color: COLORS.textDim }}>{formatTime(transport.duration)}</span>
+            <span style={{ ...timeStyle, color: tt.secondaryText }}>{formatTime(transport.duration)}</span>
           </div>
 
           <div style={{ ...seekTrackStyle, background: tt.seekTrackBg }}>
@@ -1621,69 +2025,142 @@ export function TransportControls({ grayscale, onGrayscale, onFileLoaded }: Prop
               </button>
             </div>
           ) : (
-            <div style={{ ...transportHintStyle, color: COLORS.textDim }}>
+            <div style={{ ...transportHintStyle, color: tt.mutedText }}>
               Set a loop or saved range for quick preview and export work.
             </div>
           )}
+        </div>
 
-          <div style={buttonRowStyle}>
-            <button
-              style={{ ...btnStyle, background: tt.btnBg, borderColor: tt.btnBorder, color: tt.btnColor }}
-              onClick={() => audioEngine.stop()}
-              disabled={isLoading || !transport.filename}
-              title="Stop - return to start"
+        {videoUrl ? (
+          <div style={sessionPreviewColumnStyle}>
+            <div
+              ref={videoWrapRef}
+              style={
+                videoViewMode === 'theater'
+                  ? getTheaterVideoWrapStyle(videoSourceSize)
+                  : videoViewMode === 'full'
+                    ? getAppFullscreenVideoWrapStyle()
+                    : videoViewMode === 'window'
+                      ? getWindowedVideoWrapStyle(videoWindowRect)
+                      : { ...videoWrapStyle, height: videoHeight }
+              }
             >
-              STOP
-            </button>
-            <button
-              style={transport.isPlaying
-                ? { ...btnStyle, background: tt.btnActiveBg, borderColor: tt.btnActiveBorder, color: tt.btnColor }
-                : { ...btnStyle, background: tt.btnBg, borderColor: tt.btnBorder, color: tt.btnColor }}
-              onClick={() => transport.isPlaying ? audioEngine.pause() : audioEngine.play()}
-              disabled={isLoading || !transport.filename}
-              title={transport.isPlaying ? 'Pause' : 'Play'}
-            >
-              {transport.isPlaying ? 'PAUSE' : 'PLAY'}
-            </button>
-            <button
-              style={hasLoop
-                ? { ...btnStyle, background: tt.btnActiveBg, borderColor: tt.btnActiveBorder, color: tt.btnColor }
-                : { ...btnStyle, background: tt.btnBg, borderColor: tt.btnBorder, color: tt.btnColor }}
-              onClick={onToggleLoop}
-              disabled={isLoading || !transport.filename}
-              title={hasLoop ? 'Clear current loop region' : 'Loop the full file'}
-            >
-              LOOP
-            </button>
-            <button
-              style={{ ...btnStyle, ...btnResetStyle, background: tt.btnResetBg, borderColor: tt.btnResetBorder, color: tt.btnColor }}
-              onClick={() => audioEngine.reset()}
-              disabled={isLoading || !transport.filename}
-              title="Reset - clear file and all visuals"
-            >
-              RESET
-            </button>
+              <video
+                ref={videoRef}
+                src={videoUrl}
+                muted
+                preload="auto"
+                playsInline
+                disablePictureInPicture
+                style={videoStyle}
+                onLoadedMetadata={onVideoMetadata}
+                onCanPlay={onVideoCanPlay}
+                onSeeking={onVideoSeeking}
+                onSeeked={onVideoSeeked}
+                onPlaying={onVideoPlaying}
+                onWaiting={onVideoWaiting}
+                onStalled={onVideoStalled}
+                onEnded={onVideoEnded}
+                onError={onVideoError}
+              />
+              {activeSubtitleCue ? (
+                <div style={subtitleOverlayWrapStyle}>
+                  <div style={subtitleOverlayCardStyle}>
+                    {activeSubtitleCue.lines.map((line, index) => (
+                      <div key={`${activeSubtitleCue.startS}:${index}`} style={subtitleOverlayLineStyle}>{line}</div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+              <div style={videoOverlayStyle}>
+                {videoResolution && (
+                  <span style={videoBadgeStyle}>{videoResolution}</span>
+                )}
+                {videoSyncIndicator && (
+                  <span
+                    style={{
+                      ...videoBadgeStyle,
+                      ...(videoSyncIndicator === 'wait' ? videoBadgeWarnStyle : videoBadgeSyncStyle),
+                    }}
+                  >
+                    {videoSyncIndicator === 'wait' ? 'WAIT' : 'SYNC'}
+                  </span>
+                )}
+                <button
+                  style={{ ...videoFsButtonStyle, ...(videoViewMode === 'window' ? videoFsButtonActiveStyle : {}) }}
+                  onClick={onToggleWindowed}
+                  title={videoViewMode === 'window' ? 'Dock video back into the session controls' : 'Open a movable window inside the app'}
+                >
+                  WND
+                </button>
+                <button
+                  style={{ ...videoFsButtonStyle, ...(videoOverlayMode === 'theater' ? videoFsButtonActiveStyle : {}) }}
+                  onClick={onToggleTheater}
+                  title={videoOverlayMode === 'theater' ? 'Return to the previous video layout' : 'Open theater mode'}
+                >
+                  THR
+                </button>
+                <button
+                  style={{ ...videoFsButtonStyle, ...(videoOverlayMode === 'full' ? videoFsButtonActiveStyle : {}) }}
+                  onClick={onToggleFullscreen}
+                  title={videoOverlayMode === 'full' ? 'Return to the previous video layout' : 'Open full screen within the app window'}
+                >
+                  FULL
+                </button>
+              </div>
+              {showWindowHint && (
+                <div style={videoWindowDragHandleStyle} onMouseDown={onWindowDragMouseDown}>
+                  <span style={videoWindowDragLabelStyle}>WINDOWED VIDEO</span>
+                </div>
+              )}
+              {showTheaterHint && (
+                <div style={theaterHintStyle}>
+                  ESC OR CLICK OUTSIDE TO CLOSE
+                  {isHighResVideo(videoSourceSize) ? '  /  VIDEO PRIORITY MODE ACTIVE' : ''}
+                </div>
+              )}
+              {showFullscreenHint && (
+                <div style={theaterHintStyle}>
+                  IN-APP FULL SCREEN  /  ESC OR CLICK OUTSIDE TO CLOSE
+                  {isHighResVideo(videoSourceSize) ? '  /  VIDEO PRIORITY MODE ACTIVE' : ''}
+                </div>
+              )}
+              {showWindowHint && (
+                <div style={windowHintStyle}>
+                  DRAG TOP EDGE TO MOVE  /  DRAG CORNER TO RESIZE  /  CLICK WND TO DOCK BACK
+                </div>
+              )}
+              {showWindowHint && (
+                <div
+                  style={videoWindowResizeHandleStyle}
+                  onMouseDown={onWindowResizeMouseDown}
+                  title="Drag to resize"
+                />
+              )}
+              {videoViewMode === 'inline' && (
+                <div
+                  style={videoResizeHandleStyle}
+                  onMouseDown={onVideoResizeMouseDown}
+                  title="Drag to resize"
+                />
+              )}
+            </div>
           </div>
-        </div>
-
-        <div style={utilityStackStyle}>
-          {transport.filename ? (
-            <ClipExportStrip
-              key={`${videoUrl ? 'video' : 'audio'}:${transport.filename}:${transport.duration}`}
-              transport={transport}
-              sourceKind={videoUrl ? 'video' : 'audio'}
-              sourcePath={sourcePath}
-              visualMode={visualMode}
-            />
-          ) : null}
-          <SessionControls
-            grayscale={grayscale}
-            onGrayscale={onGrayscale}
-            visualMode={visualMode}
-            onVisualMode={(nextMode) => displayMode.setMode(nextMode)}
-          />
-        </div>
+        ) : null}
       </div>
+
+      {sessionFilename ? (
+        <ClipExportStrip
+          key={`${clipSourceKind}:${sessionFilename}:${sessionDurationS}`}
+          sessionFilename={sessionFilename}
+          sessionDurationS={sessionDurationS}
+          sourceKind={clipSourceKind}
+          sourcePath={sourcePath}
+          visualMode={visualMode}
+        />
+      ) : null}
+
+      <DiagnosticsLog collapsible collapsedByDefault bodyMaxHeightPx={220} />
     </div>
   );
 }
@@ -1692,7 +2169,7 @@ const wrapStyle: React.CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
   gap: SPACING.sm,
-  padding: SPACING.md,
+  padding: SPACING.sm,
   flexShrink: 0,
   boxSizing: 'border-box',
 };
@@ -1712,6 +2189,11 @@ const ingestStyle: React.CSSProperties = {
   flexShrink: 0,
 };
 
+const loadedIngestStyle: React.CSSProperties = {
+  minHeight: 28,
+  padding: `5px ${SPACING.sm}px`,
+};
+
 const ingestTextStyle: React.CSSProperties = {
   fontFamily: FONTS.mono,
   fontSize: FONTS.sizeSm,
@@ -1720,6 +2202,58 @@ const ingestTextStyle: React.CSSProperties = {
   overflow: 'hidden',
   textOverflow: 'ellipsis',
   whiteSpace: 'nowrap',
+};
+
+const compactNoticeStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 4,
+  padding: `4px ${SPACING.sm}px`,
+  borderWidth: 1,
+  borderStyle: 'solid',
+  borderRadius: 2,
+  flexShrink: 0,
+};
+
+const compactNoticeHeaderStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  gap: SPACING.sm,
+};
+
+const compactNoticeTitleStyle: React.CSSProperties = {
+  fontFamily: FONTS.mono,
+  fontSize: FONTS.sizeXs,
+  letterSpacing: '0.10em',
+  lineHeight: 1.2,
+  minWidth: 0,
+};
+
+const compactNoticeActionsStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: SPACING.xs,
+  flexShrink: 0,
+};
+
+const compactNoticeButtonStyle: React.CSSProperties = {
+  fontFamily: FONTS.mono,
+  fontSize: FONTS.sizeXs,
+  background: 'transparent',
+  borderWidth: 1,
+  borderStyle: 'solid',
+  borderRadius: 2,
+  padding: '1px 5px',
+  cursor: 'pointer',
+  lineHeight: 1.2,
+};
+
+const compactNoticeDetailStyle: React.CSSProperties = {
+  fontFamily: FONTS.mono,
+  fontSize: FONTS.sizeXs,
+  letterSpacing: '0.04em',
+  lineHeight: 1.4,
 };
 
 const loadNoticeStyle: React.CSSProperties = {
@@ -1734,6 +2268,25 @@ const loadNoticeStyle: React.CSSProperties = {
   borderRadius: 2,
   background: COLORS.bg1,
   flexShrink: 0,
+};
+
+const sessionStageWithPreviewStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: SPACING.sm,
+};
+
+const sessionStageSingleStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: SPACING.sm,
+};
+
+const sessionPreviewColumnStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: SPACING.xs,
+  minWidth: 0,
 };
 
 const loadNoticeWarnStyle: React.CSSProperties = {
@@ -1763,6 +2316,11 @@ const LOAD_NOTICE_THEMES: Record<LoadNotice['tone'], Record<VisualMode, React.CS
     optic: { borderColor: 'rgba(109,146,165,0.60)', background: 'rgba(243,248,251,0.92)' },
     red: { borderColor: 'rgba(124,40,39,0.60)', background: 'rgba(22,6,7,0.92)' },
   },
+};
+
+const COMPACT_NOTICE_THEMES: Record<'warn' | 'info', Record<VisualMode, React.CSSProperties>> = {
+  warn: LOAD_NOTICE_THEMES.warn,
+  info: LOAD_NOTICE_THEMES.info,
 };
 
 const loadNoticeMessageStyle: React.CSSProperties = {
@@ -1831,6 +2389,35 @@ const videoOverlayStyle: React.CSSProperties = {
   gap: 4,
   pointerEvents: 'none',
   zIndex: 3,
+};
+
+const subtitleOverlayWrapStyle: React.CSSProperties = {
+  position: 'absolute',
+  left: 12,
+  right: 12,
+  bottom: 14,
+  display: 'flex',
+  justifyContent: 'center',
+  pointerEvents: 'none',
+  zIndex: 2,
+};
+
+const subtitleOverlayCardStyle: React.CSSProperties = {
+  maxWidth: '100%',
+  padding: '6px 10px',
+  borderRadius: 2,
+  border: `1px solid ${COLORS.border}`,
+  background: 'rgba(0, 0, 0, 0.72)',
+  boxShadow: '0 10px 24px rgba(0, 0, 0, 0.34)',
+};
+
+const subtitleOverlayLineStyle: React.CSSProperties = {
+  fontFamily: FONTS.sans,
+  fontSize: 14,
+  lineHeight: 1.3,
+  color: '#f7f2dc',
+  textAlign: 'center',
+  textShadow: '0 1px 2px rgba(0, 0, 0, 0.85)',
 };
 
 const videoBadgeStyle: React.CSSProperties = {
@@ -1996,19 +2583,6 @@ const seekInputStyle: React.CSSProperties = {
   padding: 0,
 };
 
-const buttonRowStyle: React.CSSProperties = {
-  display: 'flex',
-  gap: SPACING.xs,
-  flexShrink: 0,
-};
-
-const operationsGridStyle: React.CSSProperties = {
-  display: 'grid',
-  gridTemplateColumns: 'repeat(auto-fit, minmax(184px, 1fr))',
-  gap: SPACING.sm,
-  alignItems: 'start',
-};
-
 const deckStyle: React.CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
@@ -2019,13 +2593,6 @@ const deckStyle: React.CSSProperties = {
   borderRadius: 2,
   background: COLORS.bg1,
   boxSizing: 'border-box',
-  minWidth: 0,
-};
-
-const utilityStackStyle: React.CSSProperties = {
-  display: 'flex',
-  flexDirection: 'column',
-  gap: SPACING.sm,
   minWidth: 0,
 };
 
@@ -2048,35 +2615,81 @@ const deckMetaStyle: React.CSSProperties = {
   letterSpacing: '0.08em',
 };
 
+const topControlGridStyle: React.CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
+  gap: SPACING.xs,
+};
+
+const topControlButtonStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'flex-start',
+  justifyContent: 'space-between',
+  gap: 2,
+  minHeight: 40,
+  padding: `6px ${SPACING.xs}px`,
+  borderWidth: 1,
+  borderStyle: 'solid',
+  borderRadius: 2,
+  fontFamily: FONTS.mono,
+  cursor: 'pointer',
+  outline: 'none',
+  transition: 'background 0.1s, border-color 0.1s',
+  boxSizing: 'border-box',
+  textAlign: 'left',
+  minWidth: 0,
+};
+
+const topControlLabelStyle: React.CSSProperties = {
+  fontSize: 10,
+  letterSpacing: '0.06em',
+  lineHeight: 1.2,
+  maxWidth: '100%',
+  whiteSpace: 'normal',
+  wordBreak: 'break-word',
+};
+
+const topControlHintStyle: React.CSSProperties = {
+  fontSize: 8,
+  letterSpacing: '0.04em',
+  lineHeight: 1.2,
+};
+
+const topStatusGridStyle: React.CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+  gap: SPACING.xs,
+};
+
+const topStatusCellStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 1,
+  minWidth: 0,
+  padding: `5px ${SPACING.xs}px`,
+  borderWidth: 1,
+  borderStyle: 'solid',
+  borderRadius: 2,
+  background: COLORS.bg1,
+};
+
+const topStatusValueStyle: React.CSSProperties = {
+  fontFamily: FONTS.mono,
+  fontSize: 10,
+  letterSpacing: '0.04em',
+  lineHeight: 1.2,
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+};
+
 const transportHintStyle: React.CSSProperties = {
   fontFamily: FONTS.mono,
   fontSize: 9,
   letterSpacing: '0.04em',
   lineHeight: 1.45,
   minHeight: 20,
-};
-
-const btnStyle: React.CSSProperties = {
-  background: COLORS.bg3,
-  borderWidth: 1,
-  borderStyle: 'solid',
-  borderColor: COLORS.border,
-  color: COLORS.textPrimary,
-  fontFamily: FONTS.mono,
-  fontSize: FONTS.sizeSm,
-  padding: `${SPACING.xs}px ${SPACING.sm}px`,
-  cursor: 'pointer',
-  borderRadius: 2,
-  lineHeight: 1.2,
-  outline: 'none',
-  transition: 'background 0.1s, border-color 0.1s',
-};
-
-const btnResetStyle: React.CSSProperties = {
-  marginLeft: 'auto',
-  letterSpacing: '0.06em',
-  borderColor: COLORS.borderActive,
-  background: COLORS.bg1,
 };
 
 const loopRowStyle: React.CSSProperties = {

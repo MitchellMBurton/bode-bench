@@ -352,7 +352,17 @@ const PERFORMANCE_PROFILE_OPTIONS: ReadonlyArray<{
   { value: 'desktop-high', label: 'DESKTOP HIGH', detail: 'installed headroom' },
 ];
 
-export function DiagnosticsLog(): React.ReactElement {
+interface DiagnosticsLogProps {
+  readonly collapsible?: boolean;
+  readonly collapsedByDefault?: boolean;
+  readonly bodyMaxHeightPx?: number;
+}
+
+export function DiagnosticsLog({
+  collapsible = false,
+  collapsedByDefault = false,
+  bodyMaxHeightPx,
+}: DiagnosticsLogProps = {}): React.ReactElement {
   const audioEngine = useAudioEngine();
   const diagnosticsLog = useDiagnosticsLog();
   const displayMode = useDisplayMode();
@@ -366,6 +376,7 @@ export function DiagnosticsLog(): React.ReactElement {
   const [warnOnly, setWarnOnly] = useState(false);
   const [followTail, setFollowTail] = useState(true);
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle');
+  const [isOpen, setIsOpen] = useState(!collapsedByDefault);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const prevTransportRef = useRef<TransportState | null>(null);
@@ -698,41 +709,69 @@ export function DiagnosticsLog(): React.ReactElement {
     prevTransportRef.current = null;
   }, [diagnosticsLog]);
 
+  const onToggleOpen = useCallback(() => {
+    setIsOpen((prev) => !prev);
+  }, []);
+
   const emptyText = warnOnly ? 'No warning entries yet.' : 'Awaiting file diagnostics...';
 
   const ltBtn: React.CSSProperties = { ...actionButtonStyle, background: lt.buttonBg, borderColor: lt.buttonBorder, color: lt.buttonColor };
   const ltBtnActive: React.CSSProperties = { ...ltBtn, background: lt.buttonActiveBg, borderColor: lt.buttonActiveBorder, color: lt.buttonActiveColor };
+  const wrap = collapsible
+    ? { ...dockedWrapStyle, borderColor: lt.wrapBorder, background: lt.headerBg }
+    : { ...wrapStyle, borderTopColor: lt.wrapBorder };
+  const header = {
+    ...headerRowStyle,
+    background: lt.headerBg,
+    borderBottomColor: isOpen ? lt.headerBorder : 'transparent',
+  };
+  const scroll = {
+    ...scrollStyle,
+    background: lt.scrollBg,
+    ...(bodyMaxHeightPx ? { maxHeight: bodyMaxHeightPx } : null),
+  };
 
   return (
-    <div style={{ ...wrapStyle, borderTopColor: lt.wrapBorder }}>
-      <div style={{ ...headerRowStyle, background: lt.headerBg, borderBottomColor: lt.headerBorder }}>
+    <div style={wrap}>
+      <div style={header}>
         <div style={titleGroupStyle}>
           <div style={{ ...headerStyle, color: lt.headerLabel }}>TRACE / DIAGNOSTICS</div>
           <div style={{ ...metaStyle, color: lt.headerMeta }}>{visibleEntries.length}/{entries.length} visible · {warnCount} warn</div>
         </div>
         <div style={actionsStyle}>
-          <button style={warnOnly ? ltBtnActive : ltBtn} onClick={() => setWarnOnly((prev) => !prev)}>
-            WARN ONLY
-          </button>
-          <button style={followTail ? ltBtnActive : ltBtn} onClick={onToggleFollow}>
-            {followTail ? 'FOLLOW' : 'REVIEW'}
-          </button>
-          <button style={ltBtn} onClick={onCopy}>
-            {copyState === 'copied' ? 'COPIED' : copyState === 'failed' ? 'COPY FAIL' : 'COPY ALL'}
-          </button>
-          <button style={ltBtn} onClick={onSave}>SAVE ALL</button>
-          <button style={ltBtn} onClick={onClear}>CLEAR</button>
+          {isOpen ? (
+            <>
+              <button style={warnOnly ? ltBtnActive : ltBtn} onClick={() => setWarnOnly((prev) => !prev)}>
+                WARN ONLY
+              </button>
+              <button style={followTail ? ltBtnActive : ltBtn} onClick={onToggleFollow}>
+                {followTail ? 'FOLLOW' : 'REVIEW'}
+              </button>
+              <button style={ltBtn} onClick={onCopy}>
+                {copyState === 'copied' ? 'COPIED' : copyState === 'failed' ? 'COPY FAIL' : 'COPY ALL'}
+              </button>
+              <button style={ltBtn} onClick={onSave}>SAVE ALL</button>
+              <button style={ltBtn} onClick={onClear}>CLEAR</button>
+            </>
+          ) : null}
+          {collapsible ? (
+            <button style={isOpen ? ltBtnActive : ltBtn} onClick={onToggleOpen}>
+              {isOpen ? 'CLOSE' : 'OPEN'}
+            </button>
+          ) : null}
         </div>
       </div>
-      <div ref={scrollRef} style={{ ...scrollStyle, background: lt.scrollBg }} onScroll={onScroll}>
-        {visibleEntries.length === 0 ? (
-          <div style={{ ...emptyLineStyle, color: lt.clockColor }}>{emptyText}</div>
-        ) : (
-          visibleEntries.map((entry) => (
-            <DiagnosticsLine key={entry.id} entry={entry} lt={lt} />
-          ))
-        )}
-      </div>
+      {isOpen ? (
+        <div ref={scrollRef} style={scroll} onScroll={onScroll}>
+          {visibleEntries.length === 0 ? (
+            <div style={{ ...emptyLineStyle, color: lt.clockColor }}>{emptyText}</div>
+          ) : (
+            visibleEntries.map((entry) => (
+              <DiagnosticsLine key={entry.id} entry={entry} lt={lt} />
+            ))
+          )}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -760,6 +799,17 @@ const wrapStyle: React.CSSProperties = {
   minHeight: 160,
   flex: 1,
   borderTop: `1px solid ${COLORS.border}`,
+};
+
+const dockedWrapStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  minHeight: 0,
+  flex: '0 0 auto',
+  overflow: 'hidden',
+  borderWidth: 1,
+  borderStyle: 'solid',
+  borderRadius: 2,
 };
 
 const headerRowStyle: React.CSSProperties = {

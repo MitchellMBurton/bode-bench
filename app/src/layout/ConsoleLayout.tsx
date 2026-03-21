@@ -34,7 +34,9 @@ const RUNTIME_TRAY_STORAGE_KEY = 'console:runtime-tray-height';
 interface PanelDef {
   category: string;
   title: string;
+  titleMode?: 'plain' | 'segmented';
   stat?: string;
+  headerAccessory?: React.ReactNode;
   help?: string;
   content: React.ReactNode;
 }
@@ -55,6 +57,7 @@ interface Props {
   bottomLeft: PanelDef;
   bottomRight: PanelDef;
   runtimeDock: RuntimeDockDef | null;
+  optionRow: React.ReactNode;
   grayscale: boolean;
   visualMode: VisualMode;
   layoutResetToken: number;
@@ -102,16 +105,32 @@ const CHROME_HEADER_BG: Record<VisualMode, string | undefined> = {
   red:     'linear-gradient(90deg, rgba(20,8,9,0.98), rgba(34,10,11,0.98))',
 };
 
-function ChromePanel({ category, title, stat, help, content, visualMode, onFullscreen }: ChromePanelProps): React.ReactElement {
+function ChromePanel({ category, title, titleMode = 'plain', stat, headerAccessory, help, content, visualMode, onFullscreen }: ChromePanelProps): React.ReactElement {
   const m = MODES[visualMode];
+  const segmentedTitle = titleMode === 'segmented'
+    ? title.split('/').map((segment) => segment.trim()).filter((segment) => segment.length > 0)
+    : null;
+  const hasTitle = segmentedTitle ? segmentedTitle.length > 0 : title.trim().length > 0;
 
   return (
     <div style={{ ...chromeStyle, background: CHROME_BG[visualMode], border: `1px solid ${m.chromeBorder}` }}>
-      <div style={{ ...chromeHeaderStyle, background: CHROME_HEADER_BG[visualMode], borderBottom: `1px solid ${m.chromeBorderActive}` }}>
+      <div style={{ ...(headerAccessory ? chromeHeaderWithAccessoryStyle : chromeHeaderStyle), background: CHROME_HEADER_BG[visualMode], borderBottom: `1px solid ${m.chromeBorderActive}` }}>
         <div style={chromeLabelGroupStyle}>
           <span style={{ ...chromeCategoryStyle, color: m.category }}>{category}</span>
-          <span style={{ ...chromeTitleStyle, color: m.text }}>{title}</span>
+          {hasTitle && segmentedTitle ? (
+            <div style={chromeSegmentedTitleStyle}>
+              {segmentedTitle.map((segment, index) => (
+                <span key={`${segment}:${index}`} style={chromeTitleSegmentStyle}>
+                  {index > 0 ? <span style={{ ...chromeTitleSlashStyle, color: m.category }}>/</span> : null}
+                  <span style={{ ...chromeTitleSegmentTextStyle, color: m.text }}>{segment}</span>
+                </span>
+              ))}
+            </div>
+          ) : hasTitle ? (
+            <span style={{ ...chromeTitleStyle, color: m.text }}>{title}</span>
+          ) : null}
         </div>
+        {headerAccessory ? <div style={chromeAccessoryStyle}>{headerAccessory}</div> : null}
         {stat && <span style={{ ...chromeStatStyle, color: m.stat }}>{stat}</span>}
         {help && <PanelHelp text={help} visualMode={visualMode} />}
         <button
@@ -242,6 +261,7 @@ export function ConsoleLayout({
   bottomLeft,
   bottomRight,
   runtimeDock,
+  optionRow,
   grayscale,
   visualMode,
   layoutResetToken,
@@ -432,6 +452,9 @@ export function ConsoleLayout({
         <div style={{ flex: 1 }} />
         <span style={{ ...toolbarLabelStyle, color: lt.toolbarText }}>DRAG DIVIDERS TO RESIZE</span>
       </div>
+      <div style={{ ...toolbarStyle, ...optionsToolbarStyle, background: lt.toolbarBg, borderBottom: `1px solid ${m.chromeBorder}` }}>
+        {optionRow}
+      </div>
 
       {/* Main panel area — all four dividers are draggable */}
       <div style={{
@@ -442,7 +465,7 @@ export function ConsoleLayout({
       }}>
         <SplitPane
           direction="column"
-          initialSizes={[56, 44]}
+          initialSizes={[64, 36]}
           minSizePx={[200, 180]}
           resetToken={layoutResetToken}
           persistKey="console:root"
@@ -572,6 +595,13 @@ const toolbarStyle: React.CSSProperties = {
   gap: SPACING.sm,
   padding: `0 ${SPACING.md}px`,
   boxSizing: 'border-box',
+};
+
+const optionsToolbarStyle: React.CSSProperties = {
+  minHeight: TOOLBAR_H,
+  height: 'auto',
+  paddingTop: 4,
+  paddingBottom: 4,
 };
 
 const toolbarLabelStyle: React.CSSProperties = {
@@ -796,13 +826,31 @@ const chromeHeaderStyle: React.CSSProperties = {
   boxSizing: 'border-box',
 };
 
+const chromeHeaderWithAccessoryStyle: React.CSSProperties = {
+  ...chromeHeaderStyle,
+  height: 'auto',
+  minHeight: CHROME_H,
+  paddingTop: 4,
+  paddingBottom: 4,
+};
+
 const chromeLabelGroupStyle: React.CSSProperties = {
   display: 'flex',
-  alignItems: 'baseline',
+  alignItems: 'center',
   gap: SPACING.sm,
-  flex: 1,
+  flex: '1 1 auto',
   minWidth: 0,
   overflow: 'hidden',
+};
+
+const chromeAccessoryStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'flex-end',
+  flex: '0 1 auto',
+  minWidth: 0,
+  maxWidth: '56%',
+  marginLeft: 'auto',
 };
 
 const chromeCategoryStyle: React.CSSProperties = {
@@ -819,6 +867,43 @@ const chromeTitleStyle: React.CSSProperties = {
   color: COLORS.textTitle,
   letterSpacing: '0.06em',
   textTransform: 'uppercase',
+  lineHeight: 1.15,
+  minWidth: 0,
+};
+
+const chromeSegmentedTitleStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 4,
+  flexWrap: 'nowrap',
+  minWidth: 0,
+  overflow: 'hidden',
+  whiteSpace: 'nowrap',
+};
+
+const chromeTitleSegmentStyle: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 4,
+  minWidth: 'fit-content',
+  whiteSpace: 'nowrap',
+  flexShrink: 0,
+};
+
+const chromeTitleSlashStyle: React.CSSProperties = {
+  fontFamily: FONTS.mono,
+  fontSize: FONTS.sizeXs,
+  letterSpacing: '0.12em',
+  lineHeight: 1,
+  flexShrink: 0,
+};
+
+const chromeTitleSegmentTextStyle: React.CSSProperties = {
+  fontFamily: FONTS.mono,
+  fontSize: FONTS.sizeSm,
+  letterSpacing: '0.07em',
+  textTransform: 'uppercase',
+  lineHeight: 1.15,
 };
 
 const chromeStatStyle: React.CSSProperties = {

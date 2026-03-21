@@ -26,11 +26,12 @@ import {
   type SourceKind,
 } from '../runtime/exportPresets';
 import { CANVAS, COLORS, FONTS, SPACING } from '../theme';
-import type { MediaQualityMode, RangeMark, TransportState } from '../types';
+import type { MediaQualityMode, RangeMark } from '../types';
 import { formatTransportTime } from '../utils/format';
 
 interface Props {
-  transport: TransportState;
+  sessionFilename: string;
+  sessionDurationS: number;
   sourceKind: SourceKind;
   sourcePath: string | null;
   visualMode: VisualMode;
@@ -343,7 +344,8 @@ function getStartFailureMessage(message: string): string {
 }
 
 export function ClipExportStrip({
-  transport,
+  sessionFilename,
+  sessionDurationS,
   sourceKind,
   sourcePath,
   visualMode,
@@ -386,18 +388,18 @@ export function ClipExportStrip({
   }, [desktopRuntime]);
 
   useEffect(() => {
-    if (!transport.filename || !sourcePath || transport.duration <= 0) {
+    if (!sourcePath || sessionDurationS <= 0) {
       return;
     }
-    rememberSourcePath(transport.filename, transport.duration, sourcePath);
-  }, [sourcePath, transport.duration, transport.filename]);
+    rememberSourcePath(sessionFilename, sessionDurationS, sourcePath);
+  }, [sessionDurationS, sessionFilename, sourcePath]);
 
   useEffect(() => {
-    if (!desktopRuntime || !transport.filename || transport.duration <= 0 || sourcePath) {
+    if (!desktopRuntime || sessionDurationS <= 0 || sourcePath) {
       return;
     }
 
-    const rememberedPath = getRememberedSourcePath(transport.filename, transport.duration);
+    const rememberedPath = getRememberedSourcePath(sessionFilename, sessionDurationS);
     if (!rememberedPath) {
       return;
     }
@@ -426,7 +428,7 @@ export function ClipExportStrip({
     return () => {
       cancelled = true;
     };
-  }, [desktopRuntime, diagnosticsLog, sourcePath, transport.duration, transport.filename]);
+  }, [desktopRuntime, diagnosticsLog, sessionDurationS, sessionFilename, sourcePath]);
 
   useEffect(() => {
     if (phase.kind !== 'running') {
@@ -525,20 +527,18 @@ export function ClipExportStrip({
       setPhase({ kind: 'failed', message: 'Source relinking is available in the desktop runtime.' });
       return;
     }
-    assert(transport.filename, 'transport filename is missing');
-
     try {
       setPhase({ kind: 'linking-source' });
       const sourceFile = await pickSourceMediaFile({
-        filename: transport.filename,
+        filename: sessionFilename,
         sourceKind,
       });
       if (sourceFile.kind === 'canceled') {
         setPhase({ kind: 'idle' });
         return;
       }
-      assert(transport.duration > 0, 'transport duration must be positive');
-      rememberSourcePath(transport.filename, transport.duration, sourceFile.path);
+      assert(sessionDurationS > 0, 'session duration must be positive');
+      rememberSourcePath(sessionFilename, sessionDurationS, sourceFile.path);
       setLinkedSource({ kind: 'linked', path: sourceFile.path });
       diagnosticsLog.push(`export source linked ${sourceFile.path}`, 'info', 'transport');
       setPhase({ kind: 'idle' });
@@ -547,7 +547,7 @@ export function ClipExportStrip({
       diagnosticsLog.push(`export source link failed ${message}`, 'warn', 'transport');
       setPhase({ kind: 'failed', message });
     }
-  }, [desktopRuntime, diagnosticsLog, sourceKind, transport.duration, transport.filename]);
+  }, [desktopRuntime, diagnosticsLog, sessionDurationS, sessionFilename, sourceKind]);
 
   const onStartExport = async (qualityMode: MediaQualityMode): Promise<void> => {
     if (phase.kind === 'linking-source' || phase.kind === 'choosing-destination' || phase.kind === 'running') {
@@ -576,8 +576,7 @@ export function ClipExportStrip({
       }
     }
 
-    assert(transport.filename, 'transport filename is missing');
-    assert(transport.duration > 0, 'transport duration must be positive');
+    assert(sessionDurationS > 0, 'session duration must be positive');
     if (!effectiveSourcePath) {
       setPhase({ kind: 'failed', message: 'Locate the original source file to unlock export.' });
       return;
@@ -590,7 +589,7 @@ export function ClipExportStrip({
       const destination = await pickClipExportDestination({
         defaultDirectory: getPreferredSaveDirectory(effectiveSourcePath).path,
         defaultFileName: buildSuggestedClipExportFilename({
-          filename: transport.filename,
+          filename: sessionFilename,
           range: selectedRange,
           sourceKind,
           qualityMode,
@@ -604,8 +603,8 @@ export function ClipExportStrip({
       }
 
       const job = derivedMedia.enqueueJob(createClipExportJobSpec({
-        filename: transport.filename,
-        durationS: transport.duration,
+        filename: sessionFilename,
+        durationS: sessionDurationS,
         range: selectedRange,
         sourceKind,
         qualityMode,
@@ -757,6 +756,7 @@ export function ClipExportStrip({
   const sourceActionLabel = readySaveDirectory ? 'CHANGE SOURCE' : 'LINK ORIGINAL FILE';
   const showStatusPanel = phase.kind !== 'idle';
   const resolvedSource = readySaveDirectory ? getResolvedSourceSummary(sourceStatus) : null;
+  const quietNeedsRange = phase.kind === 'idle' && gate.kind === 'needs-range';
 
   let guidance: {
     title: string;
@@ -913,7 +913,13 @@ export function ClipExportStrip({
         </div>
       </div>
 
-      {guidance ? (
+      {quietNeedsRange ? (
+        <div style={{ ...quietEmptyStateStyle, borderColor: theme.border, color: theme.dim }}>
+          Commit a range in REVIEW, then export it here.
+        </div>
+      ) : null}
+
+      {guidance && !quietNeedsRange ? (
         <div style={{ ...guidancePanelStyle, borderColor: guidance.tone === COLORS.statusErr ? COLORS.statusErr : theme.border }}>
           <div style={{ ...metricLabelStyle, color: theme.label }}>NEXT STEP</div>
           <div style={{ ...statusValueStyle, color: guidance.tone }}>{guidance.title}</div>
@@ -1177,6 +1183,17 @@ const guidancePanelStyle: React.CSSProperties = {
   padding: 8,
   minWidth: 0,
   boxSizing: 'border-box',
+};
+
+const quietEmptyStateStyle: React.CSSProperties = {
+  borderWidth: 1,
+  borderStyle: 'solid',
+  borderRadius: 2,
+  padding: '6px 8px',
+  fontFamily: FONTS.mono,
+  fontSize: 9,
+  letterSpacing: '0.04em',
+  lineHeight: 1.4,
 };
 
 const sourceBarStyle: React.CSSProperties = {

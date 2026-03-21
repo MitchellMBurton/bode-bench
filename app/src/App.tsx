@@ -8,7 +8,9 @@ import { SplitPane } from './layout/SplitPane';
 import { TheaterPanelShell } from './layout/TheaterPanelShell';
 import { TransportControls } from './controls/TransportControls';
 import { MetadataDisplay } from './controls/MetadataDisplay';
-import { DiagnosticsLog, PerformanceDiagnostics } from './controls/DiagnosticsLog';
+import { PerformanceDiagnostics } from './controls/DiagnosticsLog';
+import { DisplayOptionsBar } from './controls/DisplayOptionsBar';
+import { OverviewTransportStrip } from './controls/OverviewTransportStrip';
 import { RuntimeMetricPill } from './controls/RuntimeMetricPill';
 import { useGlobalHotkeys } from './controls/useGlobalHotkeys';
 import { usePerformanceMonitoring } from './controls/usePerformanceMonitoring';
@@ -52,7 +54,12 @@ export default function App(): React.ReactElement {
     performanceDiagnostics.getSnapshot,
   );
   const theaterMode = useTheaterMode();
-  const [filename, setFilename] = useState<string | null>(null);
+  const [transportFilename, setTransportFilename] = useState<string | null>(null);
+  const [sessionMedia, setSessionMedia] = useState<{ filename: string | null; mediaKey: string | null; kind: 'audio' | 'video' | null }>({
+    filename: null,
+    mediaKey: null,
+    kind: null,
+  });
   const [performanceLabOpen, setPerformanceLabOpen] = useState(false);
   const [grayscale, setGrayscale] = useState(false);
   const [layoutResetToken, setLayoutResetToken] = useState(0);
@@ -61,17 +68,18 @@ export default function App(): React.ReactElement {
 
   useEffect(() => {
     return audioEngine.onTransport((state) => {
-      const nextMediaKey = buildTransportMediaKey(state.filename, state.duration);
+      const nextMediaKey = sessionMedia.mediaKey ?? buildTransportMediaKey(state.filename, state.duration);
       if (nextMediaKey !== activeMediaKeyRef.current) {
         activeMediaKeyRef.current = nextMediaKey;
         derivedMedia.reset();
       }
-      setFilename(state.filename);
+      setTransportFilename(state.filename);
       performanceDiagnostics.noteTransport(state);
     });
-  }, [audioEngine, derivedMedia, performanceDiagnostics]);
+  }, [audioEngine, derivedMedia, performanceDiagnostics, sessionMedia.mediaKey]);
 
   useEffect(() => audioEngine.onReset(() => {
+    setSessionMedia({ filename: null, mediaKey: null, kind: null });
     derivedMedia.reset();
   }), [audioEngine, derivedMedia]);
 
@@ -87,7 +95,8 @@ export default function App(): React.ReactElement {
     onShowHotkeyOverlay: () => setHotkeyOverlayOpen(true),
   });
 
-  const fileTitle = filename ? filename.replace(/\.[^/.]+$/, '') : null;
+  const displayFilename = sessionMedia.filename ?? transportFilename;
+  const fileTitle = displayFilename ? displayFilename.replace(/\.[^/.]+$/, '') : null;
   const panelTitle = fileTitle ?? 'NO SESSION';
   const visualDecoration = VISUAL_DECORATIONS[visualMode];
   const runtimeStatus = getRuntimeStatus(perfSnapshot);
@@ -101,6 +110,7 @@ export default function App(): React.ReactElement {
       <ConsoleLayout
         grayscale={grayscale}
         visualMode={visualMode}
+        optionRow={<DisplayOptionsBar grayscale={grayscale} onGrayscale={setGrayscale} />}
         layoutResetToken={layoutResetToken}
         onResetLayout={() => setLayoutResetToken((token) => token + 1)}
         runtimeDock={{
@@ -148,53 +158,50 @@ export default function App(): React.ReactElement {
         topLeft={{
           category: 'SESSION CONSOLE',
           title: panelTitle,
-          help: 'SESSION CONTROLS\n\nLoad a file via drag-drop or the file button. All analysis runs locally — no network required.\n\nVOL: output volume. RATE: playback speed (preserves pitch when pitch mode is on). PITCH: enable real-time pitch shifting on decoded files (< 384 MB).\n\nGREYSCALE: monochrome overlay. OPTIC: white-light dispersion palette. RED: darkroom red-light palette. NGE: phosphor-green palette. HYPER: cyan/indigo palette. EVA: alarm-state violet/orange palette.\n\nKEYBOARD SHORTCUTS: Space play/pause, ← → seek 5 s (Shift: 15 s), S stop, L loop file, M mark, I set review in, O commit review out, Esc clear loop, ? show all shortcuts.\n\nDiagnostics log captures every transport event and file analysis result.',
+          help: 'SESSION CONTROLS\n\nLoad a file via drag-drop or the file button. All analysis runs locally — no network required.\n\nTOP CONTROL DECK: open the main media file, attach alternate audio, attach subtitles, manage the video window, and use the local transport deck.\n\nPLAYBACK HOME: use the control strip above OVERVIEW for stop, play/pause, loop, seek, and the main time readout.\n\nPLAYBACK TUNING: VOL, RATE, PITCH, and SCRL now sit directly under that overview transport strip.\n\nGREYSCALE: monochrome overlay. OPTIC: white-light dispersion palette. RED: darkroom red-light palette. NGE: phosphor-green palette. HYPER: cyan/indigo palette. EVA: alarm-state violet/orange palette.\n\nKEYBOARD SHORTCUTS: Space play/pause, ← → seek 5 s (Shift: 15 s), S stop, L loop file, M mark, I set review in, O commit review out, Esc clear loop, ? show all shortcuts.\n\nTRACE / DIAGNOSTICS: lives below clip export as a dropdown log so preview space stays prioritized.',
           content: (
             <div style={controlPanelStyle}>
-              <div style={controlPanelScrollStyle}>
-                <MetadataDisplay filename={filename} metadata={null} visualMode={visualMode} />
-                <div
-                  style={{
-                    ...dividerStyle,
-                    background: MODES[visualMode].chromeBorder,
-                  }}
-                />
-                <TransportControls
-                  grayscale={grayscale}
-                  onGrayscale={setGrayscale}
-                />
-              </div>
-              <div style={diagnosticsDockStyle}>
-                <DiagnosticsLog />
-              </div>
+              <MetadataDisplay filename={displayFilename} metadata={null} visualMode={visualMode} />
+              <div
+                style={{
+                  ...dividerStyle,
+                  background: MODES[visualMode].chromeBorder,
+                }}
+              />
+              <TransportControls
+                onSessionMediaChange={setSessionMedia}
+              />
             </div>
           ),
         }}
         topRight={{
           category: 'LIVE DIAGNOSTIC',
-          title: 'REVIEW / OVERVIEW / WAVEFORM / PITCH / OSC / RESPONSE',
+          title: '',
           help: 'LIVE DIAGNOSTIC SURFACES\n\nREVIEW — Editorial range staging. SET IN captures a persistent in-point, SET OUT commits a range, and FROM LOOP promotes the audible loop to a persistent review range. Loop remains audible context; ranges stay available for clip, compare, and repair work.\n\nOVERVIEW — Full-file waveform envelope. Drag the view window to zoom; drag loop handles to set loop region. Session map fills in progressively for large files. Range overlays remain visible on the session map and detail waveform.\n\nWAVEFORM — Scrolling amplitude tape. Hover to read ±amplitude and dBFS at any height.\n\nF0 TRACK — Pitch history (60–900 Hz, log scale). Newest data scrolls from right. Hover to read note name and cents deviation.\n\nOSCILLOSCOPE — Triggered waveform cycle. Shows signal morphology at playback rate.\n\nFREQ RESPONSE — Smoothed L/R frequency curves (20 Hz–20 kHz). Hover for exact Hz + dB. Dim labels above show band boundaries.',
           content: (
-            <TheaterPanelShell
-              active={theaterMode}
-              title="VIDEO PRIORITY"
-              detail="Live diagnostic surfaces are paused in place while theater mode is active."
-              visualMode={visualMode}
-            >
-              <SplitPane
-                direction="column"
-                initialSizes={[9, 21, 16, 8, 8, 10, 28]}
-                minSizePx={[58, 96, 72, 56, 56, 56, 80]}
-                resetToken={layoutResetToken}
-                persistKey="console:top-right-stack"
+            <div style={topRightPanelStyle}>
+              <OverviewTransportStrip title="REVIEW / OVERVIEW / WAVEFORM / PITCH / OSC / RESPONSE" />
+              <TheaterPanelShell
+                active={theaterMode}
+                title="VIDEO PRIORITY"
+                detail="Live diagnostic surfaces are paused in place while theater mode is active."
+                visualMode={visualMode}
               >
-                {panelsForColumn('top-right').map(({ id, component: Panel }) =>
-                  id === 'overview'
-                    ? <WaveformOverviewPanel key={id} markers={markers} rangeMarks={rangeMarks} pendingRangeStartS={pendingRangeStartS} selectedRangeId={selectedRangeId} onDeleteMarker={(id) => derivedMedia.deleteMarker(id)} onClearMarkers={() => derivedMedia.clearMarkers()} onClearRanges={() => derivedMedia.clearRanges()} onSelectRange={(id) => derivedMedia.selectRange(id)} />
-                    : <Panel key={id} />
-                )}
-              </SplitPane>
-            </TheaterPanelShell>
+                <SplitPane
+                  direction="column"
+                  initialSizes={[9, 21, 16, 8, 8, 10, 28]}
+                  minSizePx={[58, 96, 72, 56, 56, 56, 80]}
+                  resetToken={layoutResetToken}
+                  persistKey="console:top-right-stack"
+                >
+                  {panelsForColumn('top-right').map(({ id, component: Panel }) =>
+                    id === 'overview'
+                      ? <WaveformOverviewPanel key={id} markers={markers} rangeMarks={rangeMarks} pendingRangeStartS={pendingRangeStartS} selectedRangeId={selectedRangeId} onDeleteMarker={(id) => derivedMedia.deleteMarker(id)} onClearMarkers={() => derivedMedia.clearMarkers()} onClearRanges={() => derivedMedia.clearRanges()} onSelectRange={(id) => derivedMedia.selectRange(id)} />
+                      : <Panel key={id} />
+                  )}
+                </SplitPane>
+              </TheaterPanelShell>
+            </div>
           ),
         }}
         bottomLeft={{
@@ -265,22 +272,7 @@ const controlPanelStyle: React.CSSProperties = {
   flexDirection: 'column',
   height: '100%',
   minHeight: 0,
-  overflow: 'hidden',
-};
-
-const controlPanelScrollStyle: React.CSSProperties = {
-  display: 'flex',
-  flexDirection: 'column',
-  minHeight: 0,
-  flex: 1,
   overflowY: 'auto',
-};
-
-const diagnosticsDockStyle: React.CSSProperties = {
-  display: 'flex',
-  minHeight: 180,
-  flex: '0 0 220px',
-  overflow: 'hidden',
 };
 
 const dividerStyle: React.CSSProperties = {
@@ -288,6 +280,14 @@ const dividerStyle: React.CSSProperties = {
   background: COLORS.border,
   margin: `0 ${SPACING.md}px`,
   flexShrink: 0,
+};
+
+const topRightPanelStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: SPACING.xs,
+  height: '100%',
+  minHeight: 0,
 };
 
 const scanLineStyle: React.CSSProperties = {
