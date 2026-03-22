@@ -9,6 +9,7 @@ import { useCallback, useEffect, useRef } from 'react';
 import { useAudioEngine, useDisplayMode, useFrameBus, useScrollSpeed, useTheaterMode } from '../core/session';
 import { COLORS, FONTS, SPACING, CANVAS } from '../theme';
 import { shouldSkipFrame } from '../utils/rafGuard';
+import { useMeasurementCursor, type CursorMapFn } from './useMeasurementCursor';
 
 const PANEL_DPR_MAX = 1.5;
 const HISTORY_MAX = 1200;
@@ -99,26 +100,25 @@ export function PitchTrackerPanel(): React.ReactElement {
   const stableRunCountRef = useRef(0);
   const intervalLabelRef = useRef<string | null>(null);
 
-  const handlePitchMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
-    const readout = hoverReadoutRef.current;
-    const canvas = canvasRef.current;
-    if (!readout || !canvas) return;
+  const mapToValues: CursorMapFn = useCallback((devX: number, devY: number) => {
     const { H, padV } = drawDimRef.current;
-    if (H === 0) return;
-    const scaleY = H / canvas.offsetHeight;
-    const devY = e.nativeEvent.offsetY * scaleY;
-    if (devY < padV || devY > H - padV) { readout.style.display = 'none'; return; }
+    if (H === 0) return null;
+    if (devY < padV || devY > H - padV) return null;
     const t = 1 - (devY - padV) / (H - padV * 2);
     const hz = Math.pow(2, LOG_MIN + t * (LOG_MAX - LOG_MIN));
     const { name, tuning } = f0ToLabel(hz);
-    readout.style.display = 'block';
-    readout.textContent = `${name}  ${Math.round(hz)} Hz  ${tuning}`;
+    return {
+      devX, devY,
+      primary: hz,
+      primaryLabel: `${name}  ${Math.round(hz)} Hz`,
+      secondary: 0,
+      secondaryLabel: tuning,
+    };
   }, []);
 
-  const handlePitchMouseLeave = useCallback(() => {
-    const readout = hoverReadoutRef.current;
-    if (readout) readout.style.display = 'none';
-  }, []);
+  const { overlayRef, handleMouseMove, handleMouseLeave, handleClick } = useMeasurementCursor({
+    canvasRef, readoutRef: hoverReadoutRef, mapToValues, visualMode: displayMode.mode,
+  });
 
   useEffect(() => frameBus.subscribe((frame) => {
     if (frame.fileId !== lastFileIdRef.current) {
@@ -410,9 +410,11 @@ export function PitchTrackerPanel(): React.ReactElement {
       <canvas
         ref={canvasRef}
         style={canvasStyle}
-        onMouseMove={handlePitchMouseMove}
-        onMouseLeave={handlePitchMouseLeave}
+        onMouseMove={handleMouseMove}
+        onMouseLeave={handleMouseLeave}
+        onClick={handleClick}
       />
+      <canvas ref={overlayRef} className="panel-cursor-overlay" style={overlayStyle} />
       <div ref={hoverReadoutRef} className="panel-hover-readout" />
     </div>
   );
@@ -430,6 +432,15 @@ const canvasStyle: React.CSSProperties = {
   display: 'block',
   width: '100%',
   height: '100%',
+};
+
+const overlayStyle: React.CSSProperties = {
+  position: 'absolute',
+  top: 0,
+  left: 0,
+  width: '100%',
+  height: '100%',
+  pointerEvents: 'none',
 };
 
 

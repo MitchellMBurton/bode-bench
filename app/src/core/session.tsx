@@ -4,13 +4,14 @@ import { createContext, useContext, useSyncExternalStore } from 'react';
 import { AudioEngine } from '../audio/engine';
 import { DisplayModeStore, type VisualMode } from '../audio/displayMode';
 import { FrameBus } from '../audio/frameBus';
+import { AnalysisConfigStore } from '../audio/analysisConfig';
 import { ScrollSpeedStore } from '../audio/scrollSpeed';
 import { DiagnosticsLogStore, PerformanceDiagnosticsStore } from '../diagnostics/logStore';
 import { DerivedMediaStore, type DerivedMediaSnapshot } from '../runtime/derivedMedia';
 import { PerformanceProfileStore, type PerformanceProfileSnapshot } from '../runtime/performanceProfile';
 import { VideoSyncController } from '../runtime/videoSyncController';
 import { TheaterModeStore } from '../video/theaterMode';
-import type { Marker, MediaJobRecord, RangeMark } from '../types';
+import type { AnalysisConfig, Marker, MediaJobRecord, RangeMark } from '../types';
 
 export interface AppSession {
   audioEngine: AudioEngine;
@@ -23,6 +24,7 @@ export interface AppSession {
   performanceProfile: PerformanceProfileStore;
   videoSyncController: VideoSyncController;
   theaterMode: TheaterModeStore;
+  analysisConfig: AnalysisConfigStore;
 }
 
 interface AppSessionProviderProps {
@@ -38,11 +40,19 @@ export function createAppSession(): AppSession {
   const performanceDiagnostics = new PerformanceDiagnosticsStore();
   const performanceProfile = new PerformanceProfileStore();
   const theaterMode = new TheaterModeStore();
+  const analysisConfig = new AnalysisConfigStore();
   diagnosticsLog.attachGlobalCapture();
+
+  const audioEngine = new AudioEngine(frameBus, performanceDiagnostics);
+
+  // Propagate analysis config changes to the engine's analyser nodes.
+  analysisConfig.subscribe(() => {
+    audioEngine.applyAnalysisConfig(analysisConfig.getSnapshot());
+  });
 
   return {
     frameBus,
-    audioEngine: new AudioEngine(frameBus, performanceDiagnostics),
+    audioEngine,
     displayMode: new DisplayModeStore(),
     scrollSpeed: new ScrollSpeedStore(),
     diagnosticsLog,
@@ -51,6 +61,7 @@ export function createAppSession(): AppSession {
     performanceProfile,
     videoSyncController: new VideoSyncController(),
     theaterMode,
+    analysisConfig,
   };
 }
 
@@ -96,6 +107,15 @@ export function useVisualMode(): VisualMode {
 
 export function useScrollSpeed(): ScrollSpeedStore {
   return useAppSession().scrollSpeed;
+}
+
+export function useScrollSpeedValue(): number {
+  const scrollSpeed = useScrollSpeed();
+  return useSyncExternalStore(
+    scrollSpeed.subscribe,
+    scrollSpeed.getSnapshot,
+    scrollSpeed.getSnapshot,
+  );
 }
 
 export function useDiagnosticsLog(): DiagnosticsLogStore {
@@ -162,5 +182,18 @@ export function useTheaterMode(): boolean {
     theaterMode.subscribe,
     theaterMode.getSnapshot,
     theaterMode.getSnapshot,
+  );
+}
+
+export function useAnalysisConfigStore(): AnalysisConfigStore {
+  return useAppSession().analysisConfig;
+}
+
+export function useAnalysisConfig(): AnalysisConfig {
+  const store = useAnalysisConfigStore();
+  return useSyncExternalStore(
+    store.subscribe,
+    store.getSnapshot,
+    store.getSnapshot,
   );
 }

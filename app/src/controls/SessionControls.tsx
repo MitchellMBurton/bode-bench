@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 
-import { useAudioEngine, useScrollSpeed, useVisualMode } from '../core/session';
+import { useAudioEngine, useScrollSpeed, useScrollSpeedValue, useVisualMode } from '../core/session';
 import { CANVAS, COLORS, FONTS, SPACING } from '../theme';
 import type { VisualMode } from '../audio/displayMode';
 import {
@@ -127,16 +127,17 @@ function formatPitch(semitones: number): string {
 export function SessionControls(): React.ReactElement {
   const audioEngine = useAudioEngine();
   const scrollSpeed = useScrollSpeed();
+  const scroll = useScrollSpeedValue();
   const visualMode = useVisualMode();
   const t = SESSION_THEMES[visualMode];
-  const [volume, setVolume] = useState(VOLUME_DEFAULT);
+  const [volume, setVolume] = useState(audioEngine.volume);
   const [rate, setRate] = useState(audioEngine.playbackRate);
   const [pitch, setPitch] = useState(audioEngine.pitchSemitones);
-  const [scroll, setScroll] = useState(scrollSpeed.value);
   const [pitchAvailable, setPitchAvailable] = useState(true);
 
   useEffect(() => {
     return audioEngine.onTransport((state) => {
+      setVolume(state.volume);
       setRate(state.playbackRate);
       setPitch(state.pitchSemitones);
       setPitchAvailable(state.pitchShiftAvailable);
@@ -144,10 +145,6 @@ export function SessionControls(): React.ReactElement {
   }, [audioEngine]);
 
   const onReset = useCallback(() => {
-    setVolume(VOLUME_DEFAULT);
-    setRate(RATE_DEFAULT);
-    setPitch(PITCH_DEFAULT);
-    setScroll(SCROLL_DEFAULT);
     audioEngine.setVolume(VOLUME_DEFAULT);
     audioEngine.setPlaybackRate(RATE_DEFAULT);
     audioEngine.setPitchSemitones(PITCH_DEFAULT);
@@ -163,7 +160,6 @@ export function SessionControls(): React.ReactElement {
       max: 1,
       step: 0.01,
       onChange: (nextValue: number) => {
-        setVolume(nextValue);
         audioEngine.setVolume(nextValue);
       },
       fill: t.fill,
@@ -208,7 +204,6 @@ export function SessionControls(): React.ReactElement {
       max: SCROLL_MAX,
       step: 0.25,
       onChange: (nextValue: number) => {
-        setScroll(nextValue);
         scrollSpeed.set(nextValue);
       },
       fill: t.fill,

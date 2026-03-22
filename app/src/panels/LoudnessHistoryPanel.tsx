@@ -9,6 +9,7 @@ import { useCallback, useEffect, useRef } from 'react';
 import { useAudioEngine, useDisplayMode, useFrameBus, useScrollSpeed, useTheaterMode } from '../core/session';
 import { COLORS, FONTS, SPACING, CANVAS } from '../theme';
 import { shouldSkipFrame } from '../utils/rafGuard';
+import { useMeasurementCursor, type CursorMapFn } from './useMeasurementCursor';
 
 const PANEL_DPR_MAX = 1.25;
 const HISTORY_MAX = 1200;
@@ -58,25 +59,24 @@ export function LoudnessHistoryPanel(): React.ReactElement {
   const hoverReadoutRef = useRef<HTMLDivElement>(null);
   const drawDimRef = useRef({ H: 0, padV: 0 });
 
-  const handleLoudMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
-    const readout = hoverReadoutRef.current;
-    const canvas = canvasRef.current;
-    if (!readout || !canvas) return;
+  const mapToValues: CursorMapFn = useCallback((devX: number, devY: number) => {
     const { H, padV } = drawDimRef.current;
-    if (H === 0) return;
-    const scaleY = H / canvas.offsetHeight;
-    const devY = e.nativeEvent.offsetY * scaleY;
-    if (devY < padV || devY > H - padV) { readout.style.display = 'none'; return; }
+    if (H === 0) return null;
+    if (devY < padV || devY > H - padV) return null;
     const t = (devY - padV) / (H - padV * 2);
     const db = DB_MAX + t * (DB_MIN - DB_MAX);
-    readout.style.display = 'block';
-    readout.textContent = `${db.toFixed(1)} dBFS`;
+    return {
+      devX, devY,
+      primary: db,
+      primaryLabel: `${db.toFixed(1)} dBFS`,
+      secondary: 0,
+      secondaryLabel: '',
+    };
   }, []);
 
-  const handleLoudMouseLeave = useCallback(() => {
-    const readout = hoverReadoutRef.current;
-    if (readout) readout.style.display = 'none';
-  }, []);
+  const { overlayRef, handleMouseMove, handleMouseLeave, handleClick } = useMeasurementCursor({
+    canvasRef, readoutRef: hoverReadoutRef, mapToValues, visualMode: displayMode.mode,
+  });
   const lastFileIdRef = useRef(-1);
   const rafRef = useRef<number | null>(null);
   const lastDataTimeRef = useRef(0);
@@ -254,9 +254,11 @@ export function LoudnessHistoryPanel(): React.ReactElement {
       <canvas
         ref={canvasRef}
         style={canvasStyle}
-        onMouseMove={handleLoudMouseMove}
-        onMouseLeave={handleLoudMouseLeave}
+        onMouseMove={handleMouseMove}
+        onMouseLeave={handleMouseLeave}
+        onClick={handleClick}
       />
+      <canvas ref={overlayRef} className="panel-cursor-overlay" style={overlayStyle} />
       <div ref={hoverReadoutRef} className="panel-hover-readout" />
     </div>
   );
@@ -274,6 +276,15 @@ const canvasStyle: React.CSSProperties = {
   display: 'block',
   width: '100%',
   height: '100%',
+};
+
+const overlayStyle: React.CSSProperties = {
+  position: 'absolute',
+  top: 0,
+  left: 0,
+  width: '100%',
+  height: '100%',
+  pointerEvents: 'none',
 };
 
 

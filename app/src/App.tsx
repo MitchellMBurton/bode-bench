@@ -2,7 +2,7 @@
 // App root - wires layout, panels, controls, and score loader.
 // ============================================================
 
-import { useState, useEffect, useRef, useSyncExternalStore } from 'react';
+import { useState, useEffect, useRef, useCallback, useSyncExternalStore } from 'react';
 import { ConsoleLayout } from './layout/ConsoleLayout';
 import { SplitPane } from './layout/SplitPane';
 import { TheaterPanelShell } from './layout/TheaterPanelShell';
@@ -16,6 +16,7 @@ import { useGlobalHotkeys } from './controls/useGlobalHotkeys';
 import { usePerformanceMonitoring } from './controls/usePerformanceMonitoring';
 import { HotkeyOverlay } from './controls/HotkeyOverlay';
 import { panelsForColumn } from './panels/registry';
+import { captureQuadrant, downloadPng } from './panels/panelSnapshot';
 import { WaveformOverviewPanel } from './panels/WaveformOverviewPanel';
 import { useAudioEngine, useDerivedMediaSnapshot, useDerivedMediaStore, useMarkers, usePendingRangeStart, usePerformanceDiagnosticsStore, usePerformanceProfile, useRangeMarks, useTheaterMode, useVisualMode } from './core/session';
 import { VISUAL_DECORATIONS } from './audio/displayMode';
@@ -94,6 +95,21 @@ export default function App(): React.ReactElement {
   useGlobalHotkeys({
     onShowHotkeyOverlay: () => setHotkeyOverlayOpen(true),
   });
+
+  const handleSnapshot = useCallback((panelLabel: string) => (container: HTMLDivElement | null) => {
+    if (!container) return;
+    const dataUrl = captureQuadrant(container, {
+      panelLabel,
+      filename: sessionMedia.filename ?? transportFilename,
+      currentTime: audioEngine.currentTime,
+      duration: audioEngine.duration,
+      visualMode,
+    }, visualMode as import('./audio/displayMode').VisualMode);
+    if (!dataUrl) return;
+    const stem = (sessionMedia.filename ?? transportFilename ?? 'snapshot').replace(/\.[^/.]+$/, '');
+    const ts = Date.now();
+    downloadPng(dataUrl, `${stem}_${panelLabel.toLowerCase().replace(/\s+/g, '-')}_${ts}`);
+  }, [audioEngine, sessionMedia.filename, transportFilename, visualMode]);
 
   const displayFilename = sessionMedia.filename ?? transportFilename;
   const fileTitle = displayFilename ? displayFilename.replace(/\.[^/.]+$/, '') : null;
@@ -178,6 +194,7 @@ export default function App(): React.ReactElement {
         topRight={{
           category: 'LIVE DIAGNOSTIC',
           title: 'REVIEW / OVERVIEW / PITCH / OSC / RESPONSE',
+          onSnapshot: handleSnapshot('LIVE DIAGNOSTIC'),
           headerAccessoryPlacement: 'stacked',
           headerAccessory: <OverviewTransportStrip />,
           help: 'LIVE DIAGNOSTIC SURFACES\n\nREVIEW — Editorial range staging now lives in the chrome shelf above OVERVIEW. SET IN captures a persistent in-point, SET OUT commits a range, FROM LOOP promotes the audible loop to a persistent review range, and saved ranges stay visible inline for clip, compare, and repair work.\n\nOVERVIEW — Full-file waveform envelope plus detail waveform view. Drag the view window to zoom; drag loop handles to set loop region. Session map fills in progressively for large files. Range overlays remain visible on the session map and detail waveform.\n\nF0 TRACK — Pitch history (60–900 Hz, log scale). Hover to read note name and cents deviation.\n\nOSCILLOSCOPE — Triggered waveform cycle. Shows signal morphology at playback rate.\n\nOSC SCROLL — Scrolling oscilloscope history for time-domain motion and density.\n\nFREQ RESPONSE — Smoothed L/R frequency curves (20 Hz–20 kHz). Hover for exact Hz + dB. Dim labels above show band boundaries.',
@@ -197,7 +214,7 @@ export default function App(): React.ReactElement {
               >
                 {topRightPanels.map(({ id, component: Panel }) =>
                   id === 'overview'
-                    ? <WaveformOverviewPanel key={id} markers={markers} rangeMarks={rangeMarks} pendingRangeStartS={pendingRangeStartS} selectedRangeId={selectedRangeId} onDeleteMarker={(id) => derivedMedia.deleteMarker(id)} onClearMarkers={() => derivedMedia.clearMarkers()} onClearRanges={() => derivedMedia.clearRanges()} onSelectRange={(id) => derivedMedia.selectRange(id)} />
+                    ? <WaveformOverviewPanel key={id} markers={markers} rangeMarks={rangeMarks} pendingRangeStartS={pendingRangeStartS} selectedRangeId={selectedRangeId} onDeleteMarker={(id) => derivedMedia.deleteMarker(id)} onClearMarkers={() => derivedMedia.clearMarkers()} onClearRanges={() => derivedMedia.clearRanges()} onSelectRange={(id) => derivedMedia.selectRange(id)} onUpdateRange={(id, startS, endS) => derivedMedia.updateRange(id, startS, endS)} />
                     : <Panel key={id} />
                 )}
               </SplitPane>
@@ -207,6 +224,7 @@ export default function App(): React.ReactElement {
         bottomLeft={{
           category: 'SUPPORT INSTRUMENTATION',
           title: 'LEVELS / GONIOMETER / BANDS / PARTIALS',
+          onSnapshot: handleSnapshot('SUPPORT INSTRUMENTATION'),
           help: 'SUPPORT INSTRUMENTATION\n\nLEVELS — Stereo peak (bright) and RMS (dim) bars in dBFS. Peak hold decays slowly. Colour zones: green (< −12 dB), yellow (−12 to −3 dB), red (> −3 dB).\n\nGONIOMETER — Stereo phase display (M/S Lissajous).\n  Vertical axis = Mid (L+R): strong signal = tall shape\n  Horizontal axis = Side (L−R): wide shape = wide stereo\n  Mono: collapses to vertical line. Out-of-phase: horizontal line.\n  Phase correlation bar: +1 = identical (mono), 0 = uncorrelated, −1 = cancelling.\n  Green (> +0.5) is safe for mono. Red (< 0) will cancel in mono.\n\nFREQ BANDS — Six-band energy display.\n  Sub: 20–80 Hz (subwoofer weight)\n  Lo-Mid: 80–240 Hz (warmth, mud)\n  Mid: 240–900 Hz (body, presence)\n  Hi-Mid: 900–2800 Hz (articulation, harshness)\n  Presence: 2800–8000 Hz (clarity, sibilance)\n  Air: 8–20 kHz (sheen, breath)\n\nHARMONICS — First 10 partials of detected fundamental. Normalised relative to strongest partial (40 dB dynamic window). Fundamental at left; overtones descend in brightness.',
           content: (
             <TheaterPanelShell
@@ -232,6 +250,7 @@ export default function App(): React.ReactElement {
         bottomRight={{
           category: 'SPECTRAL ANATOMY',
           title: 'LOUDNESS / LUFS / SPECTROGRAM',
+          onSnapshot: handleSnapshot('SPECTRAL ANATOMY'),
           help: 'SPECTRAL ANATOMY\n\nRMS LEVEL — Short-term loudness history. Scrolls in sync with the spectrogram. Reference lines at −6, −18, −36 dBFS. Hover to read level at any point in history.\n\nLUFS — EBU R128 / ITU-R BS.1770 loudness meter.\n  M (momentary): 400 ms K-weighted average — most responsive\n  ST (short-term): 3 s average — best for mixing decisions\n  INT (integrated): from start of playback, gated — delivery spec\n  TP (true peak): peak hold since load — streaming limit is −1 dBTP\n  Reference lines: −14 LUFS (streaming), −16 (Apple), −23 EBU R128, −24 cinema\n\nSPECTROGRAM — Time–frequency representation.\n  Horizontal: time flows left → right (newest at right edge)\n  Vertical: frequency 20 Hz (bottom) → 20 kHz (top), log scale\n  Brightness: amplitude (dark = quiet, bright = loud), range −96 to 0 dBFS\n\nWhat to look for:\n  Horizontal lines → sustained tones or resonances\n  Vertical streaks → transients and attacks\n  Evenly-spaced horizontal lines → harmonic series\n  Diffuse colour field → broadband noise\n\nHover to read exact frequency and level at the cursor.',
           content: (
             <TheaterPanelShell

@@ -16,7 +16,7 @@
 import type { FrameBus } from './frameBus';
 import { createStretchNode, type StretchNode, type StretchSchedule } from './stretchNode';
 import { CANVAS } from '../theme';
-import type { AudioFrame, FileAnalysis, ScrubStyle, TransportState } from '../types';
+import type { AnalysisConfig, AudioFrame, FileAnalysis, ScrubStyle, TransportState } from '../types';
 import { RATE_MIN, RATE_MAX, PITCH_MIN, PITCH_MAX } from '../constants';
 import type { PerformanceDiagnosticsStore } from '../diagnostics/logStore';
 
@@ -239,6 +239,31 @@ export class AudioEngine {
     this.playGainNode.connect(this.splitterNode);
     this.splitterNode.connect(this.analyserL, 0);
     this.splitterNode.connect(this.analyserR, 1);
+  }
+
+  /** Apply analysis configuration changes to the live analyser nodes.
+   *  Called by AppSession when the AnalysisConfigStore emits. */
+  applyAnalysisConfig(config: AnalysisConfig): void {
+    if (!this.analyserL || !this.analyserR) return;
+
+    const fftSizeChanged = this.analyserL.fftSize !== config.fftSize;
+
+    this.analyserL.fftSize = config.fftSize;
+    this.analyserL.smoothingTimeConstant = config.smoothing;
+    this.analyserL.minDecibels = config.spectroDbMin;
+    this.analyserL.maxDecibels = config.spectroDbMax;
+
+    this.analyserR.fftSize = config.fftSize;
+    this.analyserR.smoothingTimeConstant = config.smoothing;
+    this.analyserR.minDecibels = config.spectroDbMin;
+    this.analyserR.maxDecibels = config.spectroDbMax;
+
+    if (fftSizeChanged) {
+      this.timeDomainData = new Float32Array(config.fftSize);
+      this.timeDomainDataR = new Float32Array(config.fftSize);
+      this.frequencyData = new Float32Array(config.fftSize / 2);
+      this.frequencyDataR = new Float32Array(config.fftSize / 2);
+    }
   }
 
   private queueStretchCommand(command: Promise<unknown>, label: string): void {
@@ -1781,10 +1806,13 @@ export class AudioEngine {
   }
 
   setVolume(v: number): void {
-    this._volume = Math.max(0, Math.min(1, v));
+    const nextVolume = Math.max(0, Math.min(1, v));
+    if (Math.abs(nextVolume - this._volume) < 0.0001) return;
+    this._volume = nextVolume;
     if (this.masterGain) {
       this.masterGain.gain.value = this._volume;
     }
+    this.emitTransport();
   }
 
   setPlaybackRate(r: number): void {
@@ -1884,10 +1912,12 @@ export class AudioEngine {
   }
 
   get isPlaying(): boolean { return this._isPlaying; }
+  get volume(): number { return this._volume; }
   get playbackRate(): number { return this._playbackRate; }
   get pitchSemitones(): number { return this._pitchSemitones; }
   get scrubStyle(): ScrubStyle { return this._scrubStyle; }
   get analysisFps(): number { return ANALYSIS_FPS; }
+  get fileAnalysis(): FileAnalysis | null { return this._fileAnalysis; }
   get audioBuffer(): AudioBuffer | null { return this.buffer; }
   get displayGain(): number { return this._displayGain; }
   get waveformPeaks(): Float32Array | null { return this._waveformPeaks; }
@@ -1992,6 +2022,7 @@ export class AudioEngine {
       currentTime: this.currentTime,
       duration: this.duration,
       filename: this._filename,
+      volume: this._volume,
       playbackBackend: this.playbackBackend,
       scrubActive: this.scrubActive,
       playbackRate: this._playbackRate,

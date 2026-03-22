@@ -15,6 +15,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { VisualMode } from '../audio/displayMode';
+import { AnalysisConfigPopover } from '../controls/AnalysisConfigPopover';
 import { LayoutInteractionProvider } from './LayoutInteraction';
 import { PanelHelp } from './PanelHelp';
 import { SplitPane } from './SplitPane';
@@ -40,6 +41,7 @@ interface PanelDef {
   headerAccessory?: React.ReactNode;
   help?: string;
   content: React.ReactNode;
+  onSnapshot?: (container: HTMLDivElement | null) => void;
 }
 
 interface RuntimeDockDef {
@@ -106,7 +108,8 @@ const CHROME_HEADER_BG: Record<VisualMode, string | undefined> = {
   red:     'linear-gradient(90deg, rgba(20,8,9,0.98), rgba(34,10,11,0.98))',
 };
 
-function ChromePanel({ category, title, titleMode = 'plain', headerAccessoryPlacement = 'stacked', stat, headerAccessory, help, content, visualMode, onFullscreen }: ChromePanelProps): React.ReactElement {
+function ChromePanel({ category, title, titleMode = 'plain', headerAccessoryPlacement = 'stacked', stat, headerAccessory, help, content, visualMode, onFullscreen, onSnapshot }: ChromePanelProps): React.ReactElement {
+  const contentRef = useRef<HTMLDivElement>(null);
   const m = MODES[visualMode];
   const trimmedTitle = title.trim();
   const segmentedTitle = titleMode === 'segmented'
@@ -134,6 +137,16 @@ function ChromePanel({ category, title, titleMode = 'plain', headerAccessoryPlac
   const chromeActions = (
     <div style={chromeHeaderActionsStyle}>
       {stat && <span style={{ ...chromeStatStyle, color: m.stat }}>{stat}</span>}
+      {onSnapshot && (
+        <button
+          onClick={() => onSnapshot(contentRef.current)}
+          style={{ ...fullscreenBtnStyle, color: m.category }}
+          title="Capture panel as annotated PNG"
+          aria-label="Snapshot"
+        >
+          SNAP
+        </button>
+      )}
       {help && <PanelHelp text={help} visualMode={visualMode} />}
       <button
         onClick={onFullscreen}
@@ -193,10 +206,32 @@ function ChromePanel({ category, title, titleMode = 'plain', headerAccessoryPlac
           ⛶
         </button>
       </div>
-      <div style={chromeContentStyle}>
+      <div ref={contentRef} style={chromeContentStyle}>
         {content}
       </div>
     </div>
+  );
+}
+
+/** SNAP button for fullscreen overlay — wraps content in a ref-bearing div to find canvases. */
+function FullscreenSnap({ onSnapshot, color }: { onSnapshot: (c: HTMLDivElement | null) => void; color: string }): React.ReactElement {
+  const btnRef = useRef<HTMLButtonElement>(null);
+  return (
+    <button
+      onClick={() => {
+        const btn = btnRef.current;
+        if (!btn) return;
+        const overlay = btn.closest('[data-shell-overlay]');
+        const contentDiv = overlay?.querySelector<HTMLDivElement>('[data-fullscreen-content]');
+        onSnapshot(contentDiv ?? null);
+      }}
+      ref={btnRef}
+      style={{ ...fullscreenBtnStyle, color }}
+      title="Capture panel as annotated PNG"
+      aria-label="Snapshot"
+    >
+      SNAP
+    </button>
   );
 }
 
@@ -321,6 +356,7 @@ export function ConsoleLayout({
   const [runtimeTrayHeight, setRuntimeTrayHeight] = useState(readRuntimeTrayHeight);
   const runtimeTrayResizeRef = useRef<{ startY: number; startHeight: number; pointerId: number } | null>(null);
   const [fullscreenQuadrant, setFullscreenQuadrant] = useState<'tl' | 'tr' | 'bl' | 'br' | null>(null);
+  const [analysisConfigOpen, setAnalysisConfigOpen] = useState(false);
 
   useEffect(() => {
     if (!fullscreenQuadrant) return;
@@ -504,6 +540,27 @@ export function ConsoleLayout({
         </button>
         <div style={{ ...toolbarDividerStyle, background: lt.dividerBg }} />
         {optionRow}
+        <div style={{ ...toolbarDividerStyle, background: lt.dividerBg }} />
+        <div style={analysisConfigWrapStyle}>
+          <button
+            style={{
+              ...toolbarButtonStyle,
+              color: analysisConfigOpen ? lt.toolbarButtonText : lt.toolbarText,
+              borderColor: analysisConfigOpen ? lt.toolbarButtonBorder : lt.toolbarButtonBorder,
+              background: analysisConfigOpen ? lt.toolbarButtonBorder : lt.toolbarButtonBg,
+            }}
+            onClick={() => setAnalysisConfigOpen((o) => !o)}
+            title="Analysis configuration (FFT size, smoothing, bandwidth, dB range)"
+          >
+            ANALYSIS
+          </button>
+          {analysisConfigOpen && (
+            <AnalysisConfigPopover
+              visualMode={visualMode}
+              onClose={() => setAnalysisConfigOpen(false)}
+            />
+          )}
+        </div>
         <div style={{ flex: 1 }} />
         <span style={{ ...toolbarLabelStyle, color: lt.toolbarText }}>DRAG DIVIDERS TO RESIZE</span>
       </div>
@@ -560,14 +617,52 @@ export function ConsoleLayout({
       {fullscreenQuadrant !== null && (() => {
         const quadrantMap = { tl: topLeft, tr: topRight, bl: bottomLeft, br: bottomRight } as const;
         const def = quadrantMap[fullscreenQuadrant];
+        const hasAccessory = !!def.headerAccessory;
         return (
           <div style={{ ...fullscreenOverlayStyle, background: lt.shellBg }} data-shell-overlay="true">
-            <div style={{ ...fullscreenHeaderStyle, borderBottom: `1px solid ${m.chromeBorderActive}` }}>
-              <span style={{ ...fullscreenHeaderCategoryStyle, color: m.category }}>{def.category}</span>
-              <span style={{ ...fullscreenHeaderTitleStyle, color: m.text }}>{def.title}</span>
-              <button style={{ ...fullscreenCloseBtnStyle, color: m.text }} onClick={() => setFullscreenQuadrant(null)} title="Exit fullscreen (Escape)" aria-label="Exit fullscreen">✕</button>
+            <div style={{
+              ...(hasAccessory ? fullscreenHeaderWithAccessoryStyle : fullscreenHeaderStyle),
+              borderBottom: `1px solid ${m.chromeBorderActive}`,
+              background: CHROME_HEADER_BG[visualMode],
+            }}>
+              {hasAccessory ? (
+                <>
+                  <div style={fullscreenHeaderTopRowStyle}>
+                    <span style={{ ...fullscreenHeaderCategoryStyle, color: m.category }}>{def.category}</span>
+                    <span style={{ ...fullscreenHeaderTitleStyle, color: m.text }}>{def.title}</span>
+                    <div style={fullscreenHeaderActionsStyle}>
+                      {def.onSnapshot && (
+                        <FullscreenSnap onSnapshot={def.onSnapshot} color={m.category} />
+                      )}
+                      {def.help && <PanelHelp text={def.help} visualMode={visualMode} />}
+                      <button style={{ ...fullscreenCloseBtnStyle, color: m.text }} onClick={() => setFullscreenQuadrant(null)} title="Exit fullscreen (Escape)" aria-label="Exit fullscreen">✕</button>
+                    </div>
+                  </div>
+                  <div style={chromeHeaderAccessoryRowStyle}>{def.headerAccessory}</div>
+                </>
+              ) : (
+                <>
+                  <span style={{ ...fullscreenHeaderCategoryStyle, color: m.category }}>{def.category}</span>
+                  <span style={{ ...fullscreenHeaderTitleStyle, color: m.text }}>{def.title}</span>
+                  <div style={fullscreenHeaderActionsStyle}>
+                    {def.onSnapshot && (
+                      <FullscreenSnap onSnapshot={def.onSnapshot} color={m.category} />
+                    )}
+                    {def.help && <PanelHelp text={def.help} visualMode={visualMode} />}
+                    <button style={{ ...fullscreenCloseBtnStyle, color: m.text }} onClick={() => setFullscreenQuadrant(null)} title="Exit fullscreen (Escape)" aria-label="Exit fullscreen">✕</button>
+                  </div>
+                </>
+              )}
             </div>
-            <div style={fullscreenContentStyle}>{def.content}</div>
+            <div
+              style={{
+                ...fullscreenContentStyle,
+                background: CHROME_BG[visualMode],
+              }}
+              data-fullscreen-content
+            >
+              {def.content}
+            </div>
           </div>
         );
       })()}
@@ -705,6 +800,11 @@ const toolbarButtonStyle: React.CSSProperties = {
   flexShrink: 0,
 };
 
+const analysisConfigWrapStyle: React.CSSProperties = {
+  position: 'relative',
+  flexShrink: 0,
+};
+
 const runtimeToolbarStyle: React.CSSProperties = {
   minHeight: TOOLBAR_H,
   height: 'auto',
@@ -821,6 +921,25 @@ const fullscreenHeaderStyle: React.CSSProperties = {
   boxSizing: 'border-box',
 };
 
+const fullscreenHeaderWithAccessoryStyle: React.CSSProperties = {
+  ...fullscreenHeaderStyle,
+  height: 'auto',
+  minHeight: CHROME_H,
+  flexDirection: 'column',
+  alignItems: 'stretch',
+  gap: 4,
+  paddingTop: 3,
+  paddingBottom: 9,
+};
+
+const fullscreenHeaderTopRowStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'baseline',
+  gap: SPACING.sm,
+  minWidth: 0,
+  width: '100%',
+};
+
 const fullscreenHeaderCategoryStyle: React.CSSProperties = {
   fontFamily: FONTS.mono,
   fontSize: FONTS.sizeXs,
@@ -836,6 +955,13 @@ const fullscreenHeaderTitleStyle: React.CSSProperties = {
   overflow: 'hidden',
   textOverflow: 'ellipsis',
   whiteSpace: 'nowrap',
+};
+
+const fullscreenHeaderActionsStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: SPACING.sm,
+  flexShrink: 0,
 };
 
 const fullscreenCloseBtnStyle: React.CSSProperties = {
@@ -854,6 +980,9 @@ const fullscreenContentStyle: React.CSSProperties = {
   flex: 1,
   minHeight: 0,
   overflow: 'hidden',
+  display: 'flex',
+  flexDirection: 'column',
+  position: 'relative',
 };
 
 const fullscreenBtnStyle: React.CSSProperties = {

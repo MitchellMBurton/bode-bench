@@ -4,6 +4,7 @@ import type { VisualMode } from '../audio/displayMode';
 import { COLORS, FONTS, CANVAS, SPACING } from '../theme';
 import { hexToRgb, remapMonochromeCanvas } from '../utils/canvas';
 import { shouldSkipFrame } from '../utils/rafGuard';
+import { useMeasurementCursor, type CursorMapFn } from './useMeasurementCursor';
 import type { AudioFrame } from '../types';
 
 const PAD = SPACING.panelPad;
@@ -252,24 +253,27 @@ export function WaveformScrollPanel(): React.ReactElement {
   const hoverReadoutRef = useRef<HTMLDivElement>(null);
   const offscreenRef = useRef<HTMLCanvasElement | null>(null);
 
-  const handleWaveScrollMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
-    const readout = hoverReadoutRef.current;
+  const mapToValues: CursorMapFn = useCallback((devX: number, devY: number) => {
     const canvas = canvasRef.current;
-    if (!readout || !canvas) return;
-    const H = canvas.offsetHeight;
-    if (H === 0) return;
-    const amp = 1 - 2 * (e.nativeEvent.offsetY / H);
+    if (!canvas) return null;
+    const H = canvas.height;
+    if (H === 0) return null;
+    const amp = 1 - 2 * (devY / H);
     const absAmp = Math.abs(amp);
-    const db = absAmp > 0.0001 ? (20 * Math.log10(absAmp)).toFixed(1) : '< −80';
-    const sign = amp >= 0 ? '+' : '−';
-    readout.style.display = 'block';
-    readout.textContent = `${sign}${absAmp.toFixed(3)}   ${db} dBFS`;
+    const db = absAmp > 0.0001 ? 20 * Math.log10(absAmp) : -80;
+    const sign = amp >= 0 ? '+' : '\u2212';
+    return {
+      devX, devY,
+      primary: amp,
+      primaryLabel: `${sign}${absAmp.toFixed(3)}`,
+      secondary: db,
+      secondaryLabel: db > -80 ? `${db.toFixed(1)} dBFS` : '< \u221280 dBFS',
+    };
   }, []);
 
-  const handleWaveScrollMouseLeave = useCallback(() => {
-    const readout = hoverReadoutRef.current;
-    if (readout) readout.style.display = 'none';
-  }, []);
+  const { overlayRef, handleMouseMove, handleMouseLeave, handleClick } = useMeasurementCursor({
+    canvasRef, readoutRef: hoverReadoutRef, mapToValues, visualMode: displayMode.mode,
+  });
   const frameRef = useRef<AudioFrame | null>(null);
   const rafRef = useRef<number | null>(null);
   const lastFileIdRef = useRef(-1);
@@ -542,9 +546,11 @@ export function WaveformScrollPanel(): React.ReactElement {
       <canvas
         ref={canvasRef}
         style={canvasStyle}
-        onMouseMove={handleWaveScrollMouseMove}
-        onMouseLeave={handleWaveScrollMouseLeave}
+        onMouseMove={handleMouseMove}
+        onMouseLeave={handleMouseLeave}
+        onClick={handleClick}
       />
+      <canvas ref={overlayRef} className="panel-cursor-overlay" style={overlayStyle} />
       <div ref={hoverReadoutRef} className="panel-hover-readout" />
     </div>
   );
@@ -562,4 +568,13 @@ const canvasStyle: React.CSSProperties = {
   display: 'block',
   width: '100%',
   height: '100%',
+};
+
+const overlayStyle: React.CSSProperties = {
+  position: 'absolute',
+  top: 0,
+  left: 0,
+  width: '100%',
+  height: '100%',
+  pointerEvents: 'none',
 };

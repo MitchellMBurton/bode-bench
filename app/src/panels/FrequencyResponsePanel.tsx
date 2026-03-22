@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef } from 'react';
-import { useAudioEngine, useDisplayMode, useFrameBus, useTheaterMode } from '../core/session';
+import { useAnalysisConfig, useAudioEngine, useDisplayMode, useFrameBus, useTheaterMode } from '../core/session';
 import { CANVAS, COLORS, FONTS, SPACING } from '../theme';
 import { formatHz, freqToX, hexToRgba } from '../utils/canvas';
 import { shouldSkipFrame } from '../utils/rafGuard';
+import { useMeasurementCursor, type CursorMapFn } from './useMeasurementCursor';
 import type { AudioFrame } from '../types';
 
 const PAD = SPACING.panelPad;
@@ -12,7 +13,6 @@ const FREQ_TICKS = [20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000];
 const REL_TICKS = [0, -12, -24, -36, -48];
 const CURVE_SMOOTHING = 0.22;
 const DISPLAY_DB_SPAN = 54;
-const BANDWIDTH_OCTAVES = 1 / 6;
 const PANEL_DPR_MAX = 1.25;
 const NGE_TRACE = '#a0d840';
 const NGE_TRACE_SOFT = 'rgba(160,216,64,0.78)';
@@ -71,8 +71,9 @@ function bandAverageDb(
   centerHz: number,
   sampleRate: number,
   fftBinCount: number,
+  bandwidthOctaves: number,
 ): number {
-  const halfWindow = BANDWIDTH_OCTAVES / 2;
+  const halfWindow = bandwidthOctaves / 2;
   const lowHz = Math.max(MIN_HZ, centerHz / Math.pow(2, halfWindow));
   const highHz = Math.min(MAX_HZ, centerHz * Math.pow(2, halfWindow));
   const lowBin = Math.max(0, Math.floor((lowHz * fftBinCount * 2) / sampleRate));
@@ -95,13 +96,14 @@ function sampleCurve(
   frame: AudioFrame,
   targetLeft: Float32Array,
   targetRight: Float32Array,
+  bandwidthOctaves: number,
 ): void {
   const pointCount = targetLeft.length;
 
   for (let i = 0; i < pointCount; i++) {
     const hz = hzAtFraction(i / (pointCount - 1));
-    targetLeft[i] = bandAverageDb(frame.frequencyDb, hz, frame.sampleRate, frame.fftBinCount);
-    targetRight[i] = bandAverageDb(frame.frequencyDbRight, hz, frame.sampleRate, frame.fftBinCount);
+    targetLeft[i] = bandAverageDb(frame.frequencyDb, hz, frame.sampleRate, frame.fftBinCount, bandwidthOctaves);
+    targetRight[i] = bandAverageDb(frame.frequencyDbRight, hz, frame.sampleRate, frame.fftBinCount, bandwidthOctaves);
   }
 }
 
@@ -115,6 +117,7 @@ export function FrequencyResponsePanel(): React.ReactElement {
   const audioEngine = useAudioEngine();
   const displayMode = useDisplayMode();
   const currentMode = displayMode.mode;
+  const analysisConfig = useAnalysisConfig();
   const theaterMode = useTheaterMode();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const frameRef = useRef<AudioFrame | null>(null);
@@ -125,40 +128,38 @@ export function FrequencyResponsePanel(): React.ReactElement {
   const targetLeftRef = useRef<Float32Array | null>(null);
   const targetRightRef = useRef<Float32Array | null>(null);
   const hoverReadoutRef = useRef<HTMLDivElement>(null);
-  // Layout values written each draw frame, read by hover handler
+  // Layout values written each draw frame, read by cursor mapper
   const drawLayoutRef = useRef({ padX: 0, padY: 0, drawW: 1, drawH: 1, topDb: 0, bottomDb: -54 });
 
-  const handleFreqMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
-    const readout = hoverReadoutRef.current;
-    const canvas = canvasRef.current;
-    if (!readout || !canvas) return;
+  // Bandwidth map: config string → numeric octaves
+  const bandwidthRef = useRef(1/6);
+  useEffect(() => {
+    const BW_MAP: Record<string, number> = { '1/12-oct': 1/12, '1/6-oct': 1/6, '1/3-oct': 1/3, '1-oct': 1 };
+    bandwidthRef.current = BW_MAP[analysisConfig.freqResponseBandwidth] ?? 1/6;
+  }, [analysisConfig.freqResponseBandwidth]);
 
+  const mapToValues: CursorMapFn = useCallback((devX: number, devY: number) => {
     const { padX, padY, drawW, drawH, topDb, bottomDb } = drawLayoutRef.current;
-    if (drawW <= 0 || drawH <= 0) return;
-
-    const scaleX = canvas.width / canvas.offsetWidth;
-    const scaleY = canvas.height / canvas.offsetHeight;
-    const devX = e.nativeEvent.offsetX * scaleX;
-    const devY = e.nativeEvent.offsetY * scaleY;
-
-    if (devX < padX || devX > padX + drawW || devY < padY || devY > padY + drawH) {
-      readout.style.display = 'none';
-      return;
-    }
+    if (drawW <= 0 || drawH <= 0) return null;
+    if (devX < padX || devX > padX + drawW || devY < padY || devY > padY + drawH) return null;
 
     const fraction = (devX - padX) / drawW;
     const hz = MIN_HZ * Math.pow(MAX_HZ / MIN_HZ, fraction);
     const dbFraction = (devY - padY) / drawH;
     const db = topDb - dbFraction * (topDb - bottomDb);
 
-    readout.style.display = 'block';
-    readout.textContent = `${formatHz(hz)}   ${db >= 0 ? '+' : ''}${db.toFixed(1)} dB`;
+    return {
+      devX, devY,
+      primary: hz,
+      primaryLabel: formatHz(hz),
+      secondary: db,
+      secondaryLabel: `${db >= 0 ? '+' : ''}${db.toFixed(1)} dB`,
+    };
   }, []);
 
-  const handleFreqMouseLeave = useCallback(() => {
-    const readout = hoverReadoutRef.current;
-    if (readout) readout.style.display = 'none';
-  }, []);
+  const { overlayRef, handleMouseMove, handleMouseLeave, handleClick } = useMeasurementCursor({
+    canvasRef, readoutRef: hoverReadoutRef, mapToValues, visualMode: currentMode,
+  });
 
   useEffect(() => {
     return frameBus.subscribe((frame) => {
@@ -292,7 +293,7 @@ export function FrequencyResponsePanel(): React.ReactElement {
       }
 
       if (frame) {
-        sampleCurve(frame, targetLeft, targetRight);
+        sampleCurve(frame, targetLeft, targetRight, bandwidthRef.current);
         if (didResizeCurve) {
           smoothLeft.set(targetLeft);
           smoothRight.set(targetRight);
@@ -518,9 +519,11 @@ export function FrequencyResponsePanel(): React.ReactElement {
       <canvas
         ref={canvasRef}
         style={canvasStyle}
-        onMouseMove={handleFreqMouseMove}
-        onMouseLeave={handleFreqMouseLeave}
+        onMouseMove={handleMouseMove}
+        onMouseLeave={handleMouseLeave}
+        onClick={handleClick}
       />
+      <canvas ref={overlayRef} className="panel-cursor-overlay" style={overlayStyle} />
       <div ref={hoverReadoutRef} className="panel-hover-readout" />
     </div>
   );
@@ -538,6 +541,15 @@ const canvasStyle: React.CSSProperties = {
   display: 'block',
   width: '100%',
   height: '100%',
+};
+
+const overlayStyle: React.CSSProperties = {
+  position: 'absolute',
+  top: 0,
+  left: 0,
+  width: '100%',
+  height: '100%',
+  pointerEvents: 'none',
 };
 
 

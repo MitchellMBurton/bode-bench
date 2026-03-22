@@ -56,6 +56,9 @@ type TimelineGestureKind =
   | 'view-pan'
   | 'view-resize-start'
   | 'view-resize-end'
+  | 'range-pan'
+  | 'range-resize-start'
+  | 'range-resize-end'
   | 'loop-create'
   | 'loop-pan'
   | 'loop-resize-start'
@@ -71,6 +74,10 @@ interface TimelineGesture {
   readonly initialView: ViewRange;
   readonly initialLoopStart: number | null;
   readonly initialLoopEnd: number | null;
+  readonly initialRangeStart?: number | null;
+  readonly initialRangeEnd?: number | null;
+  readonly rangeId?: number | null;
+  readonly timeSpace?: 'session' | 'detail';
 }
 
 type TimelineHitRegion =
@@ -92,6 +99,15 @@ interface TimelineHit {
   readonly time: number;
 }
 
+type RangeHitRegion = 'body' | 'start' | 'end';
+
+interface RangeHit {
+  readonly rangeMark: RangeMark;
+  readonly region: RangeHitRegion;
+  readonly timeSpace: 'session' | 'detail';
+  readonly isSelected: boolean;
+}
+
 const CLIP_THRESHOLD = 0.9999;
 const PANEL_DPR_MAX = 1.25;
 const DEFAULT_ENVELOPE_COLS = 1024;
@@ -105,6 +121,7 @@ const STREAMED_SCOUT_SAMPLE_WINDOW_MS = 110;
 const STREAMED_SCOUT_IDLE_DELAY_MS = 24;
 const MIN_VIEWPORT_SECONDS = 3;
 const MIN_LOOP_SECONDS = 0.1;
+const MIN_RANGE_EDIT_SECONDS = 0.01;
 const VIEW_FOLLOW_MARGIN = 0.22;
 const VIEW_FOLLOW_LEAD = 0.35;
 const SESSION_MAP_MIN_PX = 28;
@@ -112,6 +129,12 @@ const SESSION_MAP_MAX_PX = 44;
 const CONTROL_ROW_MIN_PX = 12;
 const CONTROL_ROW_MAX_PX = 16;
 const TIMELINE_SEPARATOR_PX = 1;
+const EXPANDED_TIMELINE_MIN_CSS_PX = 420;
+const EXPANDED_SESSION_MAP_MIN_PX = 34;
+const EXPANDED_SESSION_MAP_MAX_PX = 72;
+const EXPANDED_CONTROL_ROW_MIN_PX = 16;
+const EXPANDED_CONTROL_ROW_MAX_PX = 22;
+const EXPANDED_TIMELINE_SEPARATOR_PX = 2;
 const HANDLE_HIT_PX = 14;
 const streamedEnvelopeCache = new Map<string, StreamedEnvelopeCacheEntry>();
 
@@ -531,15 +554,27 @@ function coverageRatioInRange(
   return total > 0 ? covered / total : 0;
 }
 
+function isExpandedTimelineLayout(height: number, dpr: number): boolean {
+  return height / Math.max(dpr, 1) >= EXPANDED_TIMELINE_MIN_CSS_PX;
+}
+
 function buildTimelineLayout(width: number, height: number, dpr: number): TimelineLayout {
-  const separator = Math.max(1, Math.round(TIMELINE_SEPARATOR_PX * dpr));
+  const expanded = isExpandedTimelineLayout(height, dpr);
+  const separator = Math.max(
+    1,
+    Math.round((expanded ? EXPANDED_TIMELINE_SEPARATOR_PX : TIMELINE_SEPARATOR_PX) * dpr),
+  );
+  const controlRowMinPx = expanded ? EXPANDED_CONTROL_ROW_MIN_PX : CONTROL_ROW_MIN_PX;
+  const controlRowMaxPx = expanded ? EXPANDED_CONTROL_ROW_MAX_PX : CONTROL_ROW_MAX_PX;
+  const sessionMapMinPx = expanded ? EXPANDED_SESSION_MAP_MIN_PX : SESSION_MAP_MIN_PX;
+  const sessionMapMaxPx = expanded ? EXPANDED_SESSION_MAP_MAX_PX : SESSION_MAP_MAX_PX;
   const controlRowH = Math.max(
-    Math.round(CONTROL_ROW_MIN_PX * dpr),
-    Math.min(Math.round(CONTROL_ROW_MAX_PX * dpr), Math.round(height * 0.1)),
+    Math.round(controlRowMinPx * dpr),
+    Math.min(Math.round(controlRowMaxPx * dpr), Math.round(height * (expanded ? 0.06 : 0.1))),
   );
   const sessionMapH = Math.max(
-    Math.round(SESSION_MAP_MIN_PX * dpr),
-    Math.min(Math.round(SESSION_MAP_MAX_PX * dpr), Math.round(height * 0.28)),
+    Math.round(sessionMapMinPx * dpr),
+    Math.min(Math.round(sessionMapMaxPx * dpr), Math.round(height * (expanded ? 0.18 : 0.28))),
   );
   const viewY = sessionMapH + separator;
   const loopY = viewY + controlRowH + separator;
@@ -595,6 +630,7 @@ interface WaveformOverviewPanelProps {
   onClearMarkers?: () => void;
   onClearRanges?: () => void;
   onSelectRange?: (id: number) => void;
+  onUpdateRange?: (id: number, startS: number, endS: number) => void;
 }
 
 export function WaveformOverviewPanel({
@@ -606,6 +642,7 @@ export function WaveformOverviewPanel({
   onClearMarkers,
   onClearRanges,
   onSelectRange,
+  onUpdateRange,
 }: WaveformOverviewPanelProps): React.ReactElement {
   const frameBus = useFrameBus();
   const audioEngine = useAudioEngine();
@@ -631,6 +668,8 @@ export function WaveformOverviewPanel({
   onClearRangesRef.current = onClearRanges;
   const onSelectRangeRef = useRef(onSelectRange);
   onSelectRangeRef.current = onSelectRange;
+  const onUpdateRangeRef = useRef(onUpdateRange);
+  onUpdateRangeRef.current = onUpdateRange;
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const peakEnvRef = useRef<Float32Array | null>(null);
   const rmsEnvRef = useRef<Float32Array | null>(null);
@@ -657,6 +696,7 @@ export function WaveformOverviewPanel({
     currentTime: 0,
     duration: 0,
     filename: null,
+    volume: 1,
     playbackBackend: 'decoded',
     scrubActive: false,
     playbackRate: 1,
@@ -1277,14 +1317,23 @@ export function WaveformOverviewPanel({
     startStreamedScout,
   ]);
 
-  useEffect(() => audioEngine.onFileReady((analysis) => {
+  const applyFileAnalysis = useCallback((analysis: FileAnalysis) => {
     cancelStreamedScout();
     resetStreamedEnvelope();
     analysisRef.current = analysis;
     const canvas = canvasRef.current;
     const cols = canvas && canvas.width > 0 ? canvas.width : DEFAULT_ENVELOPE_COLS;
     scheduleEnvelopeCompute(cols, true);
-  }), [audioEngine, cancelStreamedScout, resetStreamedEnvelope, scheduleEnvelopeCompute]);
+  }, [cancelStreamedScout, resetStreamedEnvelope, scheduleEnvelopeCompute]);
+
+  useEffect(() => {
+    if (audioEngine.fileAnalysis) {
+      applyFileAnalysis(audioEngine.fileAnalysis);
+    }
+    return audioEngine.onFileReady((analysis) => {
+      applyFileAnalysis(analysis);
+    });
+  }, [audioEngine, applyFileAnalysis]);
 
   useEffect(() => audioEngine.onReset(() => {
     cancelEnvelopeCompute();
@@ -1301,6 +1350,78 @@ export function WaveformOverviewPanel({
     viewKeyRef.current = null;
     viewFollowRef.current = true;
   }), [audioEngine, cancelEnvelopeCompute, cancelStreamedScout, resetStreamedEnvelope]);
+
+  const hitTestRange = useCallback((
+    x: number,
+    y: number,
+    layout: TimelineLayout,
+    duration: number,
+    selectedOnly = false,
+  ): RangeHit | null => {
+    const safeDuration = Math.max(0.001, duration);
+    const viewRange = normalizeViewRange(
+      viewRangeRef.current.start,
+      viewRangeRef.current.end || pickDefaultViewSpan(safeDuration),
+      safeDuration,
+      Math.min(MIN_VIEWPORT_SECONDS, safeDuration),
+    );
+    const activeRangeId = selectedRangeIdRef.current;
+
+    const hitRect = (
+      rect: TimelineRect,
+      start: number,
+      end: number,
+      timeSpace: 'session' | 'detail',
+    ): RangeHit | null => {
+      if (y < rect.y || y > rect.y + rect.h) return null;
+
+      const handleTol = Math.max(HANDLE_HIT_PX, rect.h * (timeSpace === 'detail' ? 0.08 : 0.45));
+      for (let index = rangeMarksRef.current.length - 1; index >= 0; index--) {
+        const rangeMark = rangeMarksRef.current[index];
+        const isSelected = rangeMark.id === activeRangeId;
+        if (selectedOnly && !isSelected) continue;
+
+        const overlapStart = Math.max(start, rangeMark.startS);
+        const overlapEnd = Math.min(end, rangeMark.endS);
+        if (overlapEnd <= overlapStart) continue;
+
+        const x1 = timeToX(overlapStart, start, end, rect);
+        const x2 = timeToX(overlapEnd, start, end, rect);
+        const minX = Math.min(x1, x2);
+        const maxX = Math.max(x1, x2);
+
+        if (isSelected) {
+          const startVisible = rangeMark.startS >= start && rangeMark.startS <= end;
+          const endVisible = rangeMark.endS >= start && rangeMark.endS <= end;
+          const startDelta = startVisible ? Math.abs(x - timeToX(rangeMark.startS, start, end, rect)) : Number.POSITIVE_INFINITY;
+          const endDelta = endVisible ? Math.abs(x - timeToX(rangeMark.endS, start, end, rect)) : Number.POSITIVE_INFINITY;
+          const nearestHandleDelta = Math.min(startDelta, endDelta);
+          if (nearestHandleDelta <= handleTol) {
+            return {
+              rangeMark,
+              region: startDelta <= endDelta ? 'start' : 'end',
+              timeSpace,
+              isSelected,
+            };
+          }
+        }
+
+        if (x >= minX && x <= maxX) {
+          return {
+            rangeMark,
+            region: 'body',
+            timeSpace,
+            isSelected,
+          };
+        }
+      }
+
+      return null;
+    };
+
+    return hitRect(layout.detail, viewRange.start, viewRange.end, 'detail')
+      ?? hitRect(layout.session, 0, safeDuration, 'session');
+  }, []);
 
   const hitTestTimeline = useCallback((x: number, y: number, layout: TimelineLayout, duration: number): TimelineHit => {
     const safeDuration = Math.max(0.001, duration);
@@ -1369,6 +1490,16 @@ export function WaveformOverviewPanel({
     }
 
     const layout = buildTimelineLayout(canvas.width, canvas.height, Math.min(devicePixelRatio, PANEL_DPR_MAX));
+    const rangeHit = hitTestRange(x, y, layout, duration);
+    if (rangeHit) {
+      if (rangeHit.isSelected && (rangeHit.region === 'start' || rangeHit.region === 'end')) {
+        setCanvasCursor('ew-resize');
+        return;
+      }
+      setCanvasCursor(rangeHit.isSelected ? 'grab' : 'pointer');
+      return;
+    }
+
     const hit = hitTestTimeline(x, y, layout, duration);
     switch (hit.region) {
       case 'view-start':
@@ -1390,7 +1521,7 @@ export function WaveformOverviewPanel({
       default:
         setCanvasCursor('crosshair');
     }
-  }, [audioEngine, hitTestTimeline, setCanvasCursor]);
+  }, [audioEngine, hitTestRange, hitTestTimeline, setCanvasCursor]);
 
   const updateGestureFromPointer = useCallback((event: React.PointerEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
@@ -1412,6 +1543,8 @@ export function WaveformOverviewPanel({
       : normalizeViewRange(0, pickDefaultViewSpan(duration), duration, Math.min(MIN_VIEWPORT_SECONDS, duration));
     const detailTime = xToTime(x, detailRange.start, detailRange.end, layout.detail);
     const deltaTime = ((x - gesture.anchorX) / Math.max(1, layout.view.w)) * duration;
+    const rangePointerTime = gesture.timeSpace === 'detail' ? detailTime : fullTime;
+    const rangeDeltaTime = rangePointerTime - gesture.anchorTime;
 
     switch (gesture.kind) {
       case 'scrub-session':
@@ -1431,6 +1564,47 @@ export function WaveformOverviewPanel({
         break;
       case 'view-resize-end':
         setViewRange({ start: gesture.initialView.start, end: fullTime }, { manual: true });
+        break;
+      case 'range-pan':
+        if (
+          gesture.rangeId !== undefined
+          && gesture.rangeId !== null
+          && gesture.initialRangeStart !== undefined
+          && gesture.initialRangeStart !== null
+          && gesture.initialRangeEnd !== undefined
+          && gesture.initialRangeEnd !== null
+          && onUpdateRangeRef.current
+        ) {
+          const span = gesture.initialRangeEnd - gesture.initialRangeStart;
+          const start = clampNumber(gesture.initialRangeStart + rangeDeltaTime, 0, Math.max(0, duration - span));
+          onUpdateRangeRef.current(gesture.rangeId, start, start + span);
+        }
+        break;
+      case 'range-resize-start':
+        if (
+          gesture.rangeId !== undefined
+          && gesture.rangeId !== null
+          && gesture.initialRangeEnd !== undefined
+          && gesture.initialRangeEnd !== null
+          && onUpdateRangeRef.current
+        ) {
+          const latestStart = Math.max(0, gesture.initialRangeEnd - MIN_RANGE_EDIT_SECONDS);
+          const start = clampNumber(rangePointerTime, 0, latestStart);
+          onUpdateRangeRef.current(gesture.rangeId, start, gesture.initialRangeEnd);
+        }
+        break;
+      case 'range-resize-end':
+        if (
+          gesture.rangeId !== undefined
+          && gesture.rangeId !== null
+          && gesture.initialRangeStart !== undefined
+          && gesture.initialRangeStart !== null
+          && onUpdateRangeRef.current
+        ) {
+          const earliestEnd = Math.min(duration, gesture.initialRangeStart + MIN_RANGE_EDIT_SECONDS);
+          const end = clampNumber(rangePointerTime, earliestEnd, duration);
+          onUpdateRangeRef.current(gesture.rangeId, gesture.initialRangeStart, end);
+        }
         break;
       case 'loop-create': {
         const start = Math.min(gesture.anchorTime, fullTime);
@@ -1545,6 +1719,11 @@ export function WaveformOverviewPanel({
       const height = canvas.height;
       const dpr = Math.min(devicePixelRatio, PANEL_DPR_MAX);
       const layout = buildTimelineLayout(width, height, dpr);
+      const expandedTimeline = isExpandedTimelineLayout(height, dpr);
+      const laneLabelFontPx = expandedTimeline ? 9 : 8;
+      const gridLabelFontPx = expandedTimeline ? 8 : 7;
+      const laneLabelTopInset = (expandedTimeline ? 5 : 4) * dpr;
+      const detailTimeInset = (expandedTimeline ? 20 : 18) * dpr;
       const nge = displayMode.mode === 'nge';
       const hyper = displayMode.mode === 'hyper';
       const optic = displayMode.mode === 'optic';
@@ -1619,11 +1798,11 @@ export function WaveformOverviewPanel({
         ctx.moveTo(0, layout.detail.y + layout.detail.h / 2);
         ctx.lineTo(width, layout.detail.y + layout.detail.h / 2);
         ctx.stroke();
-        ctx.font = `${8 * dpr}px ${FONTS.mono}`;
+        ctx.font = `${laneLabelFontPx * dpr}px ${FONTS.mono}`;
         ctx.fillStyle = textColor;
         ctx.textAlign = 'left';
         ctx.textBaseline = 'top';
-        ctx.fillText('SESSION MAP', SPACING.sm * dpr, 4 * dpr);
+        ctx.fillText('SESSION MAP', SPACING.sm * dpr, laneLabelTopInset);
         return;
       }
 
@@ -1647,7 +1826,7 @@ export function WaveformOverviewPanel({
         const interval = pickGridInterval(span);
         const firstTick = Math.ceil(start / interval) * interval;
         ctx.lineWidth = 1;
-        ctx.font = `${7 * dpr}px ${FONTS.mono}`;
+        ctx.font = `${gridLabelFontPx * dpr}px ${FONTS.mono}`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'top';
 
@@ -1781,6 +1960,39 @@ export function WaveformOverviewPanel({
           ctx.moveTo(x2, rect.y);
           ctx.lineTo(x2, rect.y + rect.h);
           ctx.stroke();
+
+          if (isSelected) {
+            const handleWidth = Math.max(6 * dpr, Math.min(10 * dpr, rect.h * 0.16));
+            const handleHeight = Math.max(10 * dpr, Math.min(rect.h - 4 * dpr, rect.h * 0.64));
+            const handleY = rect.y + Math.max(2 * dpr, (rect.h - handleHeight) / 2);
+            const gripInset = Math.max(dpr, handleWidth * 0.22);
+            const gripTop = handleY + Math.max(dpr, handleHeight * 0.22);
+            const gripBottom = handleY + handleHeight - Math.max(dpr, handleHeight * 0.22);
+            const visibleStart = rangeMark.startS >= start && rangeMark.startS <= end;
+            const visibleEnd = rangeMark.endS >= start && rangeMark.endS <= end;
+
+            const drawRangeHandle = (handleTime: number): void => {
+              const handleCenter = timeToX(handleTime, start, end, rect);
+              const handleX = clampNumber(handleCenter - handleWidth / 2, rect.x, rect.x + rect.w - handleWidth);
+              ctx.fillStyle = handleBackFill;
+              ctx.fillRect(handleX, handleY, handleWidth, handleHeight);
+              ctx.strokeStyle = selectedRangeStroke;
+              ctx.lineWidth = dpr;
+              ctx.strokeRect(handleX + 0.5 * dpr, handleY + 0.5 * dpr, Math.max(handleWidth - dpr, dpr), Math.max(handleHeight - dpr, dpr));
+              ctx.strokeStyle = handleGripFill;
+              ctx.lineWidth = Math.max(dpr, 1);
+              for (let index = 0; index < 2; index++) {
+                const gripX = handleX + gripInset + index * Math.max(dpr, handleWidth * 0.24);
+                ctx.beginPath();
+                ctx.moveTo(gripX, gripTop);
+                ctx.lineTo(gripX, gripBottom);
+                ctx.stroke();
+              }
+            };
+
+            if (visibleStart) drawRangeHandle(rangeMark.startS);
+            if (visibleEnd) drawRangeHandle(rangeMark.endS);
+          }
 
           if (rangeWidth >= 34 * dpr) {
             ctx.font = `${6.5 * dpr}px ${FONTS.mono}`;
@@ -2671,19 +2883,19 @@ export function WaveformOverviewPanel({
             },
           );
 
-      ctx.font = `${8 * dpr}px ${FONTS.mono}`;
+      ctx.font = `${laneLabelFontPx * dpr}px ${FONTS.mono}`;
       ctx.fillStyle = textColor;
       ctx.textAlign = 'left';
       ctx.textBaseline = 'top';
-      ctx.fillText(isStreamedOverview ? 'SESSION MAP / COARSE' : 'SESSION MAP', SPACING.sm * dpr, layout.session.y + 4 * dpr);
-      ctx.fillText('VIEW WINDOW', SPACING.sm * dpr, layout.view.y + 1 * dpr);
-      ctx.fillText(loopStart !== null && loopEnd !== null ? 'LOOP REGION' : 'LOOP DRAG TO SET', SPACING.sm * dpr, layout.loop.y + 1 * dpr);
-      ctx.fillText(`DETAIL WAVEFORM ${formatSpan(viewRange.end - viewRange.start)}`, SPACING.sm * dpr, layout.detail.y + 4 * dpr);
+      ctx.fillText(isStreamedOverview ? 'SESSION MAP / COARSE' : 'SESSION MAP', SPACING.sm * dpr, layout.session.y + laneLabelTopInset);
+      ctx.fillText('VIEW WINDOW', SPACING.sm * dpr, layout.view.y + Math.max(dpr, laneLabelTopInset - 3 * dpr));
+      ctx.fillText(loopStart !== null && loopEnd !== null ? 'LOOP REGION' : 'LOOP DRAG TO SET', SPACING.sm * dpr, layout.loop.y + Math.max(dpr, laneLabelTopInset - 3 * dpr));
+      ctx.fillText(`DETAIL WAVEFORM ${formatSpan(viewRange.end - viewRange.start)}`, SPACING.sm * dpr, layout.detail.y + laneLabelTopInset);
 
       ctx.textAlign = 'left';
-      ctx.fillText(fmtTime(viewRange.start), SPACING.sm * dpr, layout.detail.y + 18 * dpr);
+      ctx.fillText(fmtTime(viewRange.start), SPACING.sm * dpr, layout.detail.y + detailTimeInset);
       ctx.textAlign = 'right';
-      ctx.fillText(fmtTime(viewRange.end), width - SPACING.sm * dpr, layout.detail.y + 18 * dpr);
+      ctx.fillText(fmtTime(viewRange.end), width - SPACING.sm * dpr, layout.detail.y + detailTimeInset);
 
       if (analysis) {
         const dr = analysis.crestFactorDb;
@@ -2850,31 +3062,39 @@ export function WaveformOverviewPanel({
             Math.min(MIN_VIEWPORT_SECONDS, duration),
           );
 
-          if (onSelectRangeRef.current) {
-            const hitRange = (
-              rect: TimelineRect,
-              start: number,
-              end: number,
-            ): RangeMark | null => {
-              if (y < rect.y || y > rect.y + rect.h) return null;
-              for (let index = rangeMarksRef.current.length - 1; index >= 0; index--) {
-                const rangeMark = rangeMarksRef.current[index];
-                const overlapStart = Math.max(start, rangeMark.startS);
-                const overlapEnd = Math.min(end, rangeMark.endS);
-                if (overlapEnd <= overlapStart) continue;
-                const x1 = timeToX(overlapStart, start, end, rect);
-                const x2 = timeToX(overlapEnd, start, end, rect);
-                if (x >= x1 && x <= x2) {
-                  return rangeMark;
-                }
-              }
-              return null;
+          const selectedRangeHit = onUpdateRangeRef.current
+            ? hitTestRange(x, y, layout, duration, true)
+            : null;
+          if (selectedRangeHit && selectedRangeHit.isSelected) {
+            event.currentTarget.setPointerCapture(event.pointerId);
+            const gestureTime = selectedRangeHit.timeSpace === 'detail'
+              ? xToTime(x, currentView.start, currentView.end, layout.detail)
+              : xToTime(x, 0, duration, layout.session);
+            gestureRef.current = {
+              kind: selectedRangeHit.region === 'body'
+                ? 'range-pan'
+                : selectedRangeHit.region === 'start'
+                  ? 'range-resize-start'
+                  : 'range-resize-end',
+              pointerId: event.pointerId,
+              anchorTime: gestureTime,
+              anchorX: x,
+              initialView: currentView,
+              initialLoopStart: transportRef.current.loopStart,
+              initialLoopEnd: transportRef.current.loopEnd,
+              initialRangeStart: selectedRangeHit.rangeMark.startS,
+              initialRangeEnd: selectedRangeHit.rangeMark.endS,
+              rangeId: selectedRangeHit.rangeMark.id,
+              timeSpace: selectedRangeHit.timeSpace,
             };
+            setCanvasCursor(selectedRangeHit.region === 'body' ? 'grabbing' : 'ew-resize');
+            return;
+          }
 
-            const rangeHit = hitRange(layout.detail, currentView.start, currentView.end)
-              ?? hitRange(layout.session, 0, duration);
+          if (onSelectRangeRef.current) {
+            const rangeHit = hitTestRange(x, y, layout, duration);
             if (rangeHit) {
-              onSelectRangeRef.current(rangeHit.id);
+              onSelectRangeRef.current(rangeHit.rangeMark.id);
               return;
             }
           }

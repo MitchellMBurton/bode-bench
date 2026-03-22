@@ -6,10 +6,11 @@
 // Integrated LUFS computed via two-pass EBU R128 gating.
 // ============================================================
 
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { useAudioEngine, useDisplayMode, useFrameBus, useScrollSpeed } from '../core/session';
 import { COLORS, FONTS, SPACING, CANVAS } from '../theme';
 import { shouldSkipFrame } from '../utils/rafGuard';
+import { useMeasurementCursor, type CursorMapFn } from './useMeasurementCursor';
 
 const PANEL_DPR_MAX = 1.25;
 const HISTORY_MAX = 1200;
@@ -95,6 +96,27 @@ export function LoudnessMeterPanel(): React.ReactElement {
   const scrollSpeed = useScrollSpeed();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rafRef = useRef<number | null>(null);
+  const hoverReadoutRef = useRef<HTMLDivElement>(null);
+  const drawDimRef = useRef({ H: 0, padV: 0 });
+
+  const mapToValues: CursorMapFn = useCallback((devX: number, devY: number) => {
+    const { H, padV } = drawDimRef.current;
+    if (H === 0) return null;
+    if (devY < padV || devY > H - padV) return null;
+    const t = (devY - padV) / (H - padV * 2);
+    const lufs = LUFS_TOP + t * (LUFS_BOT - LUFS_TOP);
+    return {
+      devX, devY,
+      primary: lufs,
+      primaryLabel: `${lufs.toFixed(1)} LUFS`,
+      secondary: 0,
+      secondaryLabel: '',
+    };
+  }, []);
+
+  const { overlayRef, handleMouseMove, handleMouseLeave, handleClick } = useMeasurementCursor({
+    canvasRef, readoutRef: hoverReadoutRef, mapToValues, visualMode: displayMode.mode,
+  });
 
   // K-weighting filter state
   const biquadL = useRef<BiquadState>(makeBiquad());
@@ -253,6 +275,7 @@ export function LoudnessMeterPanel(): React.ReactElement {
       const red = displayMode.mode === 'red';
       const eva = displayMode.mode === 'eva';
       const padV = 6 * dpr;
+      drawDimRef.current = { H, padV };
 
       const traceColor = nge ? '#a0d840' : hyper ? CANVAS.hyper.trace : optic ? CANVAS.optic.trace : red ? CANVAS.red.trace : eva ? CANVAS.eva.trace : COLORS.waveform;
       const labelColor = nge ? 'rgba(140,210,40,0.5)' : hyper ? CANVAS.hyper.label : optic ? CANVAS.optic.label : red ? CANVAS.red.label : eva ? CANVAS.eva.label : COLORS.textDim;
@@ -428,7 +451,15 @@ export function LoudnessMeterPanel(): React.ReactElement {
 
   return (
     <div style={panelStyle}>
-      <canvas ref={canvasRef} style={canvasStyle} />
+      <canvas
+        ref={canvasRef}
+        style={canvasStyle}
+        onMouseMove={handleMouseMove}
+        onMouseLeave={handleMouseLeave}
+        onClick={handleClick}
+      />
+      <canvas ref={overlayRef} className="panel-cursor-overlay" style={overlayStyle} />
+      <div ref={hoverReadoutRef} className="panel-hover-readout" />
     </div>
   );
 }
@@ -445,4 +476,13 @@ const canvasStyle: React.CSSProperties = {
   display: 'block',
   width: '100%',
   height: '100%',
+};
+
+const overlayStyle: React.CSSProperties = {
+  position: 'absolute',
+  top: 0,
+  left: 0,
+  width: '100%',
+  height: '100%',
+  pointerEvents: 'none',
 };

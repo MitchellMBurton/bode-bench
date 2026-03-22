@@ -161,6 +161,38 @@ export class DerivedMediaStore {
     return this.addRange(this.snapshot.pendingRangeStartS, endS);
   }
 
+  updateRange(rangeId: number, startS: number, endS: number): RangeMark {
+    const normalizedRange = normalizeRange(startS, endS);
+    let updatedRange: RangeMark | null = null;
+    let changed = false;
+
+    const nextRanges = this.snapshot.rangeMarks.map((rangeMark) => {
+      if (rangeMark.id !== rangeId) return rangeMark;
+      if (rangeMark.startS === normalizedRange.startS && rangeMark.endS === normalizedRange.endS) {
+        updatedRange = rangeMark;
+        return rangeMark;
+      }
+      changed = true;
+      updatedRange = {
+        ...rangeMark,
+        startS: normalizedRange.startS,
+        endS: normalizedRange.endS,
+      };
+      return updatedRange;
+    });
+
+    assert(updatedRange, 'cannot update an unknown range');
+    if (!changed) return updatedRange;
+
+    this.snapshot = {
+      ...this.snapshot,
+      rangeMarks: nextRanges,
+      selectedRangeId: rangeId,
+    };
+    this.emit();
+    return updatedRange;
+  }
+
   deleteRange(rangeId: number): void {
     const nextRanges = this.snapshot.rangeMarks.filter((rangeMark) => rangeMark.id !== rangeId);
     if (nextRanges.length === this.snapshot.rangeMarks.length) return;

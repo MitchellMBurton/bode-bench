@@ -96,6 +96,8 @@ export interface TransportState {
   readonly currentTime: number; // seconds
   readonly duration: number;    // seconds
   readonly filename: string | null;
+  /** Master output gain, normalized 0..1. */
+  readonly volume: number;
   /** Playback backend currently driving the session transport. */
   readonly playbackBackend: 'decoded' | 'streamed';
   /** True while the user is actively scrubbing a seek surface. */
@@ -237,6 +239,76 @@ export interface MediaJobRecord {
   readonly progress: MediaJobProgress | null;
   readonly result: MediaJobResult | null;
   readonly errorText: string | null;
+}
+
+// ----------------------------------------------------------
+// Analysis Configuration
+// ----------------------------------------------------------
+
+/** Allowed FFT sizes for the analysis engine. */
+export type FftSizeOption = 2048 | 4096 | 8192 | 16384;
+
+/** Frequency response panel smoothing bandwidth. */
+export type FreqResponseBandwidth = '1/12-oct' | '1/6-oct' | '1/3-oct' | '1-oct';
+
+/** Serialisable analysis parameter snapshot — persisted to localStorage and future session files. */
+export interface AnalysisConfig {
+  /** FFT window size. Larger = better frequency resolution, worse time resolution. */
+  readonly fftSize: FftSizeOption;
+  /** AnalyserNode smoothing time constant (0.0 – 1.0). */
+  readonly smoothing: number;
+  /** Frequency response band-average width. */
+  readonly freqResponseBandwidth: FreqResponseBandwidth;
+  /** Spectrogram colour-map minimum dB (e.g. -80). */
+  readonly spectroDbMin: number;
+  /** Spectrogram colour-map maximum dB (e.g. 0). */
+  readonly spectroDbMax: number;
+}
+
+// ----------------------------------------------------------
+// Measurement Cursors
+// ----------------------------------------------------------
+
+/** A measurement cursor position in panel-domain coordinates. */
+export interface CursorPoint {
+  /** Device-pixel X within the canvas. */
+  readonly devX: number;
+  /** Device-pixel Y within the canvas. */
+  readonly devY: number;
+  /** Primary axis value (Hz, seconds, amplitude, dB — depends on panel). */
+  readonly primary: number;
+  /** Formatted primary axis label, e.g. "261 Hz" or "1.34 s". */
+  readonly primaryLabel: string;
+  /** Secondary axis value (dB, amplitude, LUFS — depends on panel). */
+  readonly secondary: number;
+  /** Formatted secondary axis label, e.g. "-12.3 dB". */
+  readonly secondaryLabel: string;
+}
+
+/** State of the cursor system for a single panel. */
+export interface CursorState {
+  /** Current hover position, or null if not hovering. */
+  readonly hover: CursorPoint | null;
+  /** Pinned reference cursor (click to set), or null. */
+  readonly pinned: CursorPoint | null;
+}
+
+// ----------------------------------------------------------
+// Panel Snapshot Export
+// ----------------------------------------------------------
+
+/** Metadata composited into a panel snapshot PNG. */
+export interface PanelSnapshotMetadata {
+  /** Panel label, e.g. "FREQ RESPONSE". */
+  readonly panelLabel: string;
+  /** Source media filename, or null if no file loaded. */
+  readonly filename: string | null;
+  /** Transport position at capture time (seconds). */
+  readonly currentTime: number;
+  /** Total duration of loaded media (seconds). */
+  readonly duration: number;
+  /** Visual mode active at capture time. */
+  readonly visualMode: string;
 }
 
 // ----------------------------------------------------------

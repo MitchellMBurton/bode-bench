@@ -14,6 +14,7 @@ const INITIAL_TRANSPORT: TransportState = {
   currentTime: 0,
   duration: 0,
   filename: null,
+  volume: 1,
   playbackBackend: 'decoded',
   scrubActive: false,
   playbackRate: 1,
@@ -113,6 +114,7 @@ export function useReviewControlModel(): ReviewControlModel {
   }, [derivedMedia]);
 
   const auditionRange = useCallback((rangeMark: RangeMark): void => {
+    derivedMedia.selectRange(rangeMark.id);
     audioEngine.setLoop(rangeMark.startS, rangeMark.endS);
     audioEngine.seek(rangeMark.startS);
     diagnosticsLog.push(
@@ -120,7 +122,7 @@ export function useReviewControlModel(): ReviewControlModel {
       'info',
       'transport',
     );
-  }, [audioEngine, diagnosticsLog]);
+  }, [audioEngine, derivedMedia, diagnosticsLog]);
 
   const deleteRange = useCallback((rangeId: number): void => {
     const rangeMark = snapshot.rangeMarks.find((entry) => entry.id === rangeId);

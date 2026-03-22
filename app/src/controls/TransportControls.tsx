@@ -516,6 +516,7 @@ export function TransportControls({
     currentTime: 0,
     duration: 0,
     filename: null,
+    volume: 1,
     playbackBackend: 'decoded',
     scrubActive: false,
     playbackRate: 1,

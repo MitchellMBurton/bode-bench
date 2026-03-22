@@ -8,10 +8,11 @@
 // replaces the hard clear, so previous traces fade like a CRT.
 // ============================================================
 
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { useAudioEngine, useDisplayMode, useTheaterMode } from '../core/session';
 import { COLORS, FONTS, CANVAS, SPACING } from '../theme';
 import { shouldSkipFrame } from '../utils/rafGuard';
+import { useMeasurementCursor, type CursorMapFn } from './useMeasurementCursor';
 
 const PAD = SPACING.panelPad;
 const TRIGGER_THRESHOLD = CANVAS.oscTriggerThreshold;
@@ -49,8 +50,8 @@ const EVA_TEXT = CANVAS.eva.text;
 const EVA_GLOW = CANVAS.eva.glow;
 const EVA_PERSISTENCE_FILL = CANVAS.eva.persistenceFill;
 
-// Allocate once at module level — reused every frame
-const TD_BUF = new Float32Array(CANVAS.fftSize);
+// Allocate once at module level at max possible FFT size — reused every frame
+const TD_BUF = new Float32Array(16384);
 
 export function OscilloscopePanel(): React.ReactElement {
   const audioEngine = useAudioEngine();
@@ -58,6 +59,30 @@ export function OscilloscopePanel(): React.ReactElement {
   const theaterMode = useTheaterMode();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rafRef = useRef<number | null>(null);
+  const hoverReadoutRef = useRef<HTMLDivElement>(null);
+  const drawDimRef = useRef({ padY: 0, drawH: 0, midY: 0 });
+
+  const mapToValues: CursorMapFn = useCallback((devX: number, devY: number) => {
+    const { padY, drawH, midY } = drawDimRef.current;
+    if (drawH === 0) return null;
+    if (devY < padY || devY > padY + drawH) return null;
+    const amplitude = (midY - devY) / (drawH / 2);
+    const clamped = Math.max(-1, Math.min(1, amplitude));
+    const absAmp = Math.abs(clamped);
+    const dbfs = absAmp > 0 ? 20 * Math.log10(absAmp) : -Infinity;
+    const dbLabel = isFinite(dbfs) ? `${dbfs.toFixed(1)} dBFS` : '\u2212\u221E dBFS';
+    return {
+      devX, devY,
+      primary: clamped,
+      primaryLabel: `${clamped >= 0 ? '+' : '\u2212'}${Math.abs(clamped).toFixed(3)}`,
+      secondary: dbfs,
+      secondaryLabel: dbLabel,
+    };
+  }, []);
+
+  const { overlayRef, handleMouseMove, handleMouseLeave, handleClick } = useMeasurementCursor({
+    canvasRef, readoutRef: hoverReadoutRef, mapToValues, visualMode: displayMode.mode,
+  });
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -115,6 +140,7 @@ export function OscilloscopePanel(): React.ReactElement {
       const drawW = W - padX * 2;
       const drawH = H - padY * 2;
       const midY = padY + drawH / 2;
+      drawDimRef.current = { padY, drawH, midY };
 
       // Grid lines
       ctx.strokeStyle = gridColor;
@@ -241,7 +267,15 @@ export function OscilloscopePanel(): React.ReactElement {
 
   return (
     <div style={panelStyle}>
-      <canvas ref={canvasRef} style={canvasStyle} />
+      <canvas
+        ref={canvasRef}
+        style={canvasStyle}
+        onMouseMove={handleMouseMove}
+        onMouseLeave={handleMouseLeave}
+        onClick={handleClick}
+      />
+      <canvas ref={overlayRef} className="panel-cursor-overlay" style={overlayStyle} />
+      <div ref={hoverReadoutRef} className="panel-hover-readout" />
     </div>
   );
 }
@@ -271,6 +305,15 @@ const canvasStyle: React.CSSProperties = {
   display: 'block',
   width: '100%',
   height: '100%',
+};
+
+const overlayStyle: React.CSSProperties = {
+  position: 'absolute',
+  top: 0,
+  left: 0,
+  width: '100%',
+  height: '100%',
+  pointerEvents: 'none',
 };
 
 

@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef } from 'react';
-import { useAudioEngine, useDisplayMode, useFrameBus, useScrollSpeed, useTheaterMode } from '../core/session';
+import { useAnalysisConfig, useAudioEngine, useDisplayMode, useFrameBus, useScrollSpeed, useTheaterMode } from '../core/session';
 import type { VisualMode } from '../audio/displayMode';
 import { COLORS, FONTS, CANVAS, SPACING } from '../theme';
 import { formatHz, hexToRgb, spectroColor } from '../utils/canvas';
 import { shouldSkipFrame } from '../utils/rafGuard';
+import { useMeasurementCursor, type CursorMapFn } from './useMeasurementCursor';
 import type { AudioFrame } from '../types';
 
 const FREQ_AXIS_W = CANVAS.spectroFreqAxisWidth;
@@ -184,19 +185,23 @@ function spectroColorForMode(db: number, mode: VisualMode): string {
   return spectroPaletteColor(db, palette);
 }
 
-function dbToHistoryLevel(db: number): number {
-  const t = Math.max(0, Math.min(1, (db - CANVAS.dbMin) / (CANVAS.dbMax - CANVAS.dbMin)));
+function dbToHistoryLevel(db: number, dbMin: number, dbMax: number): number {
+  const t = Math.max(0, Math.min(1, (db - dbMin) / (dbMax - dbMin)));
   return Math.round(t * (HISTORY_LEVELS - 1));
 }
 
-function historyLevelToDb(level: number): number {
-  return CANVAS.dbMin + (level / (HISTORY_LEVELS - 1)) * (CANVAS.dbMax - CANVAS.dbMin);
+function historyLevelToDb(level: number, dbMin: number, dbMax: number): number {
+  return dbMin + (level / (HISTORY_LEVELS - 1)) * (dbMax - dbMin);
 }
 
 function createPalette(mode: VisualMode): readonly Rgb[] {
+  // Palette creation uses default dB range — palette maps 0-255 levels to
+  // colours independently of the configured range (level 0 = darkest,
+  // level 255 = brightest). The configured range only affects which dB
+  // values map to which levels via dbToHistoryLevel.
   return Array.from(
     { length: HISTORY_LEVELS },
-    (_, index) => parseRgbString(spectroColorForMode(historyLevelToDb(index), mode)),
+    (_, index) => parseRgbString(spectroColorForMode(historyLevelToDb(index, CANVAS.dbMin, CANVAS.dbMax), mode)),
   );
 }
 
@@ -278,6 +283,7 @@ export function SpectrogramPanel(): React.ReactElement {
   const frameBus = useFrameBus();
   const displayMode = useDisplayMode();
   const currentMode = displayMode.mode;
+  const analysisConfig = useAnalysisConfig();
   const audioEngine = useAudioEngine();
   const scrollSpeed = useScrollSpeed();
   const theaterMode = useTheaterMode();
@@ -292,51 +298,46 @@ export function SpectrogramPanel(): React.ReactElement {
   const lastFrameRef = useRef<AudioFrame | null>(null);
   const scrollCarryRef = useRef(0);
   const lastModeRef = useRef<VisualMode>(displayMode.mode);
+  const lastDbMinRef = useRef(analysisConfig.spectroDbMin);
+  const lastDbMaxRef = useRef(analysisConfig.spectroDbMax);
   const hoverReadoutRef = useRef<HTMLDivElement>(null);
+  const dbRangeRef = useRef({ dbMin: analysisConfig.spectroDbMin, dbMax: analysisConfig.spectroDbMax });
+  useEffect(() => {
+    dbRangeRef.current = { dbMin: analysisConfig.spectroDbMin, dbMax: analysisConfig.spectroDbMax };
+  }, [analysisConfig.spectroDbMin, analysisConfig.spectroDbMax]);
 
-  const handleSpectroMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
-    const readout = hoverReadoutRef.current;
-    const canvas = canvasRef.current;
-    const history = historyRef.current;
-    if (!readout || !canvas) return;
-
-    const { axisW, spectroW, spectroH, padY, W, H } = dimRef.current;
-    if (spectroW <= 0 || spectroH <= 0) return;
-
-    // Convert CSS-pixel offset to device pixels
-    const scaleX = W / canvas.offsetWidth;
-    const scaleY = H / canvas.offsetHeight;
-    const devX = e.nativeEvent.offsetX * scaleX;
-    const devY = e.nativeEvent.offsetY * scaleY;
-
-    if (devX < axisW || devY < padY || devY > padY + spectroH) {
-      readout.style.display = 'none';
-      return;
-    }
+  const mapToValues: CursorMapFn = useCallback((devX: number, devY: number) => {
+    const { axisW, spectroW, spectroH, padY } = dimRef.current;
+    if (spectroW <= 0 || spectroH <= 0) return null;
+    if (devX < axisW || devY < padY || devY > padY + spectroH) return null;
 
     const tY = 1 - (devY - padY) / spectroH;
     const hz = 20 * Math.pow(1000, tY);
 
-    let line = formatHz(hz);
-
+    let db = NaN;
+    const history = historyRef.current;
     if (history) {
       const col = Math.max(0, Math.min(spectroW - 1, Math.floor(devX - axisW)));
       const row = Math.max(0, Math.min(spectroH - 1, Math.floor(devY - padY)));
       const level = history[row * spectroW + col];
       if (level >= 0) {
-        const db = CANVAS.dbMin + (level / (HISTORY_LEVELS - 1)) * (CANVAS.dbMax - CANVAS.dbMin);
-        line += `   ${db.toFixed(1)} dB`;
+        const { dbMin, dbMax } = dbRangeRef.current;
+        db = dbMin + (level / (HISTORY_LEVELS - 1)) * (dbMax - dbMin);
       }
     }
 
-    readout.style.display = 'block';
-    readout.textContent = line;
+    return {
+      devX, devY,
+      primary: hz,
+      primaryLabel: formatHz(hz),
+      secondary: Number.isFinite(db) ? db : 0,
+      secondaryLabel: Number.isFinite(db) ? `${db.toFixed(1)} dB` : '',
+    };
   }, []);
 
-  const handleSpectroMouseLeave = useCallback(() => {
-    const readout = hoverReadoutRef.current;
-    if (readout) readout.style.display = 'none';
-  }, []);
+  const { overlayRef, handleMouseMove, handleMouseLeave, handleClick } = useMeasurementCursor({
+    canvasRef, readoutRef: hoverReadoutRef, mapToValues, visualMode: displayMode.mode,
+  });
 
   useEffect(() => {
     return frameBus.subscribe((frame) => {
@@ -442,6 +443,7 @@ export function SpectrogramPanel(): React.ReactElement {
       const dpr = Math.min(devicePixelRatio, PANEL_DPR_MAX);
       const mode = displayMode.mode;
       const theme = SPECTROGRAM_THEMES[mode];
+      const activePalette = SPECTROGRAM_PALETTES[mode];
       const spectroX = axisW;
       const backgroundFill = theme.background;
 
@@ -450,6 +452,15 @@ export function SpectrogramPanel(): React.ReactElement {
 
       if (mode !== lastModeRef.current) {
         lastModeRef.current = mode;
+        paintHistoryToCanvas(offscreenCtx, history, offscreen.width, offscreen.height, mode);
+      }
+
+      // Clear history when dB range changes (quantized levels are invalid)
+      const { dbMin, dbMax } = dbRangeRef.current;
+      if (dbMin !== lastDbMinRef.current || dbMax !== lastDbMaxRef.current) {
+        lastDbMinRef.current = dbMin;
+        lastDbMaxRef.current = dbMax;
+        clearHistory(history);
         paintHistoryToCanvas(offscreenCtx, history, offscreen.width, offscreen.height, mode);
       }
 
@@ -490,12 +501,13 @@ export function SpectrogramPanel(): React.ReactElement {
             const linL = Math.pow(10, avgL / 20);
             const linR = Math.pow(10, avgR / 20);
             const mono = 20 * Math.log10((linL + linR) / 2);
-            const level = dbToHistoryLevel(mono);
+            const level = dbToHistoryLevel(mono, dbRangeRef.current.dbMin, dbRangeRef.current.dbMax);
 
             history.copyWithin(rowStart, rowStart + scrollPx, rowStart + spectroW);
             history.fill(level, rowStart + stripStartX, rowStart + spectroW);
 
-            offscreenCtx.fillStyle = spectroColorForMode(mono, mode);
+            const rgb = activePalette[Math.max(0, Math.min(HISTORY_LEVELS - 1, level))];
+            offscreenCtx.fillStyle = `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`;
             offscreenCtx.fillRect(stripStartX, y, scrollPx, 1);
           }
         }
@@ -565,9 +577,11 @@ export function SpectrogramPanel(): React.ReactElement {
       <canvas
         ref={canvasRef}
         style={canvasStyle}
-        onMouseMove={handleSpectroMouseMove}
-        onMouseLeave={handleSpectroMouseLeave}
+        onMouseMove={handleMouseMove}
+        onMouseLeave={handleMouseLeave}
+        onClick={handleClick}
       />
+      <canvas ref={overlayRef} className="panel-cursor-overlay" style={overlayStyle} />
       <div ref={hoverReadoutRef} className="panel-hover-readout" />
     </div>
   );
@@ -585,6 +599,15 @@ const canvasStyle: React.CSSProperties = {
   display: 'block',
   width: '100%',
   height: '100%',
+};
+
+const overlayStyle: React.CSSProperties = {
+  position: 'absolute',
+  top: 0,
+  left: 0,
+  width: '100%',
+  height: '100%',
+  pointerEvents: 'none',
 };
 
 
