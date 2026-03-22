@@ -372,5 +372,3 @@ const canvasStyle: React.CSSProperties = {
   height: '100%',
 };
 
-
-

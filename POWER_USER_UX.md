@@ -4,47 +4,76 @@
 
 The console should behave like an analytical workstation, not a media app with extra graphs.
 
-The target user is fast, technically literate, curious, and willing to learn a dense instrument if the density is structured. The system should reward expertise with speed, not hide capability behind consumer-app simplification.
+The target user is fast, technically literate, and willing to learn a dense instrument if that density is rewarded with speed and trust.
 
-## Core Rule
+## Current Accepted Direction
 
-Global controls should answer four questions immediately:
+### Left side
 
-1. What workspace am I in?
-2. What measurement mode am I in?
-3. What can I change safely right now?
-4. Where do I go to understand what I am seeing?
+The Session Console is becoming a compact workbench:
 
-If a control does not help with one of those questions, it should not live in the global header.
+- routing
+- preview
+- local transport awareness
+- clip export
+- diagnostics access
 
-## Workspace Model
+### Right side
 
-Treat `layout` and `workspace` as related but not identical concepts.
+The Live Diagnostic quadrant is the main command-and-measurement surface:
 
-`Layout` is geometry:
+- transport and review actions in chrome
+- overview and detail waveform as the core visual anchor
+- tuning nearby but compact
+
+## Control Doctrine
+
+Power users benefit from stable locations more than dynamic cleverness.
+
+So the product should prefer:
+
+- stable labels
+- fixed command homes
+- compact status chips
+- local duplication only when it materially speeds the workflow
+
+## Workspace Rule
+
+Layout and workspace are related but not identical.
+
+Layout is geometry:
 
 - split ratios
 - panel visibility
 - panel placement
 
-`Workspace` is the full analytical state:
+Workspace is analytical context:
 
 - layout
-- enabled overlays
-- display mode
-- scroll preferences
-- panel-specific view options
+- style mode
+- routing state
+- panel-specific settings
+- transport/review context
 
-This distinction matters because power users do not just want resized panes. They want named working contexts.
+The current console is moving toward explicit workspace thinking even before a formal preset system is finished.
 
-## Direction
+## Operational Questions
 
-The broader product direction is general-purpose media analysis. Workspace presets should reflect use cases like:
+A strong power-user surface should answer these quickly:
 
-- default analysis
-- spectral focus
-- review / comparison
-- pitch and tuning study
-- user-defined specialist layouts
+1. What am I looking at?
+2. What is the transport doing?
+3. What can I change safely right now?
+4. Where do I act for routing, review, or export?
 
-The older Bach-specific framing is now an example workflow, not the UX container for everything else.
+If a control does not help answer one of those questions, it probably does not belong in the primary chrome.
+
+## Future Excellence Direction
+
+The best next UX moves are:
+
+- stronger export completion/history affordances
+- named workspace presets for specialized tasks
+- deeper compare/review workflows
+- cleaner desktop-source and attachment messaging
+- even tighter fullscreen analytical states

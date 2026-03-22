@@ -35,6 +35,7 @@ interface PanelDef {
   category: string;
   title: string;
   titleMode?: 'plain' | 'segmented';
+  headerAccessoryPlacement?: 'stacked' | 'inline';
   stat?: string;
   headerAccessory?: React.ReactNode;
   help?: string;
@@ -105,37 +106,83 @@ const CHROME_HEADER_BG: Record<VisualMode, string | undefined> = {
   red:     'linear-gradient(90deg, rgba(20,8,9,0.98), rgba(34,10,11,0.98))',
 };
 
-function ChromePanel({ category, title, titleMode = 'plain', stat, headerAccessory, help, content, visualMode, onFullscreen }: ChromePanelProps): React.ReactElement {
+function ChromePanel({ category, title, titleMode = 'plain', headerAccessoryPlacement = 'stacked', stat, headerAccessory, help, content, visualMode, onFullscreen }: ChromePanelProps): React.ReactElement {
   const m = MODES[visualMode];
   const segmentedTitle = titleMode === 'segmented'
     ? title.split('/').map((segment) => segment.trim()).filter((segment) => segment.length > 0)
     : null;
   const hasTitle = segmentedTitle ? segmentedTitle.length > 0 : title.trim().length > 0;
+  const labelGroup = (
+    <div style={chromeLabelGroupStyle}>
+      <span style={{ ...chromeCategoryStyle, color: m.category }}>{category}</span>
+      {hasTitle && segmentedTitle ? (
+        <div style={chromeSegmentedTitleStyle}>
+          {segmentedTitle.map((segment, index) => (
+            <span key={`${segment}:${index}`} style={chromeTitleSegmentStyle}>
+              {index > 0 ? <span style={{ ...chromeTitleSlashStyle, color: m.category }}>/</span> : null}
+              <span style={{ ...chromeTitleSegmentTextStyle, color: m.text }}>{segment}</span>
+            </span>
+          ))}
+        </div>
+      ) : hasTitle ? (
+        <span style={{ ...chromeTitleStyle, color: m.text }}>{title}</span>
+      ) : null}
+    </div>
+  );
+  const chromeActions = (
+    <div style={chromeHeaderActionsStyle}>
+      {stat && <span style={{ ...chromeStatStyle, color: m.stat }}>{stat}</span>}
+      {help && <PanelHelp text={help} visualMode={visualMode} />}
+      <button
+        onClick={onFullscreen}
+        style={{ ...fullscreenBtnStyle, color: m.category }}
+        title="Expand quadrant to fullscreen"
+        aria-label="Fullscreen"
+      >
+        FULL
+      </button>
+      </div>
+  );
+  const headerStyle = headerAccessory
+    ? headerAccessoryPlacement === 'inline'
+      ? chromeHeaderInlineAccessoryStyle
+      : chromeHeaderWithAccessoryStyle
+    : chromeHeaderStyle;
 
   return (
     <div style={{ ...chromeStyle, background: CHROME_BG[visualMode], border: `1px solid ${m.chromeBorder}` }}>
-      <div style={{ ...(headerAccessory ? chromeHeaderWithAccessoryStyle : chromeHeaderStyle), background: CHROME_HEADER_BG[visualMode], borderBottom: `1px solid ${m.chromeBorderActive}` }}>
-        <div style={chromeLabelGroupStyle}>
-          <span style={{ ...chromeCategoryStyle, color: m.category }}>{category}</span>
-          {hasTitle && segmentedTitle ? (
-            <div style={chromeSegmentedTitleStyle}>
-              {segmentedTitle.map((segment, index) => (
-                <span key={`${segment}:${index}`} style={chromeTitleSegmentStyle}>
-                  {index > 0 ? <span style={{ ...chromeTitleSlashStyle, color: m.category }}>/</span> : null}
-                  <span style={{ ...chromeTitleSegmentTextStyle, color: m.text }}>{segment}</span>
-                </span>
-              ))}
-            </div>
-          ) : hasTitle ? (
-            <span style={{ ...chromeTitleStyle, color: m.text }}>{title}</span>
-          ) : null}
-        </div>
-        {headerAccessory ? <div style={chromeAccessoryStyle}>{headerAccessory}</div> : null}
-        {stat && <span style={{ ...chromeStatStyle, color: m.stat }}>{stat}</span>}
-        {help && <PanelHelp text={help} visualMode={visualMode} />}
+      <div
+        style={{
+          ...headerStyle,
+          background: CHROME_HEADER_BG[visualMode],
+          borderBottom: `1px solid ${m.chromeBorderActive}`,
+        }}
+      >
+        {headerAccessory ? (
+          headerAccessoryPlacement === 'inline' ? (
+            <>
+              <div style={chromeHeaderInlineLabelGroupStyle}>{labelGroup}</div>
+              <div style={chromeHeaderInlineAccessoryRowStyle}>{headerAccessory}</div>
+              {chromeActions}
+            </>
+          ) : (
+            <>
+              <div style={chromeHeaderTopRowStyle}>
+                {labelGroup}
+                {chromeActions}
+              </div>
+              <div style={chromeHeaderAccessoryRowStyle}>{headerAccessory}</div>
+            </>
+          )
+        ) : (
+          <>
+            {labelGroup}
+            {chromeActions}
+          </>
+        )}
         <button
           onClick={onFullscreen}
-          style={{ ...fullscreenBtnStyle, color: m.category }}
+          style={{ ...fullscreenBtnStyle, color: m.category, display: 'none' }}
           title="Expand quadrant to fullscreen"
           aria-label="Fullscreen"
         >
@@ -465,7 +512,7 @@ export function ConsoleLayout({
       }}>
         <SplitPane
           direction="column"
-          initialSizes={[64, 36]}
+          initialSizes={[69, 31]}
           minSizePx={[200, 180]}
           resetToken={layoutResetToken}
           persistKey="console:root"
@@ -830,44 +877,88 @@ const chromeHeaderWithAccessoryStyle: React.CSSProperties = {
   ...chromeHeaderStyle,
   height: 'auto',
   minHeight: CHROME_H,
+  flexDirection: 'column',
+  alignItems: 'stretch',
+  gap: 4,
+  paddingTop: 3,
+  paddingBottom: 9,
+};
+
+const chromeHeaderInlineAccessoryStyle: React.CSSProperties = {
+  ...chromeHeaderStyle,
+  height: 'auto',
+  minHeight: CHROME_H,
+  alignItems: 'flex-start',
+  flexWrap: 'wrap',
+  gap: SPACING.sm,
   paddingTop: 4,
   paddingBottom: 4,
 };
 
+const chromeHeaderTopRowStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'baseline',
+  gap: SPACING.sm,
+  minWidth: 0,
+  width: '100%',
+};
+
 const chromeLabelGroupStyle: React.CSSProperties = {
   display: 'flex',
-  alignItems: 'center',
-  gap: SPACING.sm,
+  alignItems: 'baseline',
+  gap: 8,
   flex: '1 1 auto',
   minWidth: 0,
   overflow: 'hidden',
 };
 
-const chromeAccessoryStyle: React.CSSProperties = {
+const chromeHeaderInlineLabelGroupStyle: React.CSSProperties = {
+  ...chromeLabelGroupStyle,
+  flex: '0 1 auto',
+  maxWidth: '100%',
+};
+
+const chromeHeaderAccessoryRowStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'flex-start',
+  justifyContent: 'flex-start',
+  width: '100%',
+  minWidth: 0,
+};
+
+const chromeHeaderInlineAccessoryRowStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'flex-start',
+  justifyContent: 'flex-start',
+  flex: '1 1 520px',
+  minWidth: 280,
+};
+
+const chromeHeaderActionsStyle: React.CSSProperties = {
   display: 'flex',
   alignItems: 'center',
-  justifyContent: 'flex-end',
-  flex: '0 1 auto',
-  minWidth: 0,
-  maxWidth: '56%',
+  gap: 6,
   marginLeft: 'auto',
+  flexShrink: 0,
 };
 
 const chromeCategoryStyle: React.CSSProperties = {
   fontFamily: FONTS.mono,
   fontSize: FONTS.sizeXs,
   color: COLORS.textCategory,
-  letterSpacing: '0.12em',
+  letterSpacing: '0.10em',
   textTransform: 'uppercase',
+  lineHeight: 1,
+  flexShrink: 0,
 };
 
 const chromeTitleStyle: React.CSSProperties = {
   fontFamily: FONTS.mono,
-  fontSize: FONTS.sizeMd,
+  fontSize: FONTS.sizeSm,
   color: COLORS.textTitle,
-  letterSpacing: '0.06em',
+  letterSpacing: '0.05em',
   textTransform: 'uppercase',
-  lineHeight: 1.15,
+  lineHeight: 1.05,
   minWidth: 0,
 };
 
@@ -901,9 +992,9 @@ const chromeTitleSlashStyle: React.CSSProperties = {
 const chromeTitleSegmentTextStyle: React.CSSProperties = {
   fontFamily: FONTS.mono,
   fontSize: FONTS.sizeSm,
-  letterSpacing: '0.07em',
+  letterSpacing: '0.06em',
   textTransform: 'uppercase',
-  lineHeight: 1.15,
+  lineHeight: 1.05,
 };
 
 const chromeStatStyle: React.CSSProperties = {

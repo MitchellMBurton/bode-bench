@@ -1690,9 +1690,13 @@ export function TransportControls({
   const loadedLayoutMode: LoadedLayoutMode = primaryMedia?.kind ?? (transport.filename ? 'audio' : 'empty');
   const clipSourceKind = loadedLayoutMode === 'video' ? 'video' : 'audio';
   const canAttachLinkedTracks = loadedLayoutMode === 'video';
-  const audioStatusLabel = externalAudio ? externalAudio.filename : primaryMedia ? 'ORIGINAL TRACK' : 'NONE';
-  const subtitleStatusLabel = subtitleTrack ? subtitleTrack.filename : canAttachLinkedTracks ? 'NONE' : 'VIDEO ONLY';
-  const videoViewLabel = videoUrl ? (videoViewMode === 'inline' ? 'WINDOW' : 'DOCK') : 'VIDEO ONLY';
+  const openMediaHint = sessionFilename ? 'REPLACE' : 'PRIMARY';
+  const audioRouteHint = externalAudio ? 'RESTORE' : canAttachLinkedTracks ? 'ATTACH' : 'VIDEO ONLY';
+  const subtitleRouteHint = subtitleTrack ? 'REMOVE' : canAttachLinkedTracks ? 'ATTACH' : 'VIDEO ONLY';
+  const videoWindowHint = videoUrl ? (videoViewMode === 'inline' ? 'DOCKED' : 'WINDOWED') : loadedLayoutMode === 'audio' ? 'AUDIO ONLY' : 'NONE';
+  const audioStatusText = externalAudio ? 'ATTACHED' : primaryMedia ? 'ORIGINAL' : 'NONE';
+  const subtitleStatusText = subtitleTrack ? 'ACTIVE' : canAttachLinkedTracks ? 'NONE' : 'N/A';
+  const viewStatusText = videoUrl ? (videoViewMode === 'inline' ? 'DOCKED' : 'WINDOWED') : loadedLayoutMode === 'audio' ? 'AUDIO ONLY' : 'NONE';
   const ingestLabel = isLoading
     ? 'DECODING...'
     : sessionFilename
@@ -1704,17 +1708,33 @@ export function TransportControls({
       <div style={{ ...deckStyle, borderColor: tt.btnBorder, background: tt.panelBg }}>
         <div style={deckHeaderStyle}>
           <span style={{ ...deckEyebrowStyle, color: tt.panelLabel }}>TOP CONTROL DECK</span>
-          <span style={{ ...deckMetaStyle, color: sessionFilename ? tt.btnColor : tt.mutedText }}>
-            {transportStatusLabel}
-          </span>
+          <div style={deckHeaderActionsStyle}>
+            <span style={{ ...deckMetaStyle, color: sessionFilename ? tt.btnColor : tt.mutedText }}>
+              {transportStatusLabel}
+            </span>
+            <button
+              style={{
+                ...topControlResetButtonStyle,
+                background: tt.btnResetBg,
+                borderColor: tt.btnResetBorder,
+                color: tt.btnColor,
+              }}
+              onClick={() => audioEngine.reset()}
+              disabled={isLoading || !transport.filename}
+              title="Reset - clear file and all visuals"
+            >
+              RESET
+            </button>
+          </div>
         </div>
 
         <div style={topControlGridStyle}>
           <button
             style={{
               ...topControlButtonStyle,
-              background: tt.btnBg,
-              borderColor: tt.btnBorder,
+              ...topControlPrimaryButtonStyle,
+              background: tt.panelBg,
+              borderColor: tt.btnActiveBorder,
               color: tt.btnColor,
             }}
             onClick={() => {
@@ -1725,7 +1745,7 @@ export function TransportControls({
             title="Open or replace the main media file"
           >
             <span style={topControlLabelStyle}>OPEN MEDIA</span>
-            <span style={{ ...topControlHintStyle, color: tt.mutedText }}>PRIMARY</span>
+            <span style={{ ...topControlHintStyle, color: tt.mutedText }}>{openMediaHint}</span>
           </button>
           <button
             style={{
@@ -1748,8 +1768,8 @@ export function TransportControls({
             disabled={isLoading || (!externalAudio && !canAttachLinkedTracks)}
             title={externalAudio ? 'Restore the original media audio track' : 'Attach an alternate audio file for playback'}
           >
-            <span style={topControlLabelStyle}>{externalAudio ? 'ORIGINAL AUDIO' : 'ALT AUDIO'}</span>
-            <span style={{ ...topControlHintStyle, color: tt.mutedText }}>{externalAudio ? 'RESTORE' : 'PLAYBACK'}</span>
+            <span style={topControlLabelStyle}>ALT AUDIO</span>
+            <span style={{ ...topControlHintStyle, color: tt.mutedText }}>{audioRouteHint}</span>
           </button>
           <button
             style={{
@@ -1772,8 +1792,8 @@ export function TransportControls({
             disabled={isLoading || (!subtitleTrack && !canAttachLinkedTracks)}
             title={subtitleTrack ? 'Clear the current subtitle file' : 'Attach a subtitle file'}
           >
-            <span style={topControlLabelStyle}>{subtitleTrack ? 'CLEAR SUBS' : 'SUBTITLES'}</span>
-            <span style={{ ...topControlHintStyle, color: tt.mutedText }}>{subtitleTrack ? 'REMOVE' : 'OVERLAY'}</span>
+            <span style={topControlLabelStyle}>SUBTITLES</span>
+            <span style={{ ...topControlHintStyle, color: tt.mutedText }}>{subtitleRouteHint}</span>
           </button>
           <button
             style={{
@@ -1786,91 +1806,34 @@ export function TransportControls({
             disabled={isLoading || !videoUrl}
             title={videoViewMode === 'inline' ? 'Open the video in a movable window' : 'Dock the video back into the session console'}
           >
-            <span style={topControlLabelStyle}>{videoViewLabel}</span>
-            <span style={{ ...topControlHintStyle, color: tt.mutedText }}>VIDEO</span>
-          </button>
-          <button
-            style={{
-              ...topControlButtonStyle,
-              background: tt.btnBg,
-              borderColor: tt.btnBorder,
-              color: tt.btnColor,
-            }}
-            onClick={() => audioEngine.stop()}
-            disabled={isLoading || !transport.filename}
-            title="Stop and return to the start"
-          >
-            <span style={topControlLabelStyle}>STOP</span>
-            <span style={{ ...topControlHintStyle, color: tt.mutedText }}>START</span>
-          </button>
-          <button
-            style={{
-              ...topControlButtonStyle,
-              background: transport.isPlaying ? tt.btnActiveBg : tt.btnBg,
-              borderColor: transport.isPlaying ? tt.btnActiveBorder : tt.btnBorder,
-              color: tt.btnColor,
-            }}
-            onClick={() => transport.isPlaying ? audioEngine.pause() : audioEngine.play()}
-            disabled={isLoading || !transport.filename}
-            title={transport.isPlaying ? 'Pause playback' : 'Play the loaded file'}
-          >
-            <span style={topControlLabelStyle}>{transport.isPlaying ? 'PAUSE' : 'PLAY'}</span>
-            <span style={{ ...topControlHintStyle, color: tt.mutedText }}>{transport.isPlaying ? 'HOLD' : 'RUN'}</span>
-          </button>
-          <button
-            style={{
-              ...topControlButtonStyle,
-              background: transport.loopStart !== null && transport.loopEnd !== null ? tt.btnActiveBg : tt.btnBg,
-              borderColor: transport.loopStart !== null && transport.loopEnd !== null ? tt.btnActiveBorder : tt.btnBorder,
-              color: tt.btnColor,
-            }}
-            onClick={() => {
-              if (transport.loopStart !== null && transport.loopEnd !== null) {
-                audioEngine.clearLoop();
-                return;
-              }
-              if (transport.duration <= 0) return;
-              audioEngine.setLoop(0, transport.duration);
-            }}
-            disabled={isLoading || !transport.filename}
-            title={transport.loopStart !== null && transport.loopEnd !== null ? 'Clear the current loop region' : 'Loop the full file'}
-          >
-            <span style={topControlLabelStyle}>LOOP</span>
-            <span style={{ ...topControlHintStyle, color: tt.mutedText }}>READY</span>
-          </button>
-          <button
-            style={{
-              ...topControlButtonStyle,
-              background: tt.btnResetBg,
-              borderColor: tt.btnResetBorder,
-              color: tt.btnColor,
-            }}
-            onClick={() => audioEngine.reset()}
-            disabled={isLoading || !transport.filename}
-            title="Reset - clear file and all visuals"
-          >
-            <span style={topControlLabelStyle}>RESET</span>
-            <span style={{ ...topControlHintStyle, color: tt.mutedText }}>CLEAR</span>
+            <span style={topControlLabelStyle}>VIDEO WINDOW</span>
+            <span style={{ ...topControlHintStyle, color: tt.mutedText }}>{videoWindowHint}</span>
           </button>
         </div>
 
         <div style={topStatusGridStyle}>
-          <div style={{ ...topStatusCellStyle, borderColor: tt.btnBorder, background: tt.panelBg }}>
-            <span style={{ ...deckEyebrowStyle, color: tt.panelLabel }}>MEDIA</span>
+          <div style={{ ...topStatusCellStyle, borderColor: tt.btnBorder, background: tt.panelBg, flex: '1 1 168px' }}>
+            <span style={{ ...topStatusLabelStyle, color: tt.panelLabel }}>MEDIA</span>
             <span style={{ ...topStatusValueStyle, color: sessionFilename ? tt.btnColor : tt.mutedText }}>
               {sessionFilename ?? 'NONE'}
             </span>
           </div>
           <div style={{ ...topStatusCellStyle, borderColor: tt.btnBorder, background: tt.panelBg }}>
-            <span style={{ ...deckEyebrowStyle, color: tt.panelLabel }}>AUDIO</span>
+            <span style={{ ...topStatusLabelStyle, color: tt.panelLabel }}>AUDIO</span>
             <span style={{ ...topStatusValueStyle, color: primaryMedia ? tt.btnColor : tt.mutedText }}>
-              {audioStatusLabel}
+              {audioStatusText}
             </span>
           </div>
           <div style={{ ...topStatusCellStyle, borderColor: tt.btnBorder, background: tt.panelBg }}>
-            <span style={{ ...deckEyebrowStyle, color: tt.panelLabel }}>SUBS</span>
+            <span style={{ ...topStatusLabelStyle, color: tt.panelLabel }}>SUBS</span>
             <span style={{ ...topStatusValueStyle, color: subtitleTrack || canAttachLinkedTracks ? tt.btnColor : tt.mutedText }}>
-              {subtitleStatusLabel}
+              {subtitleStatusText}
+            </span>
+          </div>
+          <div style={{ ...topStatusCellStyle, borderColor: tt.btnBorder, background: tt.panelBg }}>
+            <span style={{ ...topStatusLabelStyle, color: tt.panelLabel }}>VIEW</span>
+            <span style={{ ...topStatusValueStyle, color: videoUrl || loadedLayoutMode === 'audio' ? tt.btnColor : tt.mutedText }}>
+              {viewStatusText}
             </span>
           </div>
         </div>
@@ -2033,6 +1996,69 @@ export function TransportControls({
 
         {videoUrl ? (
           <div style={sessionPreviewColumnStyle}>
+            <div
+              style={{
+                ...previewTransportBarStyle,
+                borderColor: tt.btnBorder,
+                background: tt.panelBg,
+              }}
+            >
+              <button
+                style={{
+                  ...previewTransportButtonStyle,
+                  background: tt.btnBg,
+                  borderColor: tt.btnBorder,
+                  color: tt.btnColor,
+                }}
+                onClick={() => audioEngine.stop()}
+                title="Stop and return to start"
+              >
+                STOP
+              </button>
+              <button
+                style={{
+                  ...previewTransportButtonStyle,
+                  background: transport.isPlaying ? tt.panelBg : tt.btnBg,
+                    borderColor: transport.isPlaying ? tt.btnActiveBorder : tt.btnBorder,
+                  color: tt.btnColor,
+                }}
+                onClick={() => {
+                  if (transport.isPlaying) {
+                    audioEngine.pause();
+                    return;
+                  }
+                  audioEngine.play();
+                }}
+                title={transport.isPlaying ? 'Pause playback' : 'Play'}
+              >
+                {transport.isPlaying ? 'PAUSE' : 'PLAY'}
+              </button>
+              <button
+                style={{
+                  ...previewTransportButtonStyle,
+                  background: transport.loopStart !== null && transport.loopEnd !== null ? tt.panelBg : tt.btnBg,
+                    borderColor: transport.loopStart !== null && transport.loopEnd !== null ? tt.btnActiveBorder : tt.btnBorder,
+                  color: tt.btnColor,
+                }}
+                onClick={() => {
+                  if (transport.loopStart !== null && transport.loopEnd !== null) {
+                    audioEngine.clearLoop();
+                    return;
+                  }
+                  if (transport.duration <= 0) {
+                    return;
+                  }
+                  audioEngine.setLoop(0, transport.duration);
+                }}
+                title={
+                  transport.loopStart !== null && transport.loopEnd !== null
+                    ? 'Clear the current loop region'
+                    : 'Loop the full file'
+                }
+              >
+                LOOP
+              </button>
+            </div>
             <div
               ref={videoWrapRef}
               style={
@@ -2287,6 +2313,34 @@ const sessionPreviewColumnStyle: React.CSSProperties = {
   flexDirection: 'column',
   gap: SPACING.xs,
   minWidth: 0,
+};
+
+const previewTransportBarStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'flex-start',
+  gap: SPACING.xs,
+  padding: '4px 6px',
+  borderWidth: 1,
+  borderStyle: 'solid',
+  borderRadius: 2,
+  boxSizing: 'border-box',
+  flexShrink: 0,
+};
+
+const previewTransportButtonStyle: React.CSSProperties = {
+  minWidth: 42,
+  height: 20,
+  padding: '0 6px',
+  borderWidth: 1,
+  borderStyle: 'solid',
+  borderRadius: 2,
+  fontFamily: FONTS.mono,
+  fontSize: FONTS.sizeXs,
+  letterSpacing: '0.08em',
+  cursor: 'pointer',
+  outline: 'none',
+  boxSizing: 'border-box',
 };
 
 const loadNoticeWarnStyle: React.CSSProperties = {
@@ -2586,8 +2640,8 @@ const seekInputStyle: React.CSSProperties = {
 const deckStyle: React.CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
-  gap: SPACING.sm,
-  padding: `${SPACING.sm}px ${SPACING.sm}px`,
+  gap: SPACING.xs,
+  padding: `${SPACING.xs + 1}px ${SPACING.sm}px`,
   borderWidth: 1,
   borderStyle: 'solid',
   borderRadius: 2,
@@ -2598,27 +2652,35 @@ const deckStyle: React.CSSProperties = {
 
 const deckHeaderStyle: React.CSSProperties = {
   display: 'flex',
-  alignItems: 'center',
+  alignItems: 'baseline',
   justifyContent: 'space-between',
-  gap: SPACING.sm,
+  gap: SPACING.xs,
 };
 
 const deckEyebrowStyle: React.CSSProperties = {
   fontFamily: FONTS.mono,
-  fontSize: 9,
-  letterSpacing: '0.14em',
+  fontSize: FONTS.sizeXs,
+  letterSpacing: '0.12em',
+  lineHeight: 1,
 };
 
 const deckMetaStyle: React.CSSProperties = {
   fontFamily: FONTS.mono,
-  fontSize: 9,
-  letterSpacing: '0.08em',
+  fontSize: FONTS.sizeXs,
+  letterSpacing: '0.06em',
+  lineHeight: 1,
+};
+
+const deckHeaderActionsStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'baseline',
+  gap: 6,
 };
 
 const topControlGridStyle: React.CSSProperties = {
   display: 'grid',
   gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
-  gap: SPACING.xs,
+  gap: 4,
 };
 
 const topControlButtonStyle: React.CSSProperties = {
@@ -2626,9 +2688,9 @@ const topControlButtonStyle: React.CSSProperties = {
   flexDirection: 'column',
   alignItems: 'flex-start',
   justifyContent: 'space-between',
-  gap: 2,
-  minHeight: 40,
-  padding: `6px ${SPACING.xs}px`,
+  gap: 1,
+  minHeight: 34,
+  padding: `4px ${SPACING.xs}px`,
   borderWidth: 1,
   borderStyle: 'solid',
   borderRadius: 2,
@@ -2641,10 +2703,28 @@ const topControlButtonStyle: React.CSSProperties = {
   minWidth: 0,
 };
 
-const topControlLabelStyle: React.CSSProperties = {
-  fontSize: 10,
+const topControlPrimaryButtonStyle: React.CSSProperties = {
+  boxShadow: 'inset 0 0 0 1px rgba(120, 140, 220, 0.08)',
+};
+
+const topControlResetButtonStyle: React.CSSProperties = {
+  height: 18,
+  padding: '0 7px',
+  borderWidth: 1,
+  borderStyle: 'solid',
+  borderRadius: 2,
+  fontFamily: FONTS.mono,
+  fontSize: FONTS.sizeXs,
   letterSpacing: '0.06em',
-  lineHeight: 1.2,
+  cursor: 'pointer',
+  outline: 'none',
+  transition: 'background 0.1s, border-color 0.1s',
+};
+
+const topControlLabelStyle: React.CSSProperties = {
+  fontSize: FONTS.sizeXs,
+  letterSpacing: '0.05em',
+  lineHeight: 1.05,
   maxWidth: '100%',
   whiteSpace: 'normal',
   wordBreak: 'break-word',
@@ -2652,33 +2732,42 @@ const topControlLabelStyle: React.CSSProperties = {
 
 const topControlHintStyle: React.CSSProperties = {
   fontSize: 8,
-  letterSpacing: '0.04em',
-  lineHeight: 1.2,
+  letterSpacing: '0.05em',
+  lineHeight: 1.05,
 };
 
 const topStatusGridStyle: React.CSSProperties = {
-  display: 'grid',
-  gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
-  gap: SPACING.xs,
+  display: 'flex',
+  flexWrap: 'wrap',
+  alignItems: 'center',
+  gap: 4,
 };
 
 const topStatusCellStyle: React.CSSProperties = {
-  display: 'flex',
-  flexDirection: 'column',
-  gap: 1,
+  display: 'inline-flex',
+  alignItems: 'baseline',
+  gap: 4,
   minWidth: 0,
-  padding: `5px ${SPACING.xs}px`,
+  padding: `3px ${SPACING.xs}px`,
   borderWidth: 1,
   borderStyle: 'solid',
   borderRadius: 2,
   background: COLORS.bg1,
 };
 
+const topStatusLabelStyle: React.CSSProperties = {
+  fontFamily: FONTS.mono,
+  fontSize: 8,
+  letterSpacing: '0.06em',
+  lineHeight: 1,
+  flexShrink: 0,
+};
+
 const topStatusValueStyle: React.CSSProperties = {
   fontFamily: FONTS.mono,
-  fontSize: 10,
-  letterSpacing: '0.04em',
-  lineHeight: 1.2,
+  fontSize: 9,
+  letterSpacing: '0.03em',
+  lineHeight: 1.05,
   overflow: 'hidden',
   textOverflow: 'ellipsis',
   whiteSpace: 'nowrap',

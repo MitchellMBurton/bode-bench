@@ -1,86 +1,82 @@
 # Tasks
 
-## Status: ALPHA COMPLETE — v0.1 (2026-03-17)
+## Status: Active v0.2 Integration
 
-This repo is preserved as the v0.1 Alpha artifact (tag: `v0.1-alpha`).
-**No further development in this repo.** See `HANDOFF.md` for the continuation plan.
+This repo is under active refinement.
 
----
+The current phase is no longer "alpha complete." The work now is to harden the product into a trustworthy desktop-first instrument with a cleaner session console, better export confidence, and stronger analysis UX.
 
-## Alpha Milestone
+## Current Milestone
 
-Stable general-purpose session console for local audio and video analysis.
+Deliver a review-and-export console that feels coherent, trustworthy, and demonstration-ready for arbitrary local audio and video.
 
-## Completed in Alpha
+## Recently Completed
 
-### Hardening Track
+- [x] Session Console reworked toward a preview/workbench model
+- [x] Live Diagnostic command deck promoted into chrome
+- [x] Alternate audio and subtitle attachment for playback
+- [x] Desktop clip export flow with fast and exact master modes
+- [x] ffmpeg bundled/desktop seam work
+- [x] Diagnostics log drawer and copy/save flows
+- [x] Control hierarchy refinement across top chrome and left workbench
+- [x] Documentation refresh to match the current product direction
 
-- [x] **H01 - Restore green build.** Fix current TypeScript build failures and keep `main` releasable.
-- [ ] **H02 - Add verification gate.** Add a repeatable CI path for typecheck, lint, and tests.
-- [x] **H03 - Introduce explicit session core.** Replace hidden global runtime state with a session-scoped application service.
-- [ ] **H04 - Define runtime interfaces.** Put core runtime behavior behind narrower adapter contracts.
-- [ ] **H05 - Move orchestration out of React.** Transport, ingest, and mode switching should be driven more by session services than component-local wiring.
-- [ ] **H06 - Add runtime schemas.** Validate overlay JSON, manifests, and future queued artifact payloads at runtime.
-- [ ] **H07 - Define offline analysis artifacts.** Specify durable outputs for waveform, spectrogram, pitch, loudness, and media summaries.
-- [ ] **H08 - Worker-ready analysis path.** Move heavy non-UI analysis work toward worker-safe execution.
-- [x] **H09 - Desktop shell spike.** Add a thin desktop wrapper without introducing desktop-only core logic.
-- [ ] **H10 - Hosted queue seam.** Define request/result contracts so queued analysis can render through the same panel model later.
-- [x] **H11 - Fix stretch watchdog spurious fallback.** Re-register `setUpdateInterval` heartbeat after `dropBuffers()` so decoded playback doesn't trigger watchdog after 1.35 s.
-- [x] **H12 - Multi-instance RAF throttling.** `rafGuard.ts` — skip draw when hidden, throttle to 4 fps when unfocused. Applied to all canvas panels.
-- [x] **H13 - Full visual mode coherence.** DEFAULT / MONO / NGE / HYPER themes applied to every surface: all panels, controls, transport, diagnostics, runtime metric pills.
+## Active Refinement Tracks
 
-## Build Order
+### A. Session Console
 
-### Phase 1: Scaffold
+- [x] Routing-first top control deck
+- [x] Preview-local transport controls above video
+- [x] Compact transport position summary
+- [ ] Final density pass for left-pane vertical rhythm
+- [ ] Stronger empty-state and no-file states
 
-- [x] **T01 - Init repo.**
-- [ ] **T02 - Tauri shell.** Historical scaffold task; desktop shell is now live, but packaging and release ergonomics still need polishing.
-- [x] **T03 - Theme constants.**
-- [x] **T04 - Four-quadrant layout.**
+### B. Live Diagnostic UX
 
-### Phase 2: Runtime Domain
+- [x] Chrome-mounted transport and review actions
+- [x] Compact playback tuning in the command rack
+- [x] Review panel reduced to summary plus saved ranges
+- [x] Detailed waveform given more height in default layout
+- [ ] Final fullscreen polish for short streamed media overview behavior
 
-- [x] **T05 - Media ingest.** Drag-drop or file-open loads a local session file.
-- [x] **T06 - Transport.** Play, pause, stop, seek, loop, scrub, time readout.
-- [x] **T07 - Frame bus / runtime updates.**
+### C. Export Workflow
 
-### Phase 3: Analysis Surfaces
+- [x] Selected-range clip export
+- [x] Fast copy and exact master modes
+- [x] Desktop source relink fallback
+- [x] Desktop Save As flow and reveal-in-folder path
+- [ ] Sharpen the final source-path and capability messaging
+- [ ] Add clearer completion/history affordances
 
-- [x] **T08 - Levels panel.**
-- [x] **T09 - Frequency bands panel.**
-- [x] **T10 - Oscilloscope panel.**
-- [x] **T11 - Spectrogram panel.**
-- [x] **T11b - Expanded panel set.** Overview, scrolling waveform, pitch tracker, loudness history, frequency response, harmonic ladder.
+### D. Large-Media Honesty
 
-### Phase 4: Metadata and Annotation
+- [x] Coarse session map plus detail window model
+- [x] Distinct coarse vs detail coverage helpers
+- [ ] Final reliability pass for fullscreen short-media detail waveform
+- [ ] Longer soak around streamed media seeking and fullscreen transitions
 
-- [x] **T12 - Session metadata.** Display session identity and decode context in the control region.
-- [x] **T13 - Annotation preprocessing example.** Keep the MusicXML-to-JSON pipeline as an optional worked example.
-- [x] **T14 - Structural overlay path.** Load processed overlay data and render aligned events where available.
+### E. Release Quality
 
-### Phase 5: Playback and Review UX
+- [x] Lint, tests, and build green on current branch
+- [ ] Reduce frontend chunk size
+- [ ] Formal screenshot audit across style modes
+- [ ] Repeatable desktop verification checklist
 
-- [x] **T15 - Diagnostics log.** Reviewable, copyable, savable session log.
-- [x] **T16 - Video presentation modes.** Docked, windowed, theater, and in-app full screen.
-- [x] **T17 - Playback refinement.** Improve video sync, loop, scrub, and rate/pitch recovery.
-- [ ] **T18 - Screenshot audit.** Review every major state for composition and legibility.
-- [ ] **T19 - Long-session soak test.** Validate long-running rate, scrub, loop, and video interaction stability.
+## Near-Term Next Steps
+
+1. Finish the fullscreen overview hardening for short streamed media.
+2. Tighten export trust and completion feedback.
+3. Run a full screenshot and layout audit across visual modes and common aspect ratios.
+4. Reduce chunk size and improve release ergonomics.
+5. Continue cleaning legacy naming where it no longer earns its keep.
 
 ## Done Criteria
 
-A task is done when:
+A refinement is done when:
 
-- it works in `npm run dev`
-- it works in the desktop shell where relevant
-- types remain explicit at domain boundaries
-- the layout remains screenshot-safe
+- the behavior is trustworthy in the real desktop workflow
+- the browser path still behaves coherently where applicable
+- the UI reads as one instrument, not stacked experiments
+- diagnostics stay useful and honest
+- screenshots of normal use look intentional
 - no unrelated regressions are introduced
-
-## After This Milestone
-
-- persistent workspace presets
-- richer annotation systems beyond score
-- comparative review workflows
-- offline artifact generation
-- hosted analysis pipeline
-- broader rename / branding pass away from legacy Bach-specific artifacts

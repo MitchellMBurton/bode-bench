@@ -5,19 +5,18 @@ import { CANVAS, COLORS, FONTS, SPACING } from '../theme';
 import { shouldSkipFrame } from '../utils/rafGuard';
 import type { FileAnalysis, Marker, RangeMark, ScrubStyle, TransportState } from '../types';
 import { formatTransportTime } from '../utils/format';
+import {
+  buildDetailScoutTargets,
+  chooseDetailRenderMode,
+  DETAIL_READY_RATIO,
+  type StreamedScoutTarget,
+  targetNeedsSample,
+} from './waveformOverviewCoverage';
 
 interface EnvelopeData {
   peakEnv: Float32Array;
   rmsEnv: Float32Array;
   clipMap: Uint8Array;
-}
-
-interface StreamedScoutTarget {
-  readonly colStart: number;
-  readonly colEnd: number;
-  readonly timeStart: number;
-  readonly timeEnd: number;
-  readonly time: number;
 }
 
 interface ViewRange {
@@ -37,6 +36,18 @@ interface TimelineLayout {
   readonly view: TimelineRect;
   readonly loop: TimelineRect;
   readonly detail: TimelineRect;
+}
+
+interface StreamedEnvelopeCacheEntry {
+  readonly sessionPeakEnv: Float32Array;
+  readonly sessionRmsEnv: Float32Array;
+  readonly sessionCoverage: Uint8Array;
+  readonly detailPeakEnv: Float32Array;
+  readonly detailRmsEnv: Float32Array;
+  readonly detailCoverage: Uint8Array;
+  sessionPeakMax: number;
+  detailPeakMax: number;
+  sessionLearnedCount: number;
 }
 
 type TimelineGestureKind =
@@ -96,12 +107,13 @@ const MIN_VIEWPORT_SECONDS = 3;
 const MIN_LOOP_SECONDS = 0.1;
 const VIEW_FOLLOW_MARGIN = 0.22;
 const VIEW_FOLLOW_LEAD = 0.35;
-const SESSION_MAP_MIN_PX = 34;
-const SESSION_MAP_MAX_PX = 56;
-const CONTROL_ROW_MIN_PX = 14;
-const CONTROL_ROW_MAX_PX = 20;
+const SESSION_MAP_MIN_PX = 28;
+const SESSION_MAP_MAX_PX = 44;
+const CONTROL_ROW_MIN_PX = 12;
+const CONTROL_ROW_MAX_PX = 16;
 const TIMELINE_SEPARATOR_PX = 1;
 const HANDLE_HIT_PX = 14;
+const streamedEnvelopeCache = new Map<string, StreamedEnvelopeCacheEntry>();
 
 const SCRUB_STYLE_OPTIONS: ReadonlyArray<{
   readonly value: ScrubStyle;
@@ -140,6 +152,32 @@ function buildStreamedProfileKey(
 ): string | null {
   const mediaKey = buildMediaKey(filename, duration);
   return mediaKey ? `${mediaKey}:${profileId}` : null;
+}
+
+function buildStreamedDetailScoutKey(
+  filename: string,
+  duration: number,
+  profileId: string,
+  viewRange: ViewRange,
+): string | null {
+  const profileKey = buildStreamedProfileKey(filename, duration, profileId);
+  if (!profileKey) return null;
+  if (duration <= 45) return `${profileKey}:detail:full`;
+  return `${profileKey}:detail:${viewRange.start.toFixed(2)}:${viewRange.end.toFixed(2)}`;
+}
+
+function createStreamedEnvelopeCacheEntry(cols: number, detailCols: number): StreamedEnvelopeCacheEntry {
+  return {
+    sessionPeakEnv: new Float32Array(cols),
+    sessionRmsEnv: new Float32Array(cols),
+    sessionCoverage: new Uint8Array(cols),
+    detailPeakEnv: new Float32Array(detailCols),
+    detailRmsEnv: new Float32Array(detailCols),
+    detailCoverage: new Uint8Array(detailCols),
+    sessionPeakMax: 0,
+    detailPeakMax: 0,
+    sessionLearnedCount: 0,
+  };
 }
 
 function delay(ms: number): Promise<void> {
@@ -318,6 +356,14 @@ function hasStreamedCoverageGap(coverage: Uint8Array | null): boolean {
   return false;
 }
 
+function hasDetailCoverageGap(
+  coverage: Uint8Array | null,
+  viewRange: ViewRange,
+  duration: number,
+): boolean {
+  return coverageRatioInRange(coverage, viewRange.start, viewRange.end, duration) < DETAIL_READY_RATIO;
+}
+
 function computeEnvelopeAndClipMapAsync(
   buffer: AudioBuffer,
   cols: number,
@@ -456,15 +502,44 @@ function centerViewRange(centerTime: number, span: number, duration: number): Vi
   return { start, end: start + safeSpan };
 }
 
+function coverageRatioInRange(
+  coverageMap: Uint8Array | null,
+  start: number,
+  end: number,
+  duration: number,
+): number {
+  if (!coverageMap || coverageMap.length === 0) return 0;
+  if (!Number.isFinite(duration) || duration <= 0) return 0;
+
+  const clampedStart = clampNumber(start, 0, duration);
+  const clampedEnd = clampNumber(end, clampedStart, duration);
+  if (clampedEnd <= clampedStart) return 0;
+
+  const indexStart = Math.max(0, Math.floor((clampedStart / duration) * coverageMap.length));
+  const indexEnd = Math.min(
+    coverageMap.length - 1,
+    Math.max(indexStart, Math.ceil((clampedEnd / duration) * coverageMap.length) - 1),
+  );
+
+  let covered = 0;
+  let total = 0;
+  for (let index = indexStart; index <= indexEnd; index++) {
+    total++;
+    if (coverageMap[index] !== 0) covered++;
+  }
+
+  return total > 0 ? covered / total : 0;
+}
+
 function buildTimelineLayout(width: number, height: number, dpr: number): TimelineLayout {
   const separator = Math.max(1, Math.round(TIMELINE_SEPARATOR_PX * dpr));
   const controlRowH = Math.max(
     Math.round(CONTROL_ROW_MIN_PX * dpr),
-    Math.min(Math.round(CONTROL_ROW_MAX_PX * dpr), Math.round(height * 0.12)),
+    Math.min(Math.round(CONTROL_ROW_MAX_PX * dpr), Math.round(height * 0.1)),
   );
   const sessionMapH = Math.max(
     Math.round(SESSION_MAP_MIN_PX * dpr),
-    Math.min(Math.round(SESSION_MAP_MAX_PX * dpr), Math.round(height * 0.34)),
+    Math.min(Math.round(SESSION_MAP_MAX_PX * dpr), Math.round(height * 0.28)),
   );
   const viewY = sessionMapH + separator;
   const loopY = viewY + controlRowH + separator;
@@ -619,6 +694,16 @@ export function WaveformOverviewPanel({
     streamedScoutKeyRef.current = null;
   }, []);
 
+  const syncStreamedEnvelopeCache = useCallback(() => {
+    const key = streamedEnvelopeKeyRef.current;
+    if (!key) return;
+    const cached = streamedEnvelopeCache.get(key);
+    if (!cached) return;
+    cached.sessionPeakMax = streamedPeakMaxRef.current;
+    cached.detailPeakMax = streamedDetailPeakMaxRef.current;
+    cached.sessionLearnedCount = streamedLearnedCountRef.current;
+  }, []);
+
   const mergeStreamedEnvelopeRange = useCallback((timeStart: number, timeEnd: number, peak: number, rms: number) => {
     const duration = Math.max(0.001, transportRef.current.duration);
     const boundedPeak = Math.max(0, peak);
@@ -654,7 +739,8 @@ export function WaveformOverviewPanel({
     };
 
     apply(streamedPeakEnvRef.current, streamedRmsEnvRef.current, streamedCoverageRef.current, streamedPeakMaxRef, true);
-  }, []);
+    syncStreamedEnvelopeCache();
+  }, [syncStreamedEnvelopeCache]);
 
   const mergeStreamedEnvelopeShape = useCallback((
     timeStart: number,
@@ -707,7 +793,8 @@ export function WaveformOverviewPanel({
 
     apply(streamedPeakEnvRef.current, streamedRmsEnvRef.current, streamedCoverageRef.current, streamedPeakMaxRef, true);
     apply(streamedDetailPeakEnvRef.current, streamedDetailRmsEnvRef.current, streamedDetailCoverageRef.current, streamedDetailPeakMaxRef, false);
-  }, []);
+    syncStreamedEnvelopeCache();
+  }, [syncStreamedEnvelopeCache]);
 
   const resetStreamedEnvelope = useCallback(() => {
     streamedPeakEnvRef.current = null;
@@ -731,27 +818,31 @@ export function WaveformOverviewPanel({
       resetStreamedEnvelope();
       return false;
     }
-    if (
-      !force
-      && streamedEnvelopeKeyRef.current === key
-      && streamedPeakEnvRef.current
-      && streamedRmsEnvRef.current
-      && streamedCoverageRef.current
-    ) {
-      return true;
-    }
 
     const cols = pickStreamedEnvelopeCols(duration, performanceProfile.timeline);
     const detailCols = pickStreamedDetailEnvelopeCols(duration, performanceProfile.timeline);
-    streamedPeakEnvRef.current = new Float32Array(cols);
-    streamedRmsEnvRef.current = new Float32Array(cols);
-    streamedCoverageRef.current = new Uint8Array(cols);
-    streamedPeakMaxRef.current = 0;
-    streamedLearnedCountRef.current = 0;
-    streamedDetailPeakEnvRef.current = new Float32Array(detailCols);
-    streamedDetailRmsEnvRef.current = new Float32Array(detailCols);
-    streamedDetailCoverageRef.current = new Uint8Array(detailCols);
-    streamedDetailPeakMaxRef.current = 0;
+    let cached = !force ? streamedEnvelopeCache.get(key) ?? null : null;
+    if (
+      cached
+      && (cached.sessionPeakEnv.length !== cols || cached.detailPeakEnv.length !== detailCols)
+    ) {
+      cached = null;
+    }
+
+    if (!cached) {
+      cached = createStreamedEnvelopeCacheEntry(cols, detailCols);
+      streamedEnvelopeCache.set(key, cached);
+    }
+
+    streamedPeakEnvRef.current = cached.sessionPeakEnv;
+    streamedRmsEnvRef.current = cached.sessionRmsEnv;
+    streamedCoverageRef.current = cached.sessionCoverage;
+    streamedPeakMaxRef.current = cached.sessionPeakMax;
+    streamedLearnedCountRef.current = cached.sessionLearnedCount;
+    streamedDetailPeakEnvRef.current = cached.detailPeakEnv;
+    streamedDetailRmsEnvRef.current = cached.detailRmsEnv;
+    streamedDetailCoverageRef.current = cached.detailCoverage;
+    streamedDetailPeakMaxRef.current = cached.detailPeakMax;
     streamedFileIdRef.current = null;
     streamedLastBinRef.current = null;
     streamedDetailLastBinRef.current = null;
@@ -794,8 +885,14 @@ export function WaveformOverviewPanel({
     });
   }, [audioEngine, cancelEnvelopeCompute]);
 
-  const startStreamedScout = useCallback((filename: string, duration: number) => {
-    const key = buildStreamedProfileKey(filename, duration, performanceProfile.activeProfile);
+  const startStreamedScout = useCallback((filename: string, duration: number, requestedViewRange: ViewRange) => {
+    const detailViewRange = normalizeViewRange(
+      requestedViewRange.start,
+      requestedViewRange.end || pickDefaultViewSpan(duration),
+      duration,
+      Math.min(MIN_VIEWPORT_SECONDS, duration),
+    );
+    const key = buildStreamedDetailScoutKey(filename, duration, performanceProfile.activeProfile, detailViewRange);
     if (!key) return;
 
     if (!initializeStreamedEnvelope(filename, duration)) return;
@@ -823,91 +920,112 @@ export function WaveformOverviewPanel({
     streamedScoutCancelRef.current = cancel;
 
     const run = async () => {
-      try {
-        await waitForMediaReadyState(probe.element, STREAMED_SCOUT_READY_TIMEOUT_MS);
-        if (cancelled) return;
+      const sampleTarget = async (target: StreamedScoutTarget) => {
+        let sampledAny = false;
+        let sampledPeak = 0;
+        let sampledRmsSum = 0;
+        let sampledCount = 0;
+        const sampleTimes = buildScoutSampleTimes(target, performanceProfile.timeline);
 
-        const targets = buildStreamedScoutTargets(
-          streamedPeakEnvRef.current?.length ?? pickStreamedEnvelopeCols(duration, performanceProfile.timeline),
-          duration,
-          performanceProfile.timeline,
-        );
-
-        for (const target of targets) {
+        for (let sampleIndex = 0; sampleIndex < sampleTimes.length; sampleIndex++) {
+          const sampleTime = sampleTimes[sampleIndex];
+          await seekMediaElement(probe.element, sampleTime, STREAMED_SCOUT_READY_TIMEOUT_MS);
+          if (cancelled) break;
+          await waitForMediaReadyState(probe.element, STREAMED_SCOUT_READY_TIMEOUT_MS);
           if (cancelled) break;
 
-          const coverage = streamedCoverageRef.current;
-          if (!coverage) break;
-
-          let needsSample = false;
-          for (let index = target.colStart; index <= target.colEnd; index++) {
-            if (coverage[index] === 0) {
-              needsSample = true;
-              break;
-            }
+          let played = false;
+          try {
+            await Promise.resolve(probe.element.play());
+            played = true;
+            await delay(STREAMED_SCOUT_SAMPLE_WINDOW_MS);
+          } catch {
+            await delay(performanceProfile.timeline.scoutActiveDelayMs);
+            continue;
           }
-          if (!needsSample) continue;
+
+          probe.analyser.getFloatTimeDomainData(probe.timeDomain as Float32Array<ArrayBuffer>);
+          if (played) probe.element.pause();
+          let localPeak = 0;
+          let localRmsSum = 0;
+          for (let sample = 0; sample < probe.timeDomain.length; sample++) {
+            const value = probe.timeDomain[sample];
+            const abs = Math.abs(value);
+            if (abs > localPeak) localPeak = abs;
+            localRmsSum += value * value;
+          }
+
+          const localRms = probe.timeDomain.length > 0 ? Math.sqrt(localRmsSum / probe.timeDomain.length) : 0;
+          const segmentTimeStart = target.timeStart + ((target.timeEnd - target.timeStart) * sampleIndex) / sampleTimes.length;
+          const segmentTimeEnd = target.timeStart + ((target.timeEnd - target.timeStart) * (sampleIndex + 1)) / sampleTimes.length;
+          mergeStreamedEnvelopeShape(segmentTimeStart, Math.max(segmentTimeStart, segmentTimeEnd), probe.timeDomain, 1);
+          if (localPeak > sampledPeak) sampledPeak = localPeak;
+          sampledRmsSum += localRms;
+          sampledCount++;
+          sampledAny = true;
+        }
+
+        return {
+          sampledAny,
+          sampledPeak,
+          sampledRms: sampledCount > 0 ? sampledRmsSum / sampledCount : 0,
+        };
+      };
+
+      const sampleTargets = async (
+        targets: readonly StreamedScoutTarget[],
+        needsSample: (target: StreamedScoutTarget) => boolean,
+        markEmptyRange: boolean,
+      ) => {
+        for (const target of targets) {
+          if (cancelled) break;
+          if (!needsSample(target)) continue;
 
           if (shouldThrottleStreamedScout(transportRef.current)) {
             await delay(performanceProfile.timeline.scoutStressDelayMs);
             continue;
           }
 
-          let sampledAny = false;
-          let sampledPeak = 0;
-          let sampledRmsSum = 0;
-          let sampledCount = 0;
-          const sampleTimes = buildScoutSampleTimes(target, performanceProfile.timeline);
-          for (let sampleIndex = 0; sampleIndex < sampleTimes.length; sampleIndex++) {
-            const sampleTime = sampleTimes[sampleIndex];
-            await seekMediaElement(probe.element, sampleTime, STREAMED_SCOUT_READY_TIMEOUT_MS);
-            if (cancelled) break;
-            await waitForMediaReadyState(probe.element, STREAMED_SCOUT_READY_TIMEOUT_MS);
-            if (cancelled) break;
+          const sample = await sampleTarget(target);
+          if (cancelled) break;
 
-            let played = false;
-            try {
-              await Promise.resolve(probe.element.play());
-              played = true;
-              await delay(STREAMED_SCOUT_SAMPLE_WINDOW_MS);
-            } catch {
-              await delay(performanceProfile.timeline.scoutActiveDelayMs);
-              continue;
-            }
-
-            probe.analyser.getFloatTimeDomainData(probe.timeDomain as Float32Array<ArrayBuffer>);
-            if (played) probe.element.pause();
-            let localPeak = 0;
-            let localRmsSum = 0;
-            for (let sample = 0; sample < probe.timeDomain.length; sample++) {
-              const value = probe.timeDomain[sample];
-              const abs = Math.abs(value);
-              if (abs > localPeak) localPeak = abs;
-              localRmsSum += value * value;
-            }
-            const localRms = probe.timeDomain.length > 0 ? Math.sqrt(localRmsSum / probe.timeDomain.length) : 0;
-            const segmentTimeStart = target.timeStart + ((target.timeEnd - target.timeStart) * sampleIndex) / sampleTimes.length;
-            const segmentTimeEnd = target.timeStart + ((target.timeEnd - target.timeStart) * (sampleIndex + 1)) / sampleTimes.length;
-            mergeStreamedEnvelopeShape(segmentTimeStart, Math.max(segmentTimeStart, segmentTimeEnd), probe.timeDomain, 1);
-            if (localPeak > sampledPeak) sampledPeak = localPeak;
-            sampledRmsSum += localRms;
-            sampledCount++;
-            sampledAny = true;
-          }
-
-          if (!cancelled && sampledAny) {
-            mergeStreamedEnvelopeRange(
-              target.timeStart,
-              target.timeEnd,
-              sampledPeak,
-              sampledCount > 0 ? sampledRmsSum / sampledCount : 0,
-            );
-          } else if (!cancelled && !sampledAny) {
+          if (sample.sampledAny) {
+            mergeStreamedEnvelopeRange(target.timeStart, target.timeEnd, sample.sampledPeak, sample.sampledRms);
+          } else if (markEmptyRange) {
             mergeStreamedEnvelopeRange(target.timeStart, target.timeEnd, 0, 0);
           }
 
           await delay(transportRef.current.isPlaying ? performanceProfile.timeline.scoutActiveDelayMs : STREAMED_SCOUT_IDLE_DELAY_MS);
         }
+      };
+
+      try {
+        await waitForMediaReadyState(probe.element, STREAMED_SCOUT_READY_TIMEOUT_MS);
+        if (cancelled) return;
+
+        const detailTargets = buildDetailScoutTargets(
+          streamedDetailPeakEnvRef.current?.length ?? pickStreamedDetailEnvelopeCols(duration, performanceProfile.timeline),
+          duration,
+          detailViewRange,
+          performanceProfile.timeline,
+        );
+        await sampleTargets(
+          detailTargets,
+          (target) => targetNeedsSample(streamedDetailCoverageRef.current, target),
+          false,
+        );
+        if (cancelled) return;
+
+        const sessionTargets = buildStreamedScoutTargets(
+          streamedPeakEnvRef.current?.length ?? pickStreamedEnvelopeCols(duration, performanceProfile.timeline),
+          duration,
+          performanceProfile.timeline,
+        );
+        await sampleTargets(
+          sessionTargets,
+          (target) => targetNeedsSample(streamedCoverageRef.current, target),
+          false,
+        );
       } catch (error) {
         if (!cancelled) {
           console.warn('streamed overview scout failed, retained live learning', error);
@@ -949,7 +1067,17 @@ export function WaveformOverviewPanel({
     } else if (options?.manual) {
       viewFollowRef.current = false;
     }
-  }, [audioEngine]);
+
+    const transport = transportRef.current;
+    if (
+      transport.playbackBackend === 'streamed'
+      && transport.filename
+      && transport.duration > 0
+      && hasDetailCoverageGap(streamedDetailCoverageRef.current, normalized, transport.duration)
+    ) {
+      startStreamedScout(transport.filename, transport.duration, normalized);
+    }
+  }, [audioEngine, startStreamedScout]);
 
   const resetViewRange = useCallback((durationOverride?: number) => {
     const duration = Math.max(0, durationOverride ?? transportRef.current.duration ?? audioEngine.duration);
@@ -1102,9 +1230,12 @@ export function WaveformOverviewPanel({
       analysisRef.current = null;
       envelopeColsRef.current = 0;
       envelopeFileIdRef.current = -1;
-      initializeStreamedEnvelope(transport.filename, transport.duration, true);
-      if (transport.isPlaying && hasStreamedCoverageGap(streamedCoverageRef.current)) {
-        startStreamedScout(transport.filename, transport.duration);
+      initializeStreamedEnvelope(transport.filename, transport.duration);
+      if (
+        hasStreamedCoverageGap(streamedCoverageRef.current)
+        || hasDetailCoverageGap(streamedDetailCoverageRef.current, viewRangeRef.current, transport.duration)
+      ) {
+        startStreamedScout(transport.filename, transport.duration, viewRangeRef.current);
       }
       return;
     }
@@ -1120,9 +1251,12 @@ export function WaveformOverviewPanel({
       && transport.filename
       && transport.duration > 0
       && !streamedScoutCancelRef.current
-      && hasStreamedCoverageGap(streamedCoverageRef.current)
+      && (
+        hasStreamedCoverageGap(streamedCoverageRef.current)
+        || hasDetailCoverageGap(streamedDetailCoverageRef.current, viewRangeRef.current, transport.duration)
+      )
     ) {
-      startStreamedScout(transport.filename, transport.duration);
+      startStreamedScout(transport.filename, transport.duration, viewRangeRef.current);
     }
   }), [audioEngine, startStreamedScout]);
 
@@ -1133,8 +1267,8 @@ export function WaveformOverviewPanel({
     }
 
     cancelStreamedScout();
-    initializeStreamedEnvelope(transport.filename, transport.duration, true);
-    startStreamedScout(transport.filename, transport.duration);
+    initializeStreamedEnvelope(transport.filename, transport.duration);
+    startStreamedScout(transport.filename, transport.duration, viewRangeRef.current);
   }, [
     cancelStreamedScout,
     initializeStreamedEnvelope,
@@ -1376,6 +1510,17 @@ export function WaveformOverviewPanel({
         if (nextWidth > 0 && (nextWidth !== prevWidth || !peakEnvRef.current)) {
           scheduleEnvelopeCompute(nextWidth);
         }
+
+        const transport = transportRef.current;
+        if (
+          nextWidth > 0
+          && transport.playbackBackend === 'streamed'
+          && transport.filename
+          && transport.duration > 0
+          && hasDetailCoverageGap(streamedDetailCoverageRef.current, viewRangeRef.current, transport.duration)
+        ) {
+          startStreamedScout(transport.filename, transport.duration, viewRangeRef.current);
+        }
       }
     });
 
@@ -1384,7 +1529,7 @@ export function WaveformOverviewPanel({
       ro.disconnect();
       cancelEnvelopeCompute();
     };
-  }, [cancelEnvelopeCompute, scheduleEnvelopeCompute]);
+  }, [cancelEnvelopeCompute, scheduleEnvelopeCompute, startStreamedScout]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -1449,17 +1594,22 @@ export function WaveformOverviewPanel({
       const sessionRmsEnv = isStreamedOverview ? streamedRmsEnvRef.current : decodedRmsEnv;
       const sessionClipMap = isStreamedOverview ? null : decodedClipMap;
       const sessionCoverageMap = isStreamedOverview ? streamedCoverageRef.current : null;
-      const detailPeakEnv = isStreamedOverview ? (streamedDetailPeakEnvRef.current ?? streamedPeakEnvRef.current) : decodedPeakEnv;
-      const detailRmsEnv = isStreamedOverview ? (streamedDetailRmsEnvRef.current ?? streamedRmsEnvRef.current) : decodedRmsEnv;
-      const detailCoverageMap = isStreamedOverview ? (streamedDetailCoverageRef.current ?? streamedCoverageRef.current) : null;
+      const detailPeakEnv = isStreamedOverview ? streamedDetailPeakEnvRef.current : decodedPeakEnv;
+      const detailRmsEnv = isStreamedOverview ? streamedDetailRmsEnvRef.current : decodedRmsEnv;
+      const detailCoverageMap = isStreamedOverview ? streamedDetailCoverageRef.current : null;
+      const cachedStreamedEnvelope = isStreamedOverview && streamedEnvelopeKeyRef.current
+        ? streamedEnvelopeCache.get(streamedEnvelopeKeyRef.current) ?? null
+        : null;
       const learnedRatio = sessionCoverageMap && sessionCoverageMap.length > 0
-        ? streamedLearnedCountRef.current / sessionCoverageMap.length
+        ? (cachedStreamedEnvelope?.sessionLearnedCount ?? streamedLearnedCountRef.current) / sessionCoverageMap.length
         : 0;
-      const sessionPeakNormalizer = isStreamedOverview && streamedPeakMaxRef.current > 0
-        ? 1 / streamedPeakMaxRef.current
+      const sessionPeakMax = cachedStreamedEnvelope?.sessionPeakMax ?? streamedPeakMaxRef.current;
+      const detailPeakMax = cachedStreamedEnvelope?.detailPeakMax ?? streamedDetailPeakMaxRef.current;
+      const sessionPeakNormalizer = isStreamedOverview && sessionPeakMax > 0
+        ? 1 / sessionPeakMax
         : 1;
-      const detailPeakNormalizer = isStreamedOverview && streamedDetailPeakMaxRef.current > 0
-        ? 1 / streamedDetailPeakMaxRef.current
+      const detailPeakNormalizer = isStreamedOverview && detailPeakMax > 0
+        ? 1 / detailPeakMax
         : sessionPeakNormalizer;
 
       if (duration <= 0) {
@@ -1483,6 +1633,11 @@ export function WaveformOverviewPanel({
         duration,
         Math.min(MIN_VIEWPORT_SECONDS, duration),
       );
+      const detailCoverageRatio = coverageRatioInRange(detailCoverageMap, viewRange.start, viewRange.end, duration);
+      const sessionCoverageRatio = coverageRatioInRange(sessionCoverageMap, viewRange.start, viewRange.end, duration);
+      const detailRenderMode = isStreamedOverview
+        ? chooseDetailRenderMode(detailCoverageRatio, sessionCoverageRatio)
+        : 'detail';
       viewRangeRef.current = viewRange;
       const loopStart = transport.loopStart;
       const loopEnd = transport.loopEnd;
@@ -2485,24 +2640,36 @@ export function WaveformOverviewPanel({
       drawPlayCursor(layout.loop, 0, duration, false);
 
       drawTimeGrid(layout.detail, viewRange.start, viewRange.end, false);
-      const coveredDetailColumns = drawEnvelopeWindow(
-        layout.detail,
-        viewRange.start,
-        viewRange.end,
-        {
-          emphasizeCoverage: true,
-          showClipMap: !isStreamedOverview,
-          fillPlayback: true,
-          confidenceProfile: 'detail',
-        },
-        {
-          peakEnv: detailPeakEnv,
-          rmsEnv: detailRmsEnv,
-          clipMap: decodedClipMap,
-          coverageMap: detailCoverageMap,
-          peakNormalizer: detailPeakNormalizer,
-        },
-      );
+      const coveredDetailColumns = detailRenderMode === 'session-scaffold'
+        ? drawStreamedSessionMap(
+            layout.detail,
+            viewRange.start,
+            viewRange.end,
+            {
+              peakEnv: sessionPeakEnv,
+              rmsEnv: sessionRmsEnv,
+              coverageMap: sessionCoverageMap,
+              peakNormalizer: sessionPeakNormalizer,
+            },
+          )
+        : drawEnvelopeWindow(
+            layout.detail,
+            viewRange.start,
+            viewRange.end,
+            {
+              emphasizeCoverage: true,
+              showClipMap: !isStreamedOverview,
+              fillPlayback: true,
+              confidenceProfile: 'detail',
+            },
+            {
+              peakEnv: detailPeakEnv,
+              rmsEnv: detailRmsEnv,
+              clipMap: decodedClipMap,
+              coverageMap: detailCoverageMap,
+              peakNormalizer: detailPeakNormalizer,
+            },
+          );
 
       ctx.font = `${8 * dpr}px ${FONTS.mono}`;
       ctx.fillStyle = textColor;
@@ -2937,7 +3104,7 @@ const scrubToolbarStyle: React.CSSProperties = {
   alignItems: 'center',
   justifyContent: 'space-between',
   gap: SPACING.sm,
-  padding: `${SPACING.xs}px ${SPACING.sm}px`,
+  padding: `4px ${SPACING.sm}px`,
   borderBottom: `1px solid ${COLORS.border}`,
   background: COLORS.bg1,
   flexShrink: 0,
@@ -2982,7 +3149,7 @@ const scrubButtonStyle: React.CSSProperties = {
   borderStyle: 'solid',
   borderColor: COLORS.border,
   borderRadius: 2,
-  padding: '2px 6px',
+  padding: '1px 6px',
   cursor: 'pointer',
   letterSpacing: '0.08em',
   lineHeight: 1.2,
@@ -3000,7 +3167,7 @@ const clearMarkersButtonStyle: React.CSSProperties = {
   color: COLORS.textSecondary,
   background: 'none',
   border: 'none',
-  padding: '2px 4px',
+  padding: '1px 4px',
   cursor: 'pointer',
   letterSpacing: '0.08em',
   lineHeight: 1.2,

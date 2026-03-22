@@ -1,118 +1,65 @@
 # Global Memory
 
+## 2026-03-21
+
+### Accepted Baseline
+
+- Current accepted baseline is commit `da8511e` on `main`.
+- The repo is active and no longer described as a frozen alpha handoff.
+- The product is now clearly a scientific media instrument for arbitrary local audio and video.
+
+### Current Product Shape
+
+- Left Session Console acts as a session workbench:
+  - routing
+  - preview
+  - transport position
+  - clip export
+  - diagnostics access
+- Right Live Diagnostic quadrant is the primary analytical command surface.
+- Desktop clip export is a real workflow with fast and exact master paths.
+- Alternate audio and subtitle attachment are part of the intended playback UX.
+
+### Accepted UX Direction
+
+- Controls should live at the highest sensible layer.
+- The Session Console should not duplicate the whole app.
+- The Live Diagnostic chrome should hold primary transport and review actions.
+- The interface should feel denser, calmer, and more clinical over time.
+
+### Known Rough Edge
+
+- Fullscreen short-streamed-media detail waveform behavior is still not fully reliable.
+- Treat it as a pragmatic reliability problem, not a reason to destabilize the rest of the product direction.
+
+### Recommended Next Direction
+
+- finish the fullscreen overview hardening
+- sharpen export trust and completion affordances
+- run a serious screenshot audit across style modes
+- reduce build chunk size
+- continue retiring stale legacy wording
+
 ## 2026-03-15
 
-### Working Branch Model
+### Historical Baseline
 
-- `main` is the known-good, share-safe baseline.
-- `dev` is the active integration branch for transport, video, diagnostics, and UX refinement.
-- A backup rollback branch and targeted feature branches were used repeatedly during stabilization work.
-
-### Accepted Dev Baseline
-
-- Current accepted daily-development baseline is commit `9fef272` on `dev`.
 - Large media now uses a streamed fallback path instead of forcing full in-memory decode.
 - Large-media timelines now follow a two-tier model:
-  - coarse full-session map for whole-duration navigation
-  - zoomed detail window for focused waveform work
-- Looping and viewport control now live directly in the timeline model instead of being implied only by transport state.
+  - coarse full-session map
+  - zoomed detail window
 - Streamed high-quality video pitch was restored through live stretch processing.
-- Streamed pitch/seek handoff is now hardened against stale interrupted `play()` calls during retune.
 - Streamed scrubbing now stays continuous instead of pausing on each movement.
 
-### Product Reality Tonight
+### Historical Notes
 
-- The desktop app can now handle very large or film-length media more credibly than earlier baselines.
-- Video playback quality is currently stronger than large-file timeline fidelity, which is acceptable for the current architecture direction but still an active refinement area.
 - Perf Lab is part of the intended operating experience and should remain available as an expert-facing telemetry surface.
-
-### Known Watch Points
-
-- Streamed live pitch should keep being judged by ear on difficult material; artifact quality matters as much as feature presence.
-- Large streamed timeline rendering is now structurally correct, but the visual grammar of coarse session-map waveforms still needs refinement to feel fully intentional.
-- Heavy ingest and deferred analysis still deserve longer-term worker/off-main-thread treatment.
-- The next reliability step is a small regression suite around transport, large-media fallback, and layout behavior.
-
-### Next AI Handoff
-
-- Start from `dev` commit `9fef272`.
-- Treat `main` as the stable/share-safe branch and `dev` as the active integration branch.
-- The current large-media strategy is intentional:
-  - streamed fallback for oversized media
-  - coarse session map plus zoomed detail window for streamed media
-  - live-learned timeline refinement for streamed media
-  - restored live pitch for streamed high-quality video
-  - continuous scrubbing for streamed media
-- Do not revert toward unconditional full-file decode for large video just to recover features.
-- Highest-value next work:
-  - improve subjective quality of streamed live pitch on difficult material
-  - refine the visual language of coarse streamed timelines so they feel honest and intentional rather than malformed
-  - move more ingest/analysis work off the main thread
-  - add a small regression suite for transport, large-media fallback, and layout resizing
-- Perf Lab is part of the intended product UX, not temporary debugging clutter.
 - Public Cloudflare share links are temporary and should not be treated as durable release URLs.
 
 ## 2026-03-14
 
-### Accepted Direction
+### Historical Direction Change
 
-- The project is no longer defined primarily as a Bach-specific suite console.
-- The accepted direction is a general-purpose local media analysis instrument with optional structural overlays.
-- Legacy branding remains in package names, installer names, and sample data, but that is now considered transitional.
-
-### Implemented Recently
-
-- Added and stabilized desktop/browser parity through the shared frontend and Tauri wrapper.
-- Added diagnostics logging suitable for review, copy, and saved support traces.
-- Added video preview modes:
-  - docked
-  - windowed
-  - theater
-  - in-app full screen
-- Added scrub mode variants and substantially improved transport stability around:
-  - seek bursts
-  - loop wrap
-  - rate and pitch changes
-  - file switching
-  - long windowed-video interaction
-- Preserved panel layout across style switches and made `RESET LAYOUT` reset geometry without wiping session state.
-
-### Current Product Reality
-
-- The runtime handles arbitrary local audio and video usefully even without annotation data.
-- The Bach / MusicXML pipeline remains valuable as an example annotation workflow, not the product definition.
-- The diagnostics system is now part of the intended UX, not just temporary debugging scaffolding.
-
-### Known Transitional State
-
-- Repo and installer naming still say `Bach Cello Console`.
-- Bundled overlay data is still Suite No. 1 Prelude sample data.
-- Some docs had to be updated to match the broader product direction.
-
-### Recommended Next Direction
-
-- Keep improving runtime credibility and expert workflow quality.
-- Treat further generalization as a product-definition task, not just a rename pass.
-- Defer full branding cleanup until the broader workflow shape is fully settled.
-
-## 2026-03-11
-
-### Accepted Baseline
-
-- Current accepted baseline is commit `b8443c3` on `master`.
-- The app was stable again after reverting the experimental native-video-audio fallback.
-- Build and lint were both passing at that stop point.
-
-### Historical Notes
-
-- Added a new `FrequencyResponsePanel` beneath the oscilloscope.
-- Fixed mono analysis routing so mono files no longer show a dead right channel.
-- Reworked waveform overview logic.
-- Fixed reset behavior for video preview and file reloading.
-- Added the diagnostics log panel and early transport logging.
-- Reduced live rendering cost and improved explicit multichannel stereo fold-down.
-
-### Historical Open Issue
-
-- Some longer or higher-quality video files, especially `6ch` MKVs, still produced audible crackling in the older baseline.
-- That issue drove the later playback-hardening work summarized above.
+- The project stopped being defined primarily as a Bach-specific suite console.
+- The accepted direction became a general-purpose local media analysis instrument with optional structural overlays.
+- Legacy branding remained temporarily in package names, installer names, and sample data.

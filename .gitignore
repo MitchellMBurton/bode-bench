@@ -10,14 +10,21 @@ target/
 desktop/src-tauri/target/
 desktop/cloudflared.log
 desktop/cloudflared.err
+desktop/cloudflared-share*.log
+desktop/cloudflared-share*.err
 desktop/share-server.log
 desktop/share-server.err
+desktop/serve-share*.log
+desktop/serve-share*.err
 desktop/share/BachCelloConsole-Setup.exe
 desktop/share/BachCelloConsole-Setup.exe.sha256.txt
+desktop/share/ScientificListeningInstrument-Setup.exe
+desktop/share/ScientificListeningInstrument-Setup.exe.sha256.txt
 desktop/share/latest.json
 desktop/share/assets/
 desktop/share/vite.svg
 desktop/share/webapp.html
+desktop/vendor/
 
 # Session audio (ephemeral)
 audio/sessions/

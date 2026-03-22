@@ -1,41 +1,60 @@
 # Scientific Listening Instrument
 
-Local-first, desktop-grade media analysis console for close listening, technical review, and presentation-safe diagnostics.
+Local-first, desktop-grade media analysis console for close listening, technical review, clip export, and presentation-safe diagnostics.
 
-The product has evolved beyond its original Bach-specific framing. The repository, installer, and some bundled sample data still carry legacy `Bach Cello Console` naming, but the working direction is now general-purpose: arbitrary local audio and video, optional structural overlays, and a disciplined four-quadrant analysis workspace.
-
-## What This Is
-
-This is not a consumer media player and not a decorative visualiser.
-
-It is a serious local instrument for:
-
-- waveform, spectrum, loudness, pitch, and frequency-response inspection
-- transport-heavy review with seeking, looping, and scrubbing
-- video-assisted listening with docked, windowed, theater, and in-app full-screen preview modes
-- optional structural overlays and preprocessing pipelines when a project benefits from them
+This repo is active. It is no longer an archived alpha handoff. The legacy Bach naming still appears in some assets and package identifiers, but the working product is now a general-purpose scientific media instrument for arbitrary local audio and video.
 
 ## Current Product Shape
 
 - Desktop-first, session-based workflow
-- Local ingest for arbitrary audio or video files
-- Real-time diagnostic surfaces in a four-quadrant console
 - Shared browser and desktop frontend
-- Diagnostics log designed for review, export, and debugging
-- Optional annotation / score workflow retained as one supported use case, not the core identity
+- Four-quadrant analysis workspace with persistent pane geometry
+- Session Console on the left for media routing, preview, transport, clip export, and diagnostics
+- Live Diagnostic quadrant on the right for review, overview, waveform, pitch, oscilloscope, and response work
+- Alternate audio and subtitle attachment for playback
+- Desktop clip export workflow with fast copy and exact master modes
+- Diagnostics log designed for support, review, and reproducible bug reports
 
-## Requirements
+## What It Is For
 
-| Dependency | Minimum | Notes |
-|---|---|---|
-| Node.js | 18+ | v22 confirmed working |
-| npm | 9+ | pnpm also works if installed |
-| Rust | stable | Only for the Tauri desktop wrapper |
-| Python | 3.9+ | Optional preprocessing |
-| music21 | any | Optional, for MusicXML-driven overlays |
-| FFmpeg | any | Optional, for probing utilities |
+- close waveform and spectral inspection
+- transport-heavy review with seeking, looping, and scrubbing
+- audio and video clip extraction
+- presentation-safe technical playback
+- optional structural overlays and preprocessing when a project needs them
 
-No Rust or Tauri is required to run the browser frontend.
+## What It Is Not
+
+- not a consumer media player
+- not a decorative visualizer
+- not a persistent media library
+- not a collaborative cloud product
+
+## Current Strengths
+
+- decoded and streamed playback backends
+- large-media fallback path with honest coarse session maps
+- docked, windowed, theater, and in-console fullscreen video modes
+- routed session controls with cleaner command hierarchy
+- current desktop export seam with bundled ffmpeg support
+- screenshot-safe interface direction across multiple visual modes
+
+## Current Rough Edges
+
+- fullscreen overview detail-waveform behavior on short streamed media still needs final hardening
+- chunk splitting in the frontend build is still larger than ideal
+- legacy naming remains in some packaged artifacts
+- export and review UX are strong but still being refined toward a more clinical, less mixed-control feel
+
+## Quality Bar
+
+The product should feel like a lightweight fusion of:
+
+- VLC for pragmatic local media handling
+- Audacity for trustworthy inspection and clip thinking
+- HandBrake for deliberate export intent
+
+But it must still read as one coherent scientific instrument, not three borrowed interfaces glued together.
 
 ## Quick Start
 
@@ -51,6 +70,15 @@ Default dev URL:
 
 - `http://127.0.0.1:4173/`
 
+### Frontend verification
+
+```bash
+cd app
+npm run lint
+npm test
+npm run build
+```
+
 ### Desktop dev
 
 ```bash
@@ -59,7 +87,7 @@ npm install
 npm run dev
 ```
 
-### Shareable local builds
+### Shareable local build
 
 ```bash
 cd desktop
@@ -68,34 +96,29 @@ npm run release:share
 
 This refreshes:
 
-- `desktop/share/BachCelloConsole-Setup.exe`
+- `desktop/share/ScientificListeningInstrument-Setup.exe`
 - `desktop/share/webapp.html`
 
 ## Using the Console
 
-1. Load any local audio or video file with drag-drop or the file picker.
-2. Use transport controls to play, pause, stop, seek, loop, and scrub.
-3. Inspect the live panels:
-   - overview
-   - scrolling waveform
-   - pitch
-   - oscilloscope
-   - frequency response
-   - levels
-   - bands / partials
-   - loudness
-   - spectrogram
-4. Use the diagnostics log to review transport, decode, preview, and mode-transition events.
-5. For video sessions, use:
-   - `WND` for a draggable, resizable in-app video window
-   - `THR` for theater presentation
-   - `FULL` for in-app full-screen within the console window
+1. Open any local audio or video file.
+2. Use the Session Console to route media, attach alternate audio or subtitles, preview video, and inspect transport position.
+3. Use the Live Diagnostic quadrant for review, waveform reading, range work, and spectral inspection.
+4. Create review ranges and export clips from the desktop build.
+5. Use the diagnostics drawer when you need a reproducible trace.
+
+## Export Notes
+
+- Clip export is desktop-first.
+- `FAST COPY` keeps the source container and avoids re-encode when possible.
+- `EXACT MASTER` performs a fresh encode for reliable trim accuracy.
+- Export may still need the original source file path if the session was loaded without a durable desktop path.
 
 ## Optional Annotation Workflow
 
-The repo still includes a Bach / MusicXML pipeline as a worked example of structural overlays.
+The repo still includes a Bach and MusicXML pipeline as a worked example of structural overlays.
 
-Use it when you want aligned note or annotation data, but treat it as an optional domain-specific layer rather than the product definition.
+Use it when aligned note or annotation data is helpful, but treat it as an optional domain-specific layer rather than the product definition.
 
 Example scripts:
 
@@ -105,11 +128,6 @@ python parse_scores.py
 python export_events.py <offset_seconds>
 python probe_audio.py path/to/file
 ```
-
-Bundled sample data remains in:
-
-- `data/processed/suite1_prelude.json`
-- `app/public/data/processed/suite1_prelude.json`
 
 ## Project Layout
 
@@ -123,6 +141,7 @@ av_project_claude_2/
   PROJECT.md
   ARCHITECTURE.md
   TASKS.md
+  HANDOFF.md
   MEMORY.md
   UX_PRINCIPLES.md
   POWER_USER_UX.md
@@ -130,45 +149,21 @@ av_project_claude_2/
   CLAUDE.md
 ```
 
-## Development Commands
-
-```bash
-# Frontend dev
-cd app && npm run dev
-
-# Frontend lint
-cd app && npm run lint
-
-# Frontend build
-cd app && npm run build
-
-# Desktop dev
-cd desktop && npm run dev
-
-# Desktop build
-cd desktop && npm run build
-
-# Desktop + browser share bundle
-cd desktop && npm run release:share
-```
-
 ## Project Documents
 
 | Document | Purpose |
 |---|---|
-| `PROJECT.md` | Product definition and invariants |
-| `ARCHITECTURE.md` | Technical structure and domain boundaries |
-| `TASKS.md` | Current milestone and work ordering |
-| `MEMORY.md` | Durable project context and recent accepted shifts |
+| `PROJECT.md` | Product definition, scope, and quality bar |
+| `ARCHITECTURE.md` | Current technical seams and system structure |
+| `TASKS.md` | Active work order and milestone status |
+| `HANDOFF.md` | Practical continuation notes for the next work session |
+| `MEMORY.md` | Durable accepted decisions and recent context |
 | `UX_PRINCIPLES.md` | Interface doctrine |
-| `POWER_USER_UX.md` | Workspace and expert-UX direction |
-| `DECISION_RULES.md` | How to choose between alternatives |
-| `CLAUDE.md` | Contributor / agent repo guidance |
+| `POWER_USER_UX.md` | Expert workflow and workspace direction |
 
 ## Current Reality
 
 - The runtime is general-purpose.
-- The branding is still partially legacy.
-- The annotation pipeline is still Bach-flavored by default.
-
-That is intentional for now: broaden the instrument first, then rename and generalize every artifact once the product direction is fully settled.
+- The desktop shell matters.
+- Export is now a real product seam, not just an idea.
+- The current work is about refinement, trust, and operational excellence, not invention for its own sake.

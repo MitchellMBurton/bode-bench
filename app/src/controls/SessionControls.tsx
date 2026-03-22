@@ -27,6 +27,27 @@ interface SessionTheme {
   readonly buttonBg: string;
 }
 
+type TuningGroupId = 'playback' | 'monitor' | 'view';
+
+interface TuningRow {
+  readonly label: string;
+  readonly value: number;
+  readonly valueLabel: string;
+  readonly min: number;
+  readonly max: number;
+  readonly step: number;
+  readonly onChange: (nextValue: number) => void;
+  readonly fill: string;
+  readonly disabled: boolean;
+  readonly title: string;
+}
+
+interface TuningGroup {
+  readonly id: TuningGroupId;
+  readonly label: string;
+  readonly rows: readonly TuningRow[];
+}
+
 const SESSION_THEMES = {
   default: {
     clusterBg: COLORS.bg1,
@@ -133,7 +154,7 @@ export function SessionControls(): React.ReactElement {
     scrollSpeed.set(SCROLL_DEFAULT);
   }, [audioEngine, scrollSpeed]);
 
-  const rows = [
+  const playbackRows: readonly TuningRow[] = [
     {
       label: 'VOL',
       value: volume,
@@ -194,45 +215,75 @@ export function SessionControls(): React.ReactElement {
       disabled: false,
       title: 'Visual scroll speed multiplier',
     },
-  ] as const;
+  ];
+
+  const groups: readonly TuningGroup[] = [
+    {
+      id: 'playback',
+      label: 'PLAYBACK TUNING',
+      rows: playbackRows,
+    },
+  ];
 
   return (
     <div style={wrapStyle}>
-      <div style={rowWrapStyle}>
-        {rows.map((row) => (
-          <div key={row.label} style={controlRowStyle}>
-            <span style={{ ...chipLabelStyle, color: t.label }}>{row.label}</span>
-            <div style={{ ...trackStyle, background: t.track }}>
-              <div
-                style={{
-                  ...fillStyle,
-                  width: fillWidth(row.value, row.min, row.max),
-                  background: row.fill,
-                }}
-              />
-              <input
-                type="range"
-                min={row.min}
-                max={row.max}
-                step={row.step}
-                value={row.value}
-                onChange={(event) => row.onChange(Number.parseFloat(event.target.value))}
-                style={rangeStyle}
-                title={row.title}
-                disabled={row.disabled}
-              />
+      <div style={headerRowStyle}>
+        <span style={{ ...sectionLabelStyle, color: t.label }}>{groups[0].label}</span>
+        <button
+          style={{ ...resetButtonStyle, background: t.buttonBg, borderColor: t.border, color: t.label }}
+          onClick={onReset}
+          title="Reset playback and scroll controls"
+        >
+          RESET
+        </button>
+      </div>
+      <div style={groupWrapStyle}>
+        {groups.map((group) => (
+          <div key={group.id} style={groupStyle}>
+            <div style={rowWrapStyle}>
+              {group.rows.map((row) => {
+                const width = fillWidth(row.value, row.min, row.max);
+                return (
+                  <div key={row.label} style={controlRowStyle}>
+                    <span style={{ ...chipLabelStyle, color: t.label }}>{row.label}</span>
+                    <div style={trackShellStyle}>
+                      <div style={{ ...trackRailStyle, background: t.track }} />
+                      <div
+                        style={{
+                          ...fillStyle,
+                          width,
+                          background: row.fill,
+                        }}
+                      />
+                      <div
+                        style={{
+                          ...thumbStyle,
+                          left: width,
+                          background: row.fill,
+                          borderColor: t.clusterBg,
+                          opacity: row.disabled ? 0.4 : 1,
+                        }}
+                      />
+                      <input
+                        type="range"
+                        min={row.min}
+                        max={row.max}
+                        step={row.step}
+                        value={row.value}
+                        onChange={(event) => row.onChange(Number.parseFloat(event.target.value))}
+                        style={rangeStyle}
+                        title={row.title}
+                        disabled={row.disabled}
+                      />
+                    </div>
+                    <span style={{ ...chipValueStyle, color: t.text }}>{row.valueLabel}</span>
+                  </div>
+                );
+              })}
             </div>
-            <span style={{ ...chipValueStyle, color: t.text }}>{row.valueLabel}</span>
           </div>
         ))}
       </div>
-      <button
-        style={{ ...resetButtonStyle, background: t.buttonBg, borderColor: t.border, color: t.label }}
-        onClick={onReset}
-        title="Reset playback and scroll controls"
-      >
-        RESET
-      </button>
     </div>
   );
 }
@@ -241,8 +292,24 @@ const wrapStyle: React.CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
   alignItems: 'stretch',
+  gap: 6,
+  minWidth: 0,
+};
+
+const headerRowStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'baseline',
+  justifyContent: 'space-between',
   gap: SPACING.xs,
   minWidth: 0,
+};
+
+const sectionLabelStyle: React.CSSProperties = {
+  fontFamily: FONTS.mono,
+  fontSize: FONTS.sizeXs,
+  letterSpacing: '0.10em',
+  textTransform: 'uppercase',
+  lineHeight: 1,
 };
 
 const rowWrapStyle: React.CSSProperties = {
@@ -252,33 +319,73 @@ const rowWrapStyle: React.CSSProperties = {
   minWidth: 0,
 };
 
+const groupWrapStyle: React.CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+  gap: 8,
+  minWidth: 0,
+};
+
+const groupStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 4,
+  minWidth: 0,
+};
+
 const controlRowStyle: React.CSSProperties = {
   display: 'grid',
-  gridTemplateColumns: '32px minmax(0, 1fr) 44px',
+  gridTemplateColumns: '36px minmax(180px, 1fr) 48px',
   alignItems: 'center',
-  gap: SPACING.xs,
+  gap: 10,
   minWidth: 0,
 };
 
 const chipLabelStyle: React.CSSProperties = {
   fontFamily: FONTS.mono,
   fontSize: FONTS.sizeXs,
-  letterSpacing: '0.10em',
+  letterSpacing: '0.08em',
   flexShrink: 0,
 };
 
-const trackStyle: React.CSSProperties = {
+const trackShellStyle: React.CSSProperties = {
   position: 'relative',
   width: '100%',
-  height: 4,
-  borderRadius: 2,
-  minWidth: 88,
+  height: 16,
+  minWidth: 180,
+};
+
+const trackRailStyle: React.CSSProperties = {
+  position: 'absolute',
+  left: 0,
+  right: 0,
+  top: '50%',
+  height: 6,
+  transform: 'translateY(-50%)',
+  borderRadius: 999,
+  pointerEvents: 'none',
 };
 
 const fillStyle: React.CSSProperties = {
   position: 'absolute',
-  inset: 0,
-  borderRadius: 2,
+  left: 0,
+  top: '50%',
+  height: 6,
+  transform: 'translateY(-50%)',
+  borderRadius: 999,
+  pointerEvents: 'none',
+};
+
+const thumbStyle: React.CSSProperties = {
+  position: 'absolute',
+  top: '50%',
+  width: 10,
+  height: 10,
+  borderRadius: 999,
+  borderWidth: 1,
+  borderStyle: 'solid',
+  transform: 'translate(-50%, -50%)',
+  boxSizing: 'border-box',
   pointerEvents: 'none',
 };
 
@@ -294,22 +401,21 @@ const rangeStyle: React.CSSProperties = {
 const chipValueStyle: React.CSSProperties = {
   fontFamily: FONTS.mono,
   fontSize: FONTS.sizeXs,
-  letterSpacing: '0.06em',
-  width: 44,
+  letterSpacing: '0.05em',
+  width: 48,
   textAlign: 'right',
   flexShrink: 0,
 };
 
 const resetButtonStyle: React.CSSProperties = {
-  height: 20,
+  height: 18,
   padding: '0 8px',
   borderWidth: 1,
   borderStyle: 'solid',
   borderRadius: 2,
   fontFamily: FONTS.mono,
   fontSize: FONTS.sizeXs,
-  letterSpacing: '0.10em',
+  letterSpacing: '0.08em',
   cursor: 'pointer',
   outline: 'none',
-  alignSelf: 'flex-end',
 };

@@ -434,5 +434,3 @@ const canvasStyle: React.CSSProperties = {
 
 
 
-
-

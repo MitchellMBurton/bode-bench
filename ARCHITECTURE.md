@@ -2,109 +2,207 @@
 
 ## Goal
 
-Local-first desktop instrument that remains web-portable. Maximize local power and fast iteration now while preserving a clean migration path to browser-first deployment later.
+Support a local-first scientific media instrument that stays powerful on desktop, remains shareable through the browser frontend, and preserves clear seams between runtime analysis, UI chrome, and offline export work.
 
-## Three Domains
+## Current System Domains
 
-### 1. Signal Analysis Domain
+### 1. Signal Runtime Domain
 
-Runtime: browser environment inside the shared frontend, whether opened directly or inside the Tauri webview.
+Runtime: shared frontend, both in browser and inside Tauri.
 
 Owns:
 
 - source decode and playback
-- transport state
-- seek, scrub, loop, rate, and pitch behavior
-- analyzer configuration and frame extraction
-- waveform, spectrum, pitch, loudness, and response data
-- video preview sync policy and presentation modes
-- diagnostics emitted from live runtime behavior
+- streamed fallback behavior
+- seek, loop, scrub, rate, and pitch
+- analyzer frame extraction
+- waveform, pitch, oscilloscope, loudness, and response data
+- transport diagnostics
+- video preview state and presentation modes
 
-All analysis data is extracted from runtime state and pushed into render surfaces through typed state and lightweight stores.
+Core files:
 
-### 2. Structural Annotation Domain
+- `app/src/audio/engine.ts`
+- `app/src/core/session.ts`
+- `app/src/runtime/`
 
-Runtime: static data loaded for a session when available.
+### 2. Session Workbench Domain
 
-Owns:
-
-- session metadata
-- note events, regions, markers, or other aligned annotations
-- optional score-derived overlays
-- domain-specific structural interpretations
-
-This repo still uses `score/` and Bach-derived sample data for one annotation workflow, but the domain itself is broader than score.
-
-### 3. Preprocessing Domain
-
-Runtime: scripts run manually or via CLI.
+Runtime: React UI and layout chrome.
 
 Owns:
 
-- MusicXML parsing and event export
+- Session Console structure
+- media routing controls
+- preview and local transport affordances
+- clip export entry points
+- diagnostics drawer
+- quadrant layout and fullscreen behavior
+
+Core files:
+
+- `app/src/controls/TransportControls.tsx`
+- `app/src/controls/ClipExportStrip.tsx`
+- `app/src/controls/DiagnosticsLog.tsx`
+- `app/src/layout/ConsoleLayout.tsx`
+
+### 3. Analysis Surface Domain
+
+Runtime: canvas panels driven by runtime state.
+
+Owns:
+
+- overview timeline
+- scrolling waveform
+- pitch panels
+- oscilloscope surfaces
+- loudness surfaces
+- spectrogram and frequency response
+
+Panels render. They should not own core transport semantics.
+
+Core files:
+
+- `app/src/panels/`
+
+### 4. Derived Media / Export Domain
+
+Runtime: desktop-first seam plus lightweight frontend state.
+
+Owns:
+
+- review ranges
+- selected clip state
+- export preset mapping
+- source relink behavior
+- desktop job lifecycle for clip export
+
+Core files:
+
+- `app/src/runtime/derivedMedia.ts`
+- `app/src/runtime/exportPresets.ts`
+- `app/src/runtime/desktopExport.ts`
+- `desktop/src-tauri/src/lib.rs`
+
+### 5. Structural Annotation and Preprocess Domain
+
+Runtime: optional static data and scripts.
+
+Owns:
+
+- score and overlay loaders
+- preprocessing scripts
 - metadata generation
-- audio probing and format inspection
-- future artifact generation for offline analysis
+- example MusicXML pipeline
 
-Preprocessing never runs in the live UI path.
+Core files:
+
+- `app/src/score/`
+- `scripts/`
+- `data/processed/`
 
 ## Architectural Rule
 
-Signal runtime tells us what is happening. Structural annotation tells us what it might mean. Do not collapse them into one vague subsystem.
+Signal runtime tells us what is happening.
+Structural overlays tell us what it may mean.
+Derived media tells us what we intentionally produced.
 
-## Data Flow
+Do not collapse those into one vague subsystem.
 
-```text
-[Audio/Video File] -> Runtime transport + analysis -> Typed state -> Panels
-[Annotation Data]  -> Loader / validation       -> Overlay state -> Panels
-[Source Files]     -> Scripts / preprocess      -> JSON/artifacts
-```
+## Current UI Strata
 
-Panels are renderers. They receive typed state and draw. They do not own core transport logic.
+### Global chrome
 
-## Recommended Baseline
+Owns:
 
-| Layer | Tool | Replaceable? |
+- runtime profile pills
+- layout controls
+- style options
+
+It should stay sparse and operational.
+
+### Live Diagnostic chrome
+
+Owns:
+
+- primary playback controls
+- review actions
+- compact playback tuning
+
+It is the authoritative command deck for review and transport in the analytical workspace.
+
+### Session Console
+
+Owns:
+
+- media routing
+- preview
+- transport position summary
+- clip export
+- diagnostics access
+
+It should behave like a workbench, not a second dashboard.
+
+## Timeline Model
+
+The top-right overview stack is built around a two-tier timeline:
+
+- coarse session map for whole-duration navigation
+- detail window for focused waveform reading
+
+For streamed media, coarse and detail coverage are distinct readiness tracks. The session map may know more than the detail band. The detail band should never pretend it has data it does not actually have.
+
+Core files:
+
+- `app/src/panels/WaveformOverviewPanel.tsx`
+- `app/src/panels/waveformOverviewCoverage.ts`
+
+## Desktop Boundary
+
+The desktop layer should own:
+
+- file dialogs
+- ffmpeg and ffprobe access
+- temp files
+- export process management
+- reveal/open-folder behavior
+
+The React frontend should own:
+
+- intent
+- state
+- affordance
+- progress presentation
+
+That seam is deliberate and should stay clean.
+
+## Stable Building Blocks
+
+| Area | Building Block | Status |
 |---|---|---|
-| Frontend framework | React + TypeScript | Yes |
-| Build tool | Vite | Yes |
-| Desktop wrapper | Tauri | Yes |
-| Analysis runtime | Web Audio API + HTML media elements | Partially |
-| Rendering | Canvas 2D + disciplined DOM chrome | Yes |
-| Annotation preprocessing | Python + music21 | Yes |
-| Audio probing | FFmpeg | Yes |
-| State wiring | React context + focused stores | Yes |
+| session wiring | `app/src/core/session.ts` | stable |
+| transport runtime | `app/src/audio/engine.ts` | critical, change carefully |
+| layout shell | `app/src/layout/ConsoleLayout.tsx` | active but foundational |
+| pane geometry | `app/src/layout/SplitPane.tsx` | reusable and stable |
+| panel rendering | `app/src/panels/` | stable surface boundary |
+| theme constants | `app/src/theme/index.ts` | stable |
+| desktop host | `desktop/src-tauri/src/lib.rs` | active seam |
 
-## Key Technical Decisions
+## Known Architectural Tension
 
-### Canvas-first analysis panels
+These are the real pressure points right now:
 
-Hot-path panels render through Canvas 2D and controlled animation loops, not DOM-heavy animation.
+- fullscreen overview behavior on short streamed media still needs final hardening
+- the Session Console has improved a lot, but still needs continued density and hierarchy refinement
+- export is now functional, but the desktop job and source-path model still need polish
+- the repo still carries legacy naming despite broader product reality
 
-### Thin desktop integration
+## Direction for Excellence
 
-Tauri provides the host window and packaging. Core analysis behavior stays in the shared frontend.
+The next best architectural moves are:
 
-### Session-scoped ingest
-
-Loaded files belong to the active session. No persistent indexing or library model in v1.
-
-### Optional annotation pipeline
-
-Annotation support is first-class, but not required for a valid session. The runtime must remain useful on arbitrary media without any structural companion data.
-
-## File Ownership
-
-```text
-audio/          -> runtime transport and signal analysis
-score/          -> structural annotation loaders and related types
-panels/         -> rendering surfaces
-controls/       -> user interaction surfaces
-layout/         -> workspace shell and pane behavior
-theme/          -> visual constants
-types/          -> shared contracts
-diagnostics/    -> log and review infrastructure
-video/          -> video presentation state helpers
-scripts/        -> preprocessing tools
-data/processed/ -> sample or generated annotation outputs
-```
+1. keep control duplication low
+2. keep runtime truth single-sourced
+3. keep desktop seams explicit
+4. favor honest temporary fallbacks over fake certainty
+5. make every panel state strong enough for real screenshots and live demos

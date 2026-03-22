@@ -2,67 +2,90 @@
 
 ## Mission
 
-Build a system that lets one attentive user inspect arbitrary local audio or video through a coherent set of trustworthy interfaces in real time.
-
-The application must feel powerful during local development, hold up under live demonstration, produce screenshot-worthy states during ordinary use, support rigorous testing of panel behavior and transport workflows, and preserve a clean browser path alongside the desktop shell.
+Build a local-first scientific media instrument that lets one attentive user inspect arbitrary audio or video with trustworthy transport, clear diagnostics, and export paths that feel deliberate rather than fragile.
 
 ## Product Identity
 
-This is a scientific listening instrument and media analysis console.
+This product is a scientific listening instrument and media analysis console.
 
-The core is not a single file type or a single repertoire. The core is disciplined alignment between transport, diagnostics, and interpretation surfaces.
+It is not defined by one file type, one repertoire, or one panel. It is defined by disciplined alignment between:
+
+- transport
+- review
+- diagnostics
+- visual analysis
+- export
+
+## Current Product Reality
+
+The product has moved beyond its earlier alpha framing.
+
+Current accepted reality:
+
+- the repo is active
+- the desktop build matters
+- arbitrary local audio and video are first-class
+- the left pane is becoming a session workbench
+- the right pane is the analytical command surface
+- export is a real workflow, not a future placeholder
+- optional structural overlays remain supported, but they are not the product identity
 
 ## Invariants
 
-- The product is a scientific listening instrument.
-- The hero is the harmony of interfaces, not a single panel.
-- Beauty emerges from precision, composition, and trust in tools.
-- Large streamed media should use honest coarse representations rather than fake full-resolution certainty.
-- Signal analysis and optional structural annotation are separate domains.
-- No decorative mode should exist only to look impressive.
-- The default interface is presentation-safe during ordinary use.
-- Version 1 is desktop-first and session-based.
-- Media ingest is temporary by default.
-- General-purpose media workflows take priority over repertoire-specific assumptions.
+- The product is a scientific instrument before it is a media app.
+- Beauty must come from precision, hierarchy, and trustworthy behavior.
+- Streamed large-media views must be honest about uncertainty.
+- Global chrome should stay sparse and operational.
+- The default layout must be strong enough for daily use and live demonstration.
+- Desktop-first decisions are acceptable when they materially improve the real workflow.
+- The browser path should remain viable where it does not weaken the desktop product.
 
-## Version 1 Scope
+## Current v0.2 Focus
 
-### Included
+The active milestone is not "more features at any cost." It is refinement and hardening across four areas:
 
-- Local desktop execution via Tauri
-- Browser parity for the shared frontend
-- Temporary session audio and video ingest
-- Playback transport with timing readout, loop, and scrub
-- Zoomable timeline with a full-session map and focused detail window
-- One primary loop region with direct timeline adjustment
-- Windowed, theater, and in-app full-screen video presentation
-- Diagnostics log for review and support
-- Levels, waveform, pitch, oscilloscope, loudness, response, and spectrogram surfaces
-- Optional structural overlays when a project provides them
-- Four-quadrant desktop layout with persistent resize behavior
+1. Session Console clarity
+2. Live Diagnostic control density and readability
+3. Desktop clip export trustworthiness
+4. Honest large-media timeline behavior
 
-### Excluded from v1
+## Included
 
-- Persistent media library
-- Cloud sync, collaboration, or multi-user workflows
-- Mobile-first responsiveness
-- Full hosted deployment strategy
-- Automated export / report pipeline
-- Deep workspace preset system
-- Advanced comparison tooling beyond current session review
+- local desktop execution via Tauri
+- shared browser frontend
+- temporary session ingest for local audio and video
+- decoded and streamed playback backends
+- seek, loop, scrub, rate, and pitch control
+- docked, windowed, theater, and in-console fullscreen video modes
+- alternate audio and subtitle attachment for playback
+- review ranges and clip export workflow
+- diagnostics logging for review and support
+- four-quadrant layout with persistent pane resizing
 
-## Immediate Milestone
+## Explicitly Out of Scope for This Milestone
 
-Stabilize a robust single-session console for arbitrary local audio/video review, with optional aligned annotation workflows, presentation-safe desktop behavior, and a trustworthy timeline model for both decoded and streamed large media.
+- persistent media library
+- collaborative or cloud workflows
+- mobile-first UX
+- destructive editing timeline
+- multi-track editing
+- hosted analysis queue platform
+- consumer-media-player simplification
 
-## Audience
+## Quality Standard
 
-One attentive user at a time, primarily the project creator, with enough polish for live demonstration to another viewer without requiring a separate presentation mode.
+The product should feel:
+
+- operationally pragmatic like VLC
+- trustworthy and inspectable like Audacity
+- deliberate in export intent like HandBrake
+
+But it must still feel like one instrument with one visual and behavioral language.
 
 ## Change Policy
 
-- Implementation may change if it improves fidelity, clarity, maintainability, portability, or testability.
-- UX doctrine changes only if the user explicitly redefines it.
-- Data contracts evolve deliberately with migration awareness.
-- Legacy Bach-specific assets may remain temporarily, but they do not define the long-term product mission.
-- The mission is stable.
+- Implementation may change freely when it improves fidelity, clarity, maintainability, or trust.
+- Product doctrine changes only deliberately.
+- Data contracts evolve with migration awareness.
+- Legacy naming can remain temporarily, but it does not define the future product.
+- Small bugs should be fixed honestly, but the broader product direction should not be held hostage by them.

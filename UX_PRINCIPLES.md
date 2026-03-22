@@ -2,17 +2,70 @@
 
 ## Core Position
 
-The interface is scientific first. Beauty emerges from measurement fidelity, disciplined composition, stable typography, coherent motion, and trust in instruments. The user should feel they are operating a serious analysis console for living signal structure.
+The interface is scientific first.
+
+Beauty should emerge from:
+
+- measurement fidelity
+- disciplined composition
+- stable typography
+- explicit scales
+- trustworthy controls
+
+The user should feel they are operating a serious media instrument, not a polished toy.
 
 ## Hero Principle
 
 The hero is the harmony of interfaces.
 
-Waveform, spectrogram, levels, pitch, loudness, response, metadata, diagnostics, and optional overlays should reinforce one another. No panel is ornamental.
+No single panel is the product. The product is the way waveform, pitch, loudness, response, preview, diagnostics, transport, and export reinforce one another.
 
-## Measurement-First Rule
+## Clinical Density Rule
 
-Always prefer accurate scales, defensible smoothing, stable timing, explicit labeling, and disciplined layout over vague dramatic presentation. If a design choice improves appearance but weakens interpretability, reject it.
+Density is acceptable when it is structured.
+
+The UI should feel:
+
+- compact
+- intentional
+- repeatable
+- easy to scan
+
+It should never feel random, fluffy, or card-heavy without reason.
+
+## Command Strata
+
+Controls should live in the highest layer that makes sense.
+
+- Global chrome: runtime, layout, style
+- Live Diagnostic chrome: transport, review, tuning
+- Session Console: routing, preview, local session work
+- Panels: display and direct manipulation only when panel-local
+
+If a command can live one layer higher without becoming confusing, it usually should.
+
+## Session Console Rule
+
+The left pane is a workbench, not a second dashboard.
+
+It should prioritize:
+
+- media routing
+- preview
+- position awareness
+- export staging
+- diagnostics access
+
+It should not carry redundant versions of the same primary controls unless locality clearly justifies them.
+
+## Timeline Doctrine
+
+The timeline system must separate whole-session navigation from local inspection.
+
+- Session map may be coarse for streamed media.
+- Detail window is where focused waveform reading happens.
+- Review actions must be explicit and compact.
+- Streamed large-media timelines must never pretend to have decoded certainty they do not have.
 
 ## Screenshot Rule
 
@@ -20,38 +73,25 @@ Every normal operating state must be capable of producing a strong screenshot:
 
 - balanced panel proportions
 - stable typographic hierarchy
-- no throwaway debug styling in the main layout
-- graph surfaces that look complete during active playback
-- negative space used deliberately
-- visible telemetry that enhances credibility rather than cluttering the frame
+- complete-looking graph surfaces
+- useful telemetry
+- controlled negative space
 
-## Presentation Rule
+## Typography
 
-The default layout is already authoritative. No separate presentation skin. Transitions should feel stable and deliberate. Controls should remain understandable under observation.
+Typography should read like instrumentation, not marketing.
 
-## Layout
-
-The current four-quadrant desktop interface remains the baseline, with transport and context on the left and the denser analysis surfaces on the right.
-
-## Timeline Doctrine
-
-The top timeline system must separate whole-session navigation from local inspection.
-
-- The session map may be coarse on streamed large media, but it must always feel honest and useful.
-- The detail window is where focused waveform reading, looping, and precise scrubbing happen.
-- Zoom and loop controls should be explicit, compact, and readable at a glance.
-- A streamed large-media timeline must not pretend to have decoded certainty it does not actually possess.
-- Coarse learned regions and high-confidence played/decoded regions should be visually related, but not indistinguishable.
-
-## Overlays
-
-Structural overlays may add meaning, segmentation, or annotation. They must never reduce clarity of the diagnostic layer beneath.
+- category labels stay subdued
+- operational labels stay crisp
+- numbers must be legible first
+- long strings must truncate cleanly
+- wrapped titles should be intentional, not accidental
 
 ## Anti-Patterns
 
-- glossy media-player styling
-- nightclub visualizer aesthetics
-- giant decorative upload zones
-- gimmick animations without measurement purpose
-- hidden scales or ambiguous surfaces
-- fake drama added to compensate for weak composition
+- consumer media-player chrome
+- decorative upload drama
+- glossy visualizer aesthetics
+- unclear hierarchy
+- control duplication without purpose
+- fake certainty in streamed views
