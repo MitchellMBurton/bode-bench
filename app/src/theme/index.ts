@@ -94,7 +94,7 @@ export const SPACING = {
   panelPad: 12,
   labelPad: 6,
   chromeHeaderH: 28,   // px - height of each panel's section header strip
-  globalHeaderH: 38,   // px - global header bar height
+  globalHeaderH: 28,   // px - global header bar height
 } as const;
 
 export const CANVAS = {

@@ -108,13 +108,15 @@ const CHROME_HEADER_BG: Record<VisualMode, string | undefined> = {
 
 function ChromePanel({ category, title, titleMode = 'plain', headerAccessoryPlacement = 'stacked', stat, headerAccessory, help, content, visualMode, onFullscreen }: ChromePanelProps): React.ReactElement {
   const m = MODES[visualMode];
+  const trimmedTitle = title.trim();
   const segmentedTitle = titleMode === 'segmented'
-    ? title.split('/').map((segment) => segment.trim()).filter((segment) => segment.length > 0)
+    ? trimmedTitle.split('/').map((segment) => segment.trim()).filter((segment) => segment.length > 0)
     : null;
-  const hasTitle = segmentedTitle ? segmentedTitle.length > 0 : title.trim().length > 0;
+  const hasTitle = segmentedTitle ? segmentedTitle.length > 0 : trimmedTitle.length > 0;
+  const usesStackedPlainTitle = titleMode === 'plain' && trimmedTitle.length > 28;
   const labelGroup = (
-    <div style={chromeLabelGroupStyle}>
-      <span style={{ ...chromeCategoryStyle, color: m.category }}>{category}</span>
+    <div style={usesStackedPlainTitle ? chromeLabelGroupStackedStyle : chromeLabelGroupStyle}>
+      <span style={{ ...(usesStackedPlainTitle ? chromeCategoryStackedStyle : chromeCategoryStyle), color: m.category }}>{category}</span>
       {hasTitle && segmentedTitle ? (
         <div style={chromeSegmentedTitleStyle}>
           {segmentedTitle.map((segment, index) => (
@@ -125,7 +127,7 @@ function ChromePanel({ category, title, titleMode = 'plain', headerAccessoryPlac
           ))}
         </div>
       ) : hasTitle ? (
-        <span style={{ ...chromeTitleStyle, color: m.text }}>{title}</span>
+        <span style={{ ...(usesStackedPlainTitle ? chromeTitleStackedStyle : chromeTitleStyle), color: m.text }}>{trimmedTitle}</span>
       ) : null}
     </div>
   );
@@ -147,6 +149,8 @@ function ChromePanel({ category, title, titleMode = 'plain', headerAccessoryPlac
     ? headerAccessoryPlacement === 'inline'
       ? chromeHeaderInlineAccessoryStyle
       : chromeHeaderWithAccessoryStyle
+    : usesStackedPlainTitle
+      ? chromeHeaderPlainTitleStyle
     : chromeHeaderStyle;
 
   return (
@@ -413,10 +417,12 @@ export function ConsoleLayout({
       <div style={{ ...globalHeaderStyle, background: lt.headerBg, borderBottom: `1px solid ${m.chromeBorderActive}` }}>
         <div style={headerLeftStyle}>
           <span style={{ ...headerSuperStyle, color: m.category }}>SCIENTIFIC LISTENING INSTRUMENT</span>
+          <span style={{ ...headerDividerStyle, color: m.category }}>|</span>
           <span style={{ ...headerTitleStyle, color: m.text }}>MEDIA ANALYSIS CONSOLE</span>
         </div>
         <div style={headerRightStyle}>
           <span style={{ ...headerTagStyle, color: m.category }}>DESKTOP-FIRST / SESSION-BASED</span>
+          <span style={{ ...headerDividerStyle, color: m.category }}>|</span>
           <span style={{ ...headerTagStyle, color: m.category }}>v0.1 ALPHA</span>
         </div>
       </div>
@@ -480,7 +486,7 @@ export function ConsoleLayout({
       )}
 
       {/* Layout toolbar */}
-      <div style={{ ...toolbarStyle, background: lt.toolbarBg, borderBottom: `1px solid ${m.chromeBorder}` }}>
+      <div style={{ ...toolbarStyle, ...layoutToolbarStyle, background: lt.toolbarBg, borderBottom: `1px solid ${m.chromeBorder}` }}>
         <span style={{ ...toolbarLabelStyle, color: lt.toolbarText }}>LAYOUT PROFILE</span>
         <span style={{ ...toolbarValueStyle, color: lt.toolbarText }}>DEFAULT</span>
         <div style={{ ...toolbarDividerStyle, background: lt.dividerBg }} />
@@ -496,11 +502,10 @@ export function ConsoleLayout({
         >
           RESET LAYOUT
         </button>
+        <div style={{ ...toolbarDividerStyle, background: lt.dividerBg }} />
+        {optionRow}
         <div style={{ flex: 1 }} />
         <span style={{ ...toolbarLabelStyle, color: lt.toolbarText }}>DRAG DIVIDERS TO RESIZE</span>
-      </div>
-      <div style={{ ...toolbarStyle, ...optionsToolbarStyle, background: lt.toolbarBg, borderBottom: `1px solid ${m.chromeBorder}` }}>
-        {optionRow}
       </div>
 
       {/* Main panel area — all four dividers are draggable */}
@@ -598,8 +603,9 @@ const globalHeaderStyle: React.CSSProperties = {
 
 const headerLeftStyle: React.CSSProperties = {
   display: 'flex',
-  flexDirection: 'column',
-  gap: 1,
+  alignItems: 'baseline',
+  gap: 8,
+  minWidth: 0,
 };
 
 const headerSuperStyle: React.CSSProperties = {
@@ -612,18 +618,20 @@ const headerSuperStyle: React.CSSProperties = {
 
 const headerTitleStyle: React.CSSProperties = {
   fontFamily: FONTS.mono,
-  fontSize: FONTS.sizeLg,
+  fontSize: FONTS.sizeSm,
   color: COLORS.textTitle,
-  letterSpacing: '0.10em',
+  letterSpacing: '0.08em',
   textTransform: 'uppercase',
   fontWeight: FONTS.weightMedium,
+  lineHeight: 1,
 };
 
 const headerRightStyle: React.CSSProperties = {
   display: 'flex',
-  flexDirection: 'column',
-  alignItems: 'flex-end',
-  gap: 1,
+  alignItems: 'baseline',
+  justifyContent: 'flex-end',
+  gap: 8,
+  minWidth: 0,
 };
 
 const headerTagStyle: React.CSSProperties = {
@@ -631,10 +639,19 @@ const headerTagStyle: React.CSSProperties = {
   fontSize: FONTS.sizeXs,
   color: COLORS.textCategory,
   letterSpacing: '0.10em',
+  lineHeight: 1,
+};
+
+const headerDividerStyle: React.CSSProperties = {
+  fontFamily: FONTS.mono,
+  fontSize: FONTS.sizeXs,
+  letterSpacing: '0.12em',
+  lineHeight: 1,
 };
 
 const toolbarStyle: React.CSSProperties = {
-  height: TOOLBAR_H,
+  minHeight: TOOLBAR_H,
+  height: 'auto',
   flexShrink: 0,
   background: COLORS.bg0,
   display: 'flex',
@@ -644,7 +661,7 @@ const toolbarStyle: React.CSSProperties = {
   boxSizing: 'border-box',
 };
 
-const optionsToolbarStyle: React.CSSProperties = {
+const layoutToolbarStyle: React.CSSProperties = {
   minHeight: TOOLBAR_H,
   height: 'auto',
   paddingTop: 4,
@@ -873,6 +890,15 @@ const chromeHeaderStyle: React.CSSProperties = {
   boxSizing: 'border-box',
 };
 
+const chromeHeaderPlainTitleStyle: React.CSSProperties = {
+  ...chromeHeaderStyle,
+  height: 'auto',
+  minHeight: CHROME_H,
+  alignItems: 'flex-start',
+  paddingTop: 4,
+  paddingBottom: 4,
+};
+
 const chromeHeaderWithAccessoryStyle: React.CSSProperties = {
   ...chromeHeaderStyle,
   height: 'auto',
@@ -907,6 +933,16 @@ const chromeLabelGroupStyle: React.CSSProperties = {
   display: 'flex',
   alignItems: 'baseline',
   gap: 8,
+  flex: '1 1 auto',
+  minWidth: 0,
+  overflow: 'hidden',
+};
+
+const chromeLabelGroupStackedStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'flex-start',
+  gap: 2,
   flex: '1 1 auto',
   minWidth: 0,
   overflow: 'hidden',
@@ -952,6 +988,11 @@ const chromeCategoryStyle: React.CSSProperties = {
   flexShrink: 0,
 };
 
+const chromeCategoryStackedStyle: React.CSSProperties = {
+  ...chromeCategoryStyle,
+  lineHeight: 1.1,
+};
+
 const chromeTitleStyle: React.CSSProperties = {
   fontFamily: FONTS.mono,
   fontSize: FONTS.sizeSm,
@@ -960,6 +1001,17 @@ const chromeTitleStyle: React.CSSProperties = {
   textTransform: 'uppercase',
   lineHeight: 1.05,
   minWidth: 0,
+};
+
+const chromeTitleStackedStyle: React.CSSProperties = {
+  ...chromeTitleStyle,
+  display: '-webkit-box',
+  WebkitBoxOrient: 'vertical',
+  WebkitLineClamp: 2,
+  whiteSpace: 'normal',
+  overflow: 'hidden',
+  overflowWrap: 'anywhere',
+  lineHeight: 1.2,
 };
 
 const chromeSegmentedTitleStyle: React.CSSProperties = {

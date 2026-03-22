@@ -2,6 +2,7 @@ import { useCallback } from 'react';
 
 import { useAudioEngine, useDiagnosticsLog, useVisualMode } from '../core/session';
 import { COLORS, FONTS, MODES, SPACING } from '../theme';
+import type { RangeMark } from '../types';
 import { formatTransportTime } from '../utils/format';
 import { SessionControls } from './SessionControls';
 import { useReviewControlModel } from './useReviewControlModel';
@@ -26,6 +27,7 @@ export function OverviewTransportStrip(): React.ReactElement {
   const activeLabel = review.selectedRange
     ? `${review.selectedRange.label} ${formatTransportTime(review.selectedRange.startS)} -> ${formatTransportTime(review.selectedRange.endS)}`
     : 'NO RANGE';
+  const visibleRanges = review.rangeMarks.slice().reverse();
 
   const seekBy = useCallback((deltaS: number) => {
     if (!hasFile) return;
@@ -171,6 +173,66 @@ export function OverviewTransportStrip(): React.ReactElement {
           </div>
         </div>
       </div>
+
+      <div style={{ ...savedRangesSectionStyle, borderColor: m.chromeBorder }}>
+        <div style={savedRangesHeaderStyle}>
+          <span style={{ ...savedRangesLabelStyle, color: m.category }}>SAVED RANGES</span>
+          <span style={{ ...savedRangesMetaStyle, color: m.category }}>{review.rangeMarks.length} TOTAL</span>
+        </div>
+        {visibleRanges.length === 0 ? (
+          <div style={savedRangesEmptyStyle}>
+            <span style={{ ...savedRangesEmptyTextStyle, color: COLORS.textDim }}>
+              SAVE A RANGE WITH SET IN / SET OUT OR FROM LOOP.
+            </span>
+          </div>
+        ) : (
+          <div style={savedRangesListStyle}>
+            {visibleRanges.map((rangeMark: RangeMark) => {
+              const selected = review.selectedRangeId === rangeMark.id;
+              return (
+                <div
+                  key={rangeMark.id}
+                  style={{
+                    ...savedRangeRowStyle,
+                    borderColor: selected ? m.chromeBorderActive : m.chromeBorder,
+                    background: selected ? m.bg2 : 'transparent',
+                  }}
+                >
+                  <button
+                    type="button"
+                    style={savedRangeSelectStyle}
+                    onClick={() => review.selectRange(rangeMark.id)}
+                    title={`Select ${rangeMark.label}`}
+                  >
+                    <span style={{ ...savedRangeTitleStyle, color: selected ? m.text : m.category }}>{rangeMark.label}</span>
+                    <span style={{ ...savedRangeDetailStyle, color: selected ? m.text : COLORS.textDim }}>
+                      {formatTransportTime(rangeMark.startS)} {'->'} {formatTransportTime(rangeMark.endS)}
+                    </span>
+                  </button>
+                  <div style={savedRangeActionsStyle}>
+                    <button
+                      type="button"
+                      style={{ ...miniButtonStyle, color: m.text, borderColor: m.chromeBorder }}
+                      onClick={() => review.auditionRange(rangeMark)}
+                      title="Loop-audition this range"
+                    >
+                      AUDITION
+                    </button>
+                    <button
+                      type="button"
+                      style={{ ...miniButtonStyle, color: m.category, borderColor: m.chromeBorder }}
+                      onClick={() => review.deleteRange(rangeMark.id)}
+                      title="Delete this range"
+                    >
+                      X
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -188,6 +250,7 @@ const wrapStyle: React.CSSProperties = {
   borderStyle: 'solid',
   borderRadius: 2,
   boxSizing: 'border-box',
+  overflow: 'hidden',
 };
 
 const topRowStyle: React.CSSProperties = {
@@ -224,10 +287,127 @@ const bottomRowStyle: React.CSSProperties = {
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'space-between',
-  gap: 12,
+  gap: 10,
   flexWrap: 'wrap',
   minWidth: 0,
-  paddingTop: 6,
+  paddingTop: 4,
+};
+
+const savedRangesSectionStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 4,
+  marginTop: 4,
+  paddingTop: 4,
+  borderTopWidth: 1,
+  borderTopStyle: 'solid',
+  minWidth: 0,
+  minHeight: 0,
+};
+
+const savedRangesHeaderStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  gap: 8,
+  minHeight: 14,
+};
+
+const savedRangesLabelStyle: React.CSSProperties = {
+  fontFamily: FONTS.mono,
+  fontSize: 9,
+  letterSpacing: '0.12em',
+};
+
+const savedRangesMetaStyle: React.CSSProperties = {
+  fontFamily: FONTS.mono,
+  fontSize: 9,
+  letterSpacing: '0.06em',
+  whiteSpace: 'nowrap',
+};
+
+const savedRangesListStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 4,
+  maxHeight: 94,
+  overflowY: 'auto',
+  paddingRight: 2,
+};
+
+const savedRangeRowStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 6,
+  borderWidth: 1,
+  borderStyle: 'solid',
+  borderRadius: 2,
+  minHeight: 24,
+  padding: '2px 5px',
+};
+
+const savedRangeSelectStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'baseline',
+  gap: 8,
+  flex: 1,
+  minWidth: 0,
+  border: 'none',
+  background: 'transparent',
+  padding: 0,
+  textAlign: 'left',
+  cursor: 'pointer',
+};
+
+const savedRangeTitleStyle: React.CSSProperties = {
+  fontFamily: FONTS.mono,
+  fontSize: 10,
+  letterSpacing: '0.08em',
+  flexShrink: 0,
+};
+
+const savedRangeDetailStyle: React.CSSProperties = {
+  fontFamily: FONTS.mono,
+  fontSize: 9,
+  letterSpacing: '0.05em',
+  minWidth: 0,
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+};
+
+const savedRangeActionsStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 4,
+  flexShrink: 0,
+};
+
+const miniButtonStyle: React.CSSProperties = {
+  minWidth: 18,
+  height: 17,
+  padding: '0 4px',
+  borderWidth: 1,
+  borderStyle: 'solid',
+  borderRadius: 2,
+  fontFamily: FONTS.mono,
+  fontSize: 9,
+  letterSpacing: '0.06em',
+  background: 'transparent',
+  cursor: 'pointer',
+  boxSizing: 'border-box',
+};
+
+const savedRangesEmptyStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  minHeight: 26,
+};
+
+const savedRangesEmptyTextStyle: React.CSSProperties = {
+  fontFamily: FONTS.mono,
+  fontSize: 9,
+  letterSpacing: '0.05em',
 };
 
 const reviewActionRowStyle: React.CSSProperties = {
@@ -237,17 +417,17 @@ const reviewActionRowStyle: React.CSSProperties = {
   gap: SPACING.xs,
   flexWrap: 'wrap',
   minWidth: 0,
-  flex: '1 1 420px',
+  flex: '1 1 460px',
 };
 
 const metricRowStyle: React.CSSProperties = {
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'flex-start',
-  gap: 12,
+  gap: 10,
   flexWrap: 'wrap',
   minWidth: 0,
-  paddingLeft: 12,
+  paddingLeft: 10,
   borderLeftWidth: 1,
   borderLeftStyle: 'solid',
   flex: '0 1 auto',

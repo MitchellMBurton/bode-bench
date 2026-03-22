@@ -100,6 +100,7 @@ export default function App(): React.ReactElement {
   const panelTitle = fileTitle ?? 'NO SESSION';
   const visualDecoration = VISUAL_DECORATIONS[visualMode];
   const runtimeStatus = getRuntimeStatus(perfSnapshot);
+  const topRightPanels = panelsForColumn('top-right').filter(({ id }) => id !== 'wave-scroll' && id !== 'review');
 
   useEffect(() => {
     document.title = fileTitle ? `${fileTitle} - ${PRODUCT_NAME}` : PRODUCT_NAME;
@@ -176,10 +177,10 @@ export default function App(): React.ReactElement {
         }}
         topRight={{
           category: 'LIVE DIAGNOSTIC',
-          title: 'REVIEW / OVERVIEW / WAVEFORM / PITCH / OSC / RESPONSE',
+          title: 'REVIEW / OVERVIEW / PITCH / OSC / RESPONSE',
           headerAccessoryPlacement: 'stacked',
           headerAccessory: <OverviewTransportStrip />,
-          help: 'LIVE DIAGNOSTIC SURFACES\n\nREVIEW — Editorial range staging. SET IN captures a persistent in-point, SET OUT commits a range, and FROM LOOP promotes the audible loop to a persistent review range. Loop remains audible context; ranges stay available for clip, compare, and repair work.\n\nOVERVIEW — Full-file waveform envelope. Drag the view window to zoom; drag loop handles to set loop region. Session map fills in progressively for large files. Range overlays remain visible on the session map and detail waveform.\n\nWAVEFORM — Scrolling amplitude tape. Hover to read ±amplitude and dBFS at any height.\n\nF0 TRACK — Pitch history (60–900 Hz, log scale). Newest data scrolls from right. Hover to read note name and cents deviation.\n\nOSCILLOSCOPE — Triggered waveform cycle. Shows signal morphology at playback rate.\n\nFREQ RESPONSE — Smoothed L/R frequency curves (20 Hz–20 kHz). Hover for exact Hz + dB. Dim labels above show band boundaries.',
+          help: 'LIVE DIAGNOSTIC SURFACES\n\nREVIEW — Editorial range staging now lives in the chrome shelf above OVERVIEW. SET IN captures a persistent in-point, SET OUT commits a range, FROM LOOP promotes the audible loop to a persistent review range, and saved ranges stay visible inline for clip, compare, and repair work.\n\nOVERVIEW — Full-file waveform envelope plus detail waveform view. Drag the view window to zoom; drag loop handles to set loop region. Session map fills in progressively for large files. Range overlays remain visible on the session map and detail waveform.\n\nF0 TRACK — Pitch history (60–900 Hz, log scale). Hover to read note name and cents deviation.\n\nOSCILLOSCOPE — Triggered waveform cycle. Shows signal morphology at playback rate.\n\nOSC SCROLL — Scrolling oscilloscope history for time-domain motion and density.\n\nFREQ RESPONSE — Smoothed L/R frequency curves (20 Hz–20 kHz). Hover for exact Hz + dB. Dim labels above show band boundaries.',
           content: (
             <TheaterPanelShell
               active={theaterMode}
@@ -189,12 +190,12 @@ export default function App(): React.ReactElement {
             >
               <SplitPane
                 direction="column"
-                initialSizes={[2, 35, 20, 7, 7, 7, 22]}
-                minSizePx={[36, 104, 72, 52, 52, 52, 64]}
+                initialSizes={[54, 8, 8, 8, 22]}
+                minSizePx={[180, 52, 52, 52, 64]}
                 resetToken={layoutResetToken}
                 persistKey="console:top-right-stack"
               >
-                {panelsForColumn('top-right').map(({ id, component: Panel }) =>
+                {topRightPanels.map(({ id, component: Panel }) =>
                   id === 'overview'
                     ? <WaveformOverviewPanel key={id} markers={markers} rangeMarks={rangeMarks} pendingRangeStartS={pendingRangeStartS} selectedRangeId={selectedRangeId} onDeleteMarker={(id) => derivedMedia.deleteMarker(id)} onClearMarkers={() => derivedMedia.clearMarkers()} onClearRanges={() => derivedMedia.clearRanges()} onSelectRange={(id) => derivedMedia.selectRange(id)} />
                     : <Panel key={id} />

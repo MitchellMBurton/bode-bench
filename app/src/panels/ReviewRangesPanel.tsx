@@ -155,9 +155,9 @@ export function ReviewRangesPanel(): React.ReactElement {
 const wrapStyle: React.CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
-  gap: 4,
+  gap: 2,
   height: '100%',
-  padding: `4px ${SPACING.sm}px`,
+  padding: `2px ${SPACING.sm}px`,
   borderWidth: 1,
   borderStyle: 'solid',
   boxSizing: 'border-box',
@@ -172,21 +172,26 @@ const metricLabelStyle: React.CSSProperties = {
 const rangeListStyle: React.CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
-  gap: 5,
+  gap: 3,
   minHeight: 0,
+  flex: 1,
+  overflowY: 'auto',
+  paddingRight: 2,
 };
 
 const rangeListHeaderStyle: React.CSSProperties = {
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'space-between',
-  gap: SPACING.sm,
+  gap: 6,
+  minHeight: 18,
+  flexShrink: 0,
 };
 
 const rangeListMetaStyle: React.CSSProperties = {
   display: 'flex',
   alignItems: 'center',
-  gap: 8,
+  gap: 6,
   flexWrap: 'wrap',
   justifyContent: 'flex-end',
 };
@@ -194,24 +199,26 @@ const rangeListMetaStyle: React.CSSProperties = {
 const listHintStyle: React.CSSProperties = {
   fontFamily: FONTS.mono,
   fontSize: 9,
-  letterSpacing: '0.08em',
+  letterSpacing: '0.06em',
   textTransform: 'uppercase',
 };
 
 const rangeRowStyle: React.CSSProperties = {
   display: 'flex',
-  alignItems: 'stretch',
-  gap: 8,
+  alignItems: 'center',
+  gap: 6,
   borderWidth: 1,
   borderStyle: 'solid',
   borderRadius: 2,
-  padding: 6,
+  padding: '3px 6px',
+  minHeight: 26,
+  flexShrink: 0,
 };
 
 const rangeSelectButtonStyle: React.CSSProperties = {
   display: 'flex',
-  flexDirection: 'column',
-  gap: 4,
+  alignItems: 'baseline',
+  gap: 8,
   flex: 1,
   minWidth: 0,
   border: 'none',
@@ -225,20 +232,26 @@ const rangeTitleStyle: React.CSSProperties = {
   fontFamily: FONTS.mono,
   fontSize: 10,
   letterSpacing: '0.08em',
+  flexShrink: 0,
 };
 
 const rangeDetailStyle: React.CSSProperties = {
   fontFamily: FONTS.mono,
   fontSize: 9,
   letterSpacing: '0.05em',
-  lineHeight: 1.45,
+  lineHeight: 1.2,
+  minWidth: 0,
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
 };
 
 const rangeButtonRowStyle: React.CSSProperties = {
   display: 'flex',
   flexWrap: 'wrap',
-  gap: 6,
+  gap: 4,
   alignItems: 'center',
+  flexShrink: 0,
 };
 
 const miniButtonStyle: React.CSSProperties = {
@@ -248,7 +261,7 @@ const miniButtonStyle: React.CSSProperties = {
   background: 'transparent',
   borderWidth: 1,
   borderStyle: 'solid',
-  padding: '3px 6px',
+  padding: '2px 5px',
   cursor: 'pointer',
 };
 
