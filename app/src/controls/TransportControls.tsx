@@ -28,6 +28,8 @@ import { parseSubtitleFile, type SubtitleCue, type SubtitleFormat } from '../run
 import { CANVAS, COLORS, FONTS, SPACING } from '../theme';
 import type { VisualMode } from '../audio/displayMode';
 import type { TransportState } from '../types';
+import { ReviewGlyph } from './reviewChrome';
+import { getReviewButtonTone, type ReviewButtonIntent, type ReviewGlyphName } from './reviewChromeShared';
 
 interface TransportTheme {
   btnBg: string;
@@ -511,6 +513,19 @@ export function TransportControls({
   const displayMode = useDisplayMode();
   const visualMode = displayMode.mode;
   const tt = TRANSPORT_THEMES[visualMode];
+  const renderTransportButtonLabel = (
+    glyph: ReviewGlyphName,
+    label: string,
+    intent: ReviewButtonIntent,
+  ): React.ReactElement => {
+    const tone = getReviewButtonTone(visualMode, intent);
+    return (
+      <span style={previewTransportButtonContentStyle}>
+        <ReviewGlyph name={glyph} color={tone.icon} size={11} />
+        <span>{label}</span>
+      </span>
+    );
+  };
   const [transport, setTransport] = useState<TransportState>({
     isPlaying: false,
     currentTime: 0,
@@ -1813,8 +1828,7 @@ export function TransportControls({
         </div>
 
         <div style={topStatusGridStyle}>
-          <div style={{ ...topStatusCellStyle, borderColor: tt.btnBorder, background: tt.panelBg, flex: '1 1 168px' }}>
-            <span style={{ ...topStatusLabelStyle, color: tt.panelLabel }}>MEDIA</span>
+          <div style={{ ...topStatusCellStyle, alignItems: 'center', borderColor: tt.btnBorder, background: tt.panelBg, flex: '1 1 188px' }}>
             <span style={{ ...topStatusValueStyle, color: sessionFilename ? tt.btnColor : tt.mutedText }}>
               {sessionFilename ?? 'NONE'}
             </span>
@@ -2014,13 +2028,13 @@ export function TransportControls({
                 onClick={() => audioEngine.stop()}
                 title="Stop and return to start"
               >
-                STOP
+                {renderTransportButtonLabel('stop', 'STOP', 'stop')}
               </button>
               <button
                 style={{
                   ...previewTransportButtonStyle,
-                  background: transport.isPlaying ? tt.panelBg : tt.btnBg,
-                    borderColor: transport.isPlaying ? tt.btnActiveBorder : tt.btnBorder,
+                  background: transport.isPlaying ? getReviewButtonTone(visualMode, 'pause').activeBackground : tt.btnBg,
+                  borderColor: transport.isPlaying ? getReviewButtonTone(visualMode, 'pause').activeBorder : tt.btnBorder,
                   color: tt.btnColor,
                 }}
                 onClick={() => {
@@ -2032,13 +2046,15 @@ export function TransportControls({
                 }}
                 title={transport.isPlaying ? 'Pause playback' : 'Play'}
               >
-                {transport.isPlaying ? 'PAUSE' : 'PLAY'}
+                {transport.isPlaying
+                  ? renderTransportButtonLabel('pause', 'PAUSE', 'pause')
+                  : renderTransportButtonLabel('play', 'PLAY', 'play')}
               </button>
               <button
                 style={{
                   ...previewTransportButtonStyle,
-                  background: transport.loopStart !== null && transport.loopEnd !== null ? tt.panelBg : tt.btnBg,
-                    borderColor: transport.loopStart !== null && transport.loopEnd !== null ? tt.btnActiveBorder : tt.btnBorder,
+                  background: transport.loopStart !== null && transport.loopEnd !== null ? getReviewButtonTone(visualMode, 'loop').activeBackground : tt.btnBg,
+                  borderColor: transport.loopStart !== null && transport.loopEnd !== null ? getReviewButtonTone(visualMode, 'loop').activeBorder : tt.btnBorder,
                   color: tt.btnColor,
                 }}
                 onClick={() => {
@@ -2057,7 +2073,7 @@ export function TransportControls({
                     : 'Loop the full file'
                 }
               >
-                LOOP
+                {renderTransportButtonLabel('loop', 'LOOP', 'loop')}
               </button>
             </div>
             <div
@@ -2330,6 +2346,9 @@ const previewTransportBarStyle: React.CSSProperties = {
 };
 
 const previewTransportButtonStyle: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
   minWidth: 42,
   height: 20,
   padding: '0 6px',
@@ -2342,6 +2361,15 @@ const previewTransportButtonStyle: React.CSSProperties = {
   cursor: 'pointer',
   outline: 'none',
   boxSizing: 'border-box',
+  whiteSpace: 'nowrap',
+};
+
+const previewTransportButtonContentStyle: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  gap: 5,
+  whiteSpace: 'nowrap',
 };
 
 const loadNoticeWarnStyle: React.CSSProperties = {

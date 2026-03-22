@@ -1,23 +1,22 @@
 // ============================================================
-// LoudnessHistoryPanel — rolling short-term RMS history.
-// Newest data at right, sub-frame interpolation for smooth
-// 60fps scroll from 20fps analysis data. Matches spectrogram
-// scroll speed at CANVAS.timelineScrollPx × scrollSpeed.value.
+// LoudnessHistoryPanel - rolling short-term RMS history.
+// Newest data sits at the right edge and the trace uses the
+// shared Spectral Anatomy session history so fullscreen views
+// do not reset.
 // ============================================================
 
 import { useCallback, useEffect, useRef } from 'react';
-import { useAudioEngine, useDisplayMode, useFrameBus, useScrollSpeed, useTheaterMode } from '../core/session';
+import { useDisplayMode, useSpectralAnatomyStore, useTheaterMode } from '../core/session';
 import { COLORS, FONTS, SPACING, CANVAS } from '../theme';
 import { shouldSkipFrame } from '../utils/rafGuard';
 import { useMeasurementCursor, type CursorMapFn } from './useMeasurementCursor';
 
 const PANEL_DPR_MAX = 1.25;
-const HISTORY_MAX = 1200;
 const BASE_PX_PER_FRAME = CANVAS.timelineScrollPx;
 const PAD_V_PX = 8;
 const DB_MIN = -54;
 const DB_MAX = 0;
-const MS_PER_DATA_FRAME = 1000 / 20; // 20 FPS analysis rate
+const MS_PER_DATA_FRAME = 1000 / 20;
 const NGE_TRACE = '#a0d840';
 const NGE_LABEL = 'rgba(140,210,40,0.5)';
 const NGE_TEXT = 'rgba(140,210,40,0.72)';
@@ -36,28 +35,19 @@ const EVA_TEXT = CANVAS.eva.text;
 
 const REF_LINES: [number, string][] = [[-6, '-6'], [-18, '-18'], [-36, '-36']];
 
-function rmsToDb(rms: number): number {
-  return rms > 0 ? Math.max(DB_MIN, 20 * Math.log10(rms)) : DB_MIN;
-}
-
 function dbToY(db: number, H: number, padV: number): number {
   const t = (db - DB_MAX) / (DB_MIN - DB_MAX);
   return padV + (H - padV * 2) * t;
 }
 
 export function LoudnessHistoryPanel(): React.ReactElement {
-  const frameBus = useFrameBus();
-  const audioEngine = useAudioEngine();
   const displayMode = useDisplayMode();
-  const scrollSpeed = useScrollSpeed();
+  const spectralAnatomy = useSpectralAnatomyStore();
   const theaterMode = useTheaterMode();
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  // Circular buffer — avoids O(n) Array.shift() on every frame
-  const histBufRef = useRef(new Float64Array(HISTORY_MAX));
-  const histPtrRef = useRef(0); // total writes
-  const histLenRef = useRef(0); // current count, capped at HISTORY_MAX
   const hoverReadoutRef = useRef<HTMLDivElement>(null);
   const drawDimRef = useRef({ H: 0, padV: 0 });
+  const rafRef = useRef<number | null>(null);
 
   const mapToValues: CursorMapFn = useCallback((devX: number, devY: number) => {
     const { H, padV } = drawDimRef.current;
@@ -66,7 +56,8 @@ export function LoudnessHistoryPanel(): React.ReactElement {
     const t = (devY - padV) / (H - padV * 2);
     const db = DB_MAX + t * (DB_MIN - DB_MAX);
     return {
-      devX, devY,
+      devX,
+      devY,
       primary: db,
       primaryLabel: `${db.toFixed(1)} dBFS`,
       secondary: 0,
@@ -75,42 +66,20 @@ export function LoudnessHistoryPanel(): React.ReactElement {
   }, []);
 
   const { overlayRef, handleMouseMove, handleMouseLeave, handleClick } = useMeasurementCursor({
-    canvasRef, readoutRef: hoverReadoutRef, mapToValues, visualMode: displayMode.mode,
+    canvasRef,
+    readoutRef: hoverReadoutRef,
+    mapToValues,
+    visualMode: displayMode.mode,
   });
-  const lastFileIdRef = useRef(-1);
-  const rafRef = useRef<number | null>(null);
-  const lastDataTimeRef = useRef(0);
-
-  useEffect(() => frameBus.subscribe((frame) => {
-    if (frame.fileId !== lastFileIdRef.current) {
-      lastFileIdRef.current = frame.fileId;
-      histBufRef.current.fill(0);
-      histPtrRef.current = 0;
-      histLenRef.current = 0;
-    }
-    const rms = Math.max(frame.rmsLeft, frame.rmsRight);
-    histBufRef.current[histPtrRef.current % HISTORY_MAX] = rmsToDb(rms);
-    histPtrRef.current++;
-    histLenRef.current = Math.min(histLenRef.current + 1, HISTORY_MAX);
-    lastDataTimeRef.current = performance.now();
-  }), [frameBus]);
-
-  useEffect(() => audioEngine.onReset(() => {
-    histBufRef.current.fill(0);
-    histPtrRef.current = 0;
-    histLenRef.current = 0;
-    lastFileIdRef.current = -1;
-    lastDataTimeRef.current = performance.now();
-  }), [audioEngine]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ro = new ResizeObserver((entries) => {
-      for (const e of entries) {
+      for (const entry of entries) {
         const dpr = Math.min(devicePixelRatio, PANEL_DPR_MAX);
-        canvas.width = Math.round(e.contentRect.width * dpr);
-        canvas.height = Math.round(e.contentRect.height * dpr);
+        canvas.width = Math.round(entry.contentRect.width * dpr);
+        canvas.height = Math.round(entry.contentRect.height * dpr);
       }
     });
     ro.observe(canvas);
@@ -145,11 +114,9 @@ export function LoudnessHistoryPanel(): React.ReactElement {
       ctx.fillStyle = hyper ? CANVAS.hyper.bg2 : optic ? CANVAS.optic.bg2 : red ? CANVAS.red.bg2 : eva ? CANVAS.eva.bg : COLORS.bg1;
       ctx.fillRect(0, 0, W, H);
 
-      // Top border
       ctx.fillStyle = hyper ? 'rgba(32,52,110,0.92)' : optic ? 'rgba(159,199,223,0.84)' : red ? 'rgba(124,40,39,0.84)' : eva ? 'rgba(74,26,144,0.92)' : COLORS.border;
       ctx.fillRect(0, 0, W, 1);
 
-      // Reference lines — labels on right
       ctx.setLineDash([3 * dpr, 4 * dpr]);
       for (const [db, label] of REF_LINES) {
         const y = Math.round(dbToY(db, H, padV)) + 0.5;
@@ -157,7 +124,10 @@ export function LoudnessHistoryPanel(): React.ReactElement {
           ? (hyper ? 'rgba(88,124,255,0.72)' : optic ? 'rgba(123,182,212,0.76)' : red ? 'rgba(156,52,46,0.72)' : eva ? 'rgba(120,50,200,0.72)' : 'rgba(50,50,72,1)')
           : (hyper ? 'rgba(28,42,88,0.92)' : optic ? 'rgba(191,218,233,0.92)' : red ? 'rgba(64,16,18,0.92)' : eva ? 'rgba(40,16,80,0.92)' : 'rgba(32,32,48,1)');
         ctx.lineWidth = 1;
-        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(W, y);
+        ctx.stroke();
         ctx.font = `${6.5 * dpr}px ${FONTS.mono}`;
         ctx.fillStyle = hyper ? HYPER_LABEL : optic ? OPTIC_LABEL : red ? RED_LABEL : eva ? EVA_LABEL : 'rgba(80,80,110,1)';
         ctx.textAlign = 'right';
@@ -166,30 +136,31 @@ export function LoudnessHistoryPanel(): React.ReactElement {
       }
       ctx.setLineDash([]);
 
-      // Sub-frame interpolation: continuously scroll left between data frames
-      const pxPerFrame = BASE_PX_PER_FRAME * scrollSpeed.value * dpr;
-      const elapsed = performance.now() - lastDataTimeRef.current;
+      const latestAdvanceDev = Math.max(1, Math.max(BASE_PX_PER_FRAME, spectralAnatomy.latestAdvanceCssPx) * dpr);
+      const elapsed = performance.now() - spectralAnatomy.latestFrameAtMs;
       const subProg = Math.min(1, elapsed / MS_PER_DATA_FRAME);
-      const subOffset = -subProg * pxPerFrame;
+      const subOffset = -subProg * latestAdvanceDev;
 
-      // History — newest at right, scrolling left smoothly
-      const hBuf = histBufRef.current;
-      const hLen = histLenRef.current;
-      const hPtr = histPtrRef.current;
+      const rmsHistory = spectralAnatomy.rmsHistory;
+      const advanceHistory = spectralAnatomy.advanceHistory;
+      const historyLen = spectralAnatomy.len;
+      const historyPtr = spectralAnatomy.ptr;
+      const capacity = rmsHistory.length;
 
-      if (hLen > 1) {
-        // Collect visible points
-        const points: [number, number][] = [];
-        for (let i = 0; i < hLen; i++) {
-          const x = W - (hLen - 1 - i) * pxPerFrame + subOffset;
-          if (x < -pxPerFrame) continue;
-          if (x > W + pxPerFrame) continue;
-          const y = dbToY(hBuf[(hPtr - hLen + i + HISTORY_MAX) % HISTORY_MAX], H, padV);
-          points.push([Math.max(0, Math.min(W, x)), y]);
+      if (historyLen > 1) {
+        const reversedPoints: [number, number][] = [];
+        let offsetDev = 0;
+
+        for (let step = 0; step < historyLen; step++) {
+          const index = (historyPtr - 1 - step + capacity) % capacity;
+          const x = W - offsetDev + subOffset;
+          if (x < -latestAdvanceDev) break;
+          reversedPoints.push([Math.max(0, Math.min(W, x)), dbToY(rmsHistory[index], H, padV)]);
+          offsetDev += Math.max(0, advanceHistory[index]) * dpr;
         }
 
+        const points = reversedPoints.reverse();
         if (points.length > 1) {
-          // Filled area under curve
           ctx.beginPath();
           ctx.moveTo(points[0][0], baseY);
           for (const [x, y] of points) ctx.lineTo(x, y);
@@ -201,7 +172,6 @@ export function LoudnessHistoryPanel(): React.ReactElement {
           ctx.fillStyle = fillGrad;
           ctx.fill();
 
-          // Line on top
           ctx.beginPath();
           ctx.moveTo(points[0][0], points[0][1]);
           for (let i = 1; i < points.length; i++) ctx.lineTo(points[i][0], points[i][1]);
@@ -210,34 +180,32 @@ export function LoudnessHistoryPanel(): React.ReactElement {
           ctx.lineJoin = 'round';
           ctx.stroke();
 
-          // Head dot
           const last = points[points.length - 1];
           ctx.beginPath();
           ctx.arc(last[0], last[1], 2.5 * dpr, 0, Math.PI * 2);
           ctx.fillStyle = traceColor;
           ctx.fill();
         }
-      } else if (hLen === 0) {
-        // Empty state: flat dim line
+      } else if (historyLen === 0) {
         const y = Math.round(dbToY(-40, H, padV)) + 0.5;
         ctx.strokeStyle = hyper ? 'rgba(24,34,70,1)' : optic ? 'rgba(202,222,234,0.92)' : red ? 'rgba(34,10,11,0.92)' : eva ? 'rgba(22,12,48,1)' : COLORS.bg3;
         ctx.lineWidth = 1;
-        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(W, y);
+        ctx.stroke();
       }
 
-      // Current level readout
-      const db = hLen > 0 ? hBuf[(hPtr - 1 + HISTORY_MAX) % HISTORY_MAX] : DB_MIN;
-      const hasSignal = db > DB_MIN + 2;
-      if (hasSignal) {
-        const col = db > -6 ? COLORS.statusErr : db > -18 ? traceColor : textColor;
+      const db = historyLen > 0 ? rmsHistory[(historyPtr - 1 + capacity) % capacity] : DB_MIN;
+      if (db > DB_MIN + 2) {
+        const readoutColor = db > -6 ? COLORS.statusErr : db > -18 ? traceColor : textColor;
         ctx.font = `${10 * dpr}px ${FONTS.mono}`;
-        ctx.fillStyle = col;
+        ctx.fillStyle = readoutColor;
         ctx.textAlign = 'left';
         ctx.textBaseline = 'top';
         ctx.fillText(`${db.toFixed(1)} dB`, SPACING.sm * dpr, SPACING.xs * dpr);
       }
 
-      // Panel label
       ctx.font = `${7 * dpr}px ${FONTS.mono}`;
       ctx.fillStyle = labelColor;
       ctx.textAlign = 'left';
@@ -246,8 +214,10 @@ export function LoudnessHistoryPanel(): React.ReactElement {
     };
 
     rafRef.current = requestAnimationFrame(draw);
-    return () => { if (rafRef.current !== null) cancelAnimationFrame(rafRef.current); };
-  }, [displayMode, scrollSpeed, theaterMode]);
+    return () => {
+      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
+    };
+  }, [displayMode, spectralAnatomy, theaterMode]);
 
   return (
     <div style={panelStyle}>
@@ -286,8 +256,3 @@ const overlayStyle: React.CSSProperties = {
   height: '100%',
   pointerEvents: 'none',
 };
-
-
-
-
-

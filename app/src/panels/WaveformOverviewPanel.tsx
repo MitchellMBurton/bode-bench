@@ -5,6 +5,7 @@ import { CANVAS, COLORS, FONTS, SPACING } from '../theme';
 import { shouldSkipFrame } from '../utils/rafGuard';
 import type { FileAnalysis, Marker, RangeMark, ScrubStyle, TransportState } from '../types';
 import { formatTransportTime } from '../utils/format';
+import { drawCanvasRangeChip } from '../controls/reviewChromeShared';
 import {
   buildDetailScoutTargets,
   chooseDetailRenderMode,
@@ -1994,21 +1995,17 @@ export function WaveformOverviewPanel({
             if (visibleEnd) drawRangeHandle(rangeMark.endS);
           }
 
-          if (rangeWidth >= 34 * dpr) {
-            ctx.font = `${6.5 * dpr}px ${FONTS.mono}`;
-            const textWidth = ctx.measureText(rangeMark.label).width;
-            const pad = 2 * dpr;
-            const badgeWidth = textWidth + pad * 2;
-            const badgeHeight = 8.5 * dpr;
-            const badgeX = Math.min(x1 + 2 * dpr, rect.x + rect.w - badgeWidth - dpr);
-            const badgeY = rect.y + rect.h - badgeHeight - 2 * dpr;
-            ctx.fillStyle = isSelected ? (optic ? 'rgba(231,242,249,0.98)' : 'rgba(16,20,34,0.88)') : rangeLabelBg;
-            ctx.fillRect(badgeX, badgeY, badgeWidth, badgeHeight);
-            ctx.fillStyle = isSelected ? selectedRangeStroke : rangeLabelColor;
-            ctx.textAlign = 'left';
-            ctx.textBaseline = 'top';
-            ctx.fillText(rangeMark.label, badgeX + pad, badgeY + dpr);
-          }
+          const badgeY = rect.y + rect.h - 14.5 * dpr;
+          drawCanvasRangeChip(ctx, {
+            label: rangeMark.label,
+            x: x1 + 1.5 * dpr,
+            y: badgeY,
+            dpr,
+            visualMode: displayMode.mode,
+            selected: isSelected,
+            minX: rect.x + dpr,
+            maxX: rect.x + rect.w - dpr,
+          });
         }
 
         if (pendingStart !== null && pendingStart >= start - 0.001 && pendingStart <= end + 0.001) {

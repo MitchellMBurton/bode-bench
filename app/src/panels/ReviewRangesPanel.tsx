@@ -4,6 +4,7 @@ import { CANVAS, COLORS, FONTS, SPACING } from '../theme';
 import type { RangeMark } from '../types';
 import { formatTransportTime } from '../utils/format';
 import { useReviewControlModel } from '../controls/useReviewControlModel';
+import { RangeChip } from '../controls/reviewChrome';
 
 interface ReviewTheme {
   readonly panelBg: string;
@@ -112,7 +113,7 @@ export function ReviewRangesPanel(): React.ReactElement {
                   title={`Select ${rangeMark.label} for audition and export`}
                   data-shell-interactive="true"
                 >
-                  <span style={{ ...rangeTitleStyle, color: selected ? theme.text : theme.dim }}>{rangeMark.label}</span>
+                  <RangeChip label={rangeMark.label} visualMode={visualMode} selected={selected} />
                   <span style={{ ...rangeDetailStyle, color: selected ? theme.text : theme.dim }}>
                     {formatTransportTime(rangeMark.startS)} {'->'} {formatTransportTime(rangeMark.endS)}
                   </span>
@@ -217,7 +218,7 @@ const rangeRowStyle: React.CSSProperties = {
 
 const rangeSelectButtonStyle: React.CSSProperties = {
   display: 'flex',
-  alignItems: 'baseline',
+  alignItems: 'center',
   gap: 8,
   flex: 1,
   minWidth: 0,
@@ -226,13 +227,6 @@ const rangeSelectButtonStyle: React.CSSProperties = {
   padding: 0,
   textAlign: 'left',
   cursor: 'pointer',
-};
-
-const rangeTitleStyle: React.CSSProperties = {
-  fontFamily: FONTS.mono,
-  fontSize: 10,
-  letterSpacing: '0.08em',
-  flexShrink: 0,
 };
 
 const rangeDetailStyle: React.CSSProperties = {

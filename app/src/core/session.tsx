@@ -9,6 +9,7 @@ import { ScrollSpeedStore } from '../audio/scrollSpeed';
 import { DiagnosticsLogStore, PerformanceDiagnosticsStore } from '../diagnostics/logStore';
 import { DerivedMediaStore, type DerivedMediaSnapshot } from '../runtime/derivedMedia';
 import { PerformanceProfileStore, type PerformanceProfileSnapshot } from '../runtime/performanceProfile';
+import { SpectralAnatomyStore } from '../runtime/spectralAnatomy';
 import { VideoSyncController } from '../runtime/videoSyncController';
 import { TheaterModeStore } from '../video/theaterMode';
 import type { AnalysisConfig, Marker, MediaJobRecord, RangeMark } from '../types';
@@ -22,6 +23,7 @@ export interface AppSession {
   derivedMedia: DerivedMediaStore;
   performanceDiagnostics: PerformanceDiagnosticsStore;
   performanceProfile: PerformanceProfileStore;
+  spectralAnatomy: SpectralAnatomyStore;
   videoSyncController: VideoSyncController;
   theaterMode: TheaterModeStore;
   analysisConfig: AnalysisConfigStore;
@@ -39,11 +41,13 @@ export function createAppSession(): AppSession {
   const diagnosticsLog = new DiagnosticsLogStore();
   const performanceDiagnostics = new PerformanceDiagnosticsStore();
   const performanceProfile = new PerformanceProfileStore();
+  const scrollSpeed = new ScrollSpeedStore();
   const theaterMode = new TheaterModeStore();
   const analysisConfig = new AnalysisConfigStore();
   diagnosticsLog.attachGlobalCapture();
 
   const audioEngine = new AudioEngine(frameBus, performanceDiagnostics);
+  const spectralAnatomy = new SpectralAnatomyStore(frameBus, audioEngine, scrollSpeed);
 
   // Propagate analysis config changes to the engine's analyser nodes.
   analysisConfig.subscribe(() => {
@@ -54,11 +58,12 @@ export function createAppSession(): AppSession {
     frameBus,
     audioEngine,
     displayMode: new DisplayModeStore(),
-    scrollSpeed: new ScrollSpeedStore(),
+    scrollSpeed,
     diagnosticsLog,
     derivedMedia: new DerivedMediaStore(),
     performanceDiagnostics,
     performanceProfile,
+    spectralAnatomy,
     videoSyncController: new VideoSyncController(),
     theaterMode,
     analysisConfig,
@@ -166,6 +171,10 @@ export function usePerformanceProfile(): PerformanceProfileSnapshot {
     performanceProfile.getSnapshot,
     performanceProfile.getSnapshot,
   );
+}
+
+export function useSpectralAnatomyStore(): SpectralAnatomyStore {
+  return useAppSession().spectralAnatomy;
 }
 
 export function useVideoSyncController(): VideoSyncController {

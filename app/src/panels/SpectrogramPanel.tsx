@@ -1,22 +1,13 @@
 import { useCallback, useEffect, useRef } from 'react';
-import { useAnalysisConfig, useAudioEngine, useDisplayMode, useFrameBus, useScrollSpeed, useTheaterMode } from '../core/session';
+import { useAnalysisConfig, useDisplayMode, useSpectralAnatomyStore, useTheaterMode } from '../core/session';
 import type { VisualMode } from '../audio/displayMode';
 import { COLORS, FONTS, CANVAS, SPACING } from '../theme';
 import { formatHz, hexToRgb, spectroColor } from '../utils/canvas';
 import { shouldSkipFrame } from '../utils/rafGuard';
 import { useMeasurementCursor, type CursorMapFn } from './useMeasurementCursor';
-import type { AudioFrame } from '../types';
 
 const FREQ_AXIS_W = CANVAS.spectroFreqAxisWidth;
 const PAD_Y = SPACING.panelPad;
-const BASE_SCROLL_PX = CANVAS.timelineScrollPx;
-
-// Major frequency grid lines labeled on the axis.
-const GRID_HZ = [50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000];
-const AXIS_HZ = [50, 100, 200, 500, '1k', '2k', '5k', '10k', '20k'] as const;
-const AXIS_HZ_VALUES = [50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000];
-// Minor frequency hairlines are unlabeled and drawn dimmer.
-const MINOR_GRID_HZ = [30, 40, 70, 80, 150, 300, 700, 800, 1500, 3000, 7000, 8000, 15000];
 const PANEL_DPR_MAX = 1.5;
 const SPECTRO_BG = '#000000';
 const NGE_BG = '#030a03';
@@ -48,6 +39,11 @@ const RED_BG_RGB = hexToRgb(RED_BG);
 const OPTIC_BG_RGB = hexToRgb(OPTIC_BG);
 const EVA_BG_RGB = hexToRgb(EVA_BG);
 
+const GRID_HZ = [50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000];
+const AXIS_HZ = [50, 100, 200, 500, '1k', '2k', '5k', '10k', '20k'] as const;
+const AXIS_HZ_VALUES = [50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000];
+const MINOR_GRID_HZ = [30, 40, 70, 80, 150, 300, 700, 800, 1500, 3000, 7000, 8000, 15000];
+
 type Rgb = readonly [number, number, number];
 
 interface SpectrogramTheme {
@@ -60,6 +56,11 @@ interface SpectrogramTheme {
   readonly cellGrid: string;
   readonly minorGrid: string;
   readonly majorGrid: string;
+}
+
+interface RowBand {
+  readonly lowBin: number;
+  readonly highBin: number;
 }
 
 const DEFAULT_SPECTROGRAM_THEME: SpectrogramTheme = {
@@ -136,24 +137,6 @@ function hzToT(hz: number): number {
   return Math.log10(hz / 20) / Math.log10(1000);
 }
 
-function bandAverageDb(data: Float32Array, lowHz: number, highHz: number, sampleRate: number): number {
-  const lowBin = Math.max(0, Math.floor((lowHz * data.length * 2) / sampleRate));
-  const highBin = Math.min(data.length - 1, Math.ceil((highHz * data.length * 2) / sampleRate));
-  let powerSum = 0;
-  let count = 0;
-
-  for (let bin = lowBin; bin <= highBin; bin++) {
-    const amplitude = Math.pow(10, data[bin] / 20);
-    powerSum += amplitude * amplitude;
-    count++;
-  }
-
-  if (count === 0) return CANVAS.dbMin;
-  const rms = Math.sqrt(powerSum / count);
-  return rms > 0 ? 20 * Math.log10(rms) : CANVAS.dbMin;
-}
-
-
 function lerpColor(startHex: string, endHex: string, t: number): string {
   const [sr, sg, sb] = hexToRgb(startHex);
   const [er, eg, eb] = hexToRgb(endHex);
@@ -166,7 +149,6 @@ function parseRgbString(color: string): [number, number, number] {
   if (!match) {
     throw new Error(`Unsupported color format: ${color}`);
   }
-
   return [Number(match[1]), Number(match[2]), Number(match[3])];
 }
 
@@ -195,10 +177,6 @@ function historyLevelToDb(level: number, dbMin: number, dbMax: number): number {
 }
 
 function createPalette(mode: VisualMode): readonly Rgb[] {
-  // Palette creation uses default dB range — palette maps 0-255 levels to
-  // colours independently of the configured range (level 0 = darkest,
-  // level 255 = brightest). The configured range only affects which dB
-  // values map to which levels via dbToHistoryLevel.
   return Array.from(
     { length: HISTORY_LEVELS },
     (_, index) => parseRgbString(spectroColorForMode(historyLevelToDb(index, CANVAS.dbMin, CANVAS.dbMax), mode)),
@@ -219,36 +197,6 @@ function createHistoryBuffer(width: number, height: number): Int16Array {
   const history = new Int16Array(width * height);
   history.fill(HISTORY_EMPTY);
   return history;
-}
-
-function clearHistory(history: Int16Array | null): void {
-  history?.fill(HISTORY_EMPTY);
-}
-
-function copyHistoryPreservingNewest(
-  source: Int16Array,
-  sourceWidth: number,
-  sourceHeight: number,
-  target: Int16Array,
-  targetWidth: number,
-  targetHeight: number,
-): void {
-  const offsetX = targetWidth - sourceWidth;
-  const offsetY = Math.round((targetHeight - sourceHeight) / 2);
-  const sourceStartX = Math.max(0, -offsetX);
-  const targetStartX = Math.max(0, offsetX);
-  const sourceStartY = Math.max(0, -offsetY);
-  const targetStartY = Math.max(0, offsetY);
-  const copyWidth = Math.min(sourceWidth - sourceStartX, targetWidth - targetStartX);
-  const copyHeight = Math.min(sourceHeight - sourceStartY, targetHeight - targetStartY);
-
-  if (copyWidth <= 0 || copyHeight <= 0) return;
-
-  for (let row = 0; row < copyHeight; row++) {
-    const sourceIndex = (sourceStartY + row) * sourceWidth + sourceStartX;
-    const targetIndex = (targetStartY + row) * targetWidth + targetStartX;
-    target.set(source.subarray(sourceIndex, sourceIndex + copyWidth), targetIndex);
-  }
 }
 
 function paintHistoryToCanvas(
@@ -279,32 +227,155 @@ function paintHistoryToCanvas(
   ctx.putImageData(image, 0, 0);
 }
 
+function bandAverageDbByBins(data: Float32Array, lowBin: number, highBin: number): number {
+  if (data.length === 0 || highBin < lowBin) return CANVAS.dbMin;
+
+  let powerSum = 0;
+  let count = 0;
+  for (let bin = lowBin; bin <= highBin; bin++) {
+    const amplitude = Math.pow(10, data[bin] / 20);
+    powerSum += amplitude * amplitude;
+    count++;
+  }
+
+  if (count === 0) return CANVAS.dbMin;
+  const rms = Math.sqrt(powerSum / count);
+  return rms > 0 ? 20 * Math.log10(rms) : CANVAS.dbMin;
+}
+
+function monoBandDb(left: Float32Array, right: Float32Array, band: RowBand): number {
+  const avgL = bandAverageDbByBins(left, band.lowBin, band.highBin);
+  const avgR = bandAverageDbByBins(right, band.lowBin, band.highBin);
+  const linL = Math.pow(10, avgL / 20);
+  const linR = Math.pow(10, avgR / 20);
+  const mono = (linL + linR) * 0.5;
+  return mono > 0 ? 20 * Math.log10(mono) : CANVAS.dbMin;
+}
+
+function createRowBands(height: number, sampleRate: number, fftBinCount: number): readonly RowBand[] {
+  if (height <= 0 || sampleRate <= 0 || fftBinCount <= 0) return [];
+
+  return Array.from({ length: height }, (_, y) => {
+    const topT = 1 - y / height;
+    const bottomT = 1 - (y + 1) / height;
+    const highHz = 20 * Math.pow(1000, topT);
+    const lowHz = 20 * Math.pow(1000, Math.max(0, bottomT));
+    return {
+      lowBin: Math.max(0, Math.floor((lowHz * fftBinCount * 2) / sampleRate)),
+      highBin: Math.min(fftBinCount - 1, Math.ceil((highHz * fftBinCount * 2) / sampleRate)),
+    };
+  });
+}
+
+function replaySpectrogramHistory(
+  history: Int16Array,
+  width: number,
+  rowBands: readonly RowBand[],
+  dpr: number,
+  advances: Float32Array,
+  leftSlices: readonly Float32Array[],
+  rightSlices: readonly Float32Array[],
+  ptr: number,
+  len: number,
+  capacity: number,
+  dbMin: number,
+  dbMax: number,
+): number {
+  history.fill(HISTORY_EMPTY);
+  let carry = 0;
+
+  for (let i = 0; i < len; i++) {
+    const index = (ptr - len + i + capacity) % capacity;
+    carry += Math.max(0, advances[index]) * dpr;
+    const scrollPx = Math.min(width, Math.max(0, Math.floor(carry)));
+    if (scrollPx <= 0) continue;
+    carry -= scrollPx;
+
+    const stripStartX = width - scrollPx;
+    const left = leftSlices[index];
+    const right = rightSlices[index];
+    for (let y = 0; y < rowBands.length; y++) {
+      const rowStart = y * width;
+      history.copyWithin(rowStart, rowStart + scrollPx, rowStart + width);
+      const level = dbToHistoryLevel(monoBandDb(left, right, rowBands[y]), dbMin, dbMax);
+      history.fill(level, rowStart + stripStartX, rowStart + width);
+    }
+  }
+
+  return carry;
+}
+
+function appendSpectrogramSlice(
+  history: Int16Array,
+  offscreen: HTMLCanvasElement,
+  width: number,
+  height: number,
+  scrollPx: number,
+  rowBands: readonly RowBand[],
+  left: Float32Array,
+  right: Float32Array,
+  dbMin: number,
+  dbMax: number,
+  backgroundFill: string,
+  palette: readonly Rgb[],
+): void {
+  if (scrollPx <= 0 || width <= 0 || height <= 0) return;
+  const offscreenCtx = offscreen.getContext('2d');
+  if (!offscreenCtx) return;
+
+  const stripStartX = width - scrollPx;
+  offscreenCtx.drawImage(offscreen, -scrollPx, 0);
+  offscreenCtx.fillStyle = backgroundFill;
+  offscreenCtx.fillRect(stripStartX, 0, scrollPx, height);
+
+  for (let y = 0; y < rowBands.length; y++) {
+    const rowStart = y * width;
+    history.copyWithin(rowStart, rowStart + scrollPx, rowStart + width);
+    const level = dbToHistoryLevel(monoBandDb(left, right, rowBands[y]), dbMin, dbMax);
+    history.fill(level, rowStart + stripStartX, rowStart + width);
+    const rgb = palette[Math.max(0, Math.min(HISTORY_LEVELS - 1, level))];
+    offscreenCtx.fillStyle = `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`;
+    offscreenCtx.fillRect(stripStartX, y, scrollPx, 1);
+  }
+}
+
 export function SpectrogramPanel(): React.ReactElement {
-  const frameBus = useFrameBus();
   const displayMode = useDisplayMode();
-  const currentMode = displayMode.mode;
   const analysisConfig = useAnalysisConfig();
-  const audioEngine = useAudioEngine();
-  const scrollSpeed = useScrollSpeed();
+  const spectralAnatomy = useSpectralAnatomyStore();
   const theaterMode = useTheaterMode();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const offscreenRef = useRef<HTMLCanvasElement | null>(null);
   const historyRef = useRef<Int16Array | null>(null);
-  const frameRef = useRef<AudioFrame | null>(null);
   const dirtyRef = useRef(true);
   const rafRef = useRef<number | null>(null);
   const dimRef = useRef({ W: 0, H: 0, axisW: 0, spectroW: 0, spectroH: 0, padY: 0 });
-  const lastFileIdRef = useRef(-1);
-  const lastFrameRef = useRef<AudioFrame | null>(null);
-  const scrollCarryRef = useRef(0);
   const lastModeRef = useRef<VisualMode>(displayMode.mode);
   const lastDbMinRef = useRef(analysisConfig.spectroDbMin);
   const lastDbMaxRef = useRef(analysisConfig.spectroDbMax);
+  const lastRenderedFrameCountRef = useRef(-1);
+  const lastRenderedFileIdRef = useRef(-1);
+  const lastRenderedSampleRateRef = useRef(0);
+  const lastRenderedFftBinCountRef = useRef(0);
+  const renderCarryRef = useRef(0);
   const hoverReadoutRef = useRef<HTMLDivElement>(null);
   const dbRangeRef = useRef({ dbMin: analysisConfig.spectroDbMin, dbMax: analysisConfig.spectroDbMax });
+  const rowBandsRef = useRef<readonly RowBand[]>([]);
+  const rowBandMetaRef = useRef({ height: 0, sampleRate: 0, fftBinCount: 0 });
+
   useEffect(() => {
     dbRangeRef.current = { dbMin: analysisConfig.spectroDbMin, dbMax: analysisConfig.spectroDbMax };
-  }, [analysisConfig.spectroDbMin, analysisConfig.spectroDbMax]);
+    dirtyRef.current = true;
+  }, [analysisConfig.spectroDbMax, analysisConfig.spectroDbMin]);
+
+  const ensureRowBands = useCallback((spectroH: number, sampleRate: number, fftBinCount: number): readonly RowBand[] => {
+    const meta = rowBandMetaRef.current;
+    if (meta.height !== spectroH || meta.sampleRate !== sampleRate || meta.fftBinCount !== fftBinCount) {
+      rowBandsRef.current = createRowBands(spectroH, sampleRate, fftBinCount);
+      rowBandMetaRef.current = { height: spectroH, sampleRate, fftBinCount };
+    }
+    return rowBandsRef.current;
+  }, []);
 
   const mapToValues: CursorMapFn = useCallback((devX: number, devY: number) => {
     const { axisW, spectroW, spectroH, padY } = dimRef.current;
@@ -327,7 +398,8 @@ export function SpectrogramPanel(): React.ReactElement {
     }
 
     return {
-      devX, devY,
+      devX,
+      devY,
       primary: hz,
       primaryLabel: formatHz(hz),
       secondary: Number.isFinite(db) ? db : 0,
@@ -336,38 +408,21 @@ export function SpectrogramPanel(): React.ReactElement {
   }, []);
 
   const { overlayRef, handleMouseMove, handleMouseLeave, handleClick } = useMeasurementCursor({
-    canvasRef, readoutRef: hoverReadoutRef, mapToValues, visualMode: displayMode.mode,
+    canvasRef,
+    readoutRef: hoverReadoutRef,
+    mapToValues,
+    visualMode: displayMode.mode,
   });
 
   useEffect(() => {
-    return frameBus.subscribe((frame) => {
-      frameRef.current = frame;
+    return spectralAnatomy.subscribe(() => {
       dirtyRef.current = true;
     });
-  }, [frameBus]);
-
-  useEffect(() => {
-    return audioEngine.onReset(() => {
-      frameRef.current = null;
-      lastFrameRef.current = null;
-      scrollCarryRef.current = 0;
-      clearHistory(historyRef.current);
-      dirtyRef.current = true;
-
-      const offscreen = offscreenRef.current;
-      const history = historyRef.current;
-      if (!offscreen || !history) return;
-
-      const ctx = offscreen.getContext('2d');
-      if (ctx) {
-        paintHistoryToCanvas(ctx, history, offscreen.width, offscreen.height, displayMode.mode);
-      }
-    });
-  }, [audioEngine, displayMode]);
+  }, [spectralAnatomy]);
 
   useEffect(() => {
     dirtyRef.current = true;
-  }, [currentMode]);
+  }, [displayMode.mode]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -386,34 +441,16 @@ export function SpectrogramPanel(): React.ReactElement {
         const spectroW = Math.max(0, W - axisW);
         const padY = Math.round(PAD_Y * dpr);
         const spectroH = Math.max(0, H - padY * 2);
-
-        const prevSpectroW = dimRef.current.spectroW;
-        const prevSpectroH = dimRef.current.spectroH;
-        const prevHistory = historyRef.current;
         dimRef.current = { W, H, axisW, spectroW, spectroH, padY };
 
-        const history = createHistoryBuffer(spectroW, spectroH);
-        if (prevHistory && prevSpectroW > 0 && prevSpectroH > 0) {
-          copyHistoryPreservingNewest(
-            prevHistory,
-            prevSpectroW,
-            prevSpectroH,
-            history,
-            spectroW,
-            spectroH,
-          );
-        }
-        historyRef.current = history;
-
+        historyRef.current = createHistoryBuffer(spectroW, spectroH);
         const offscreen = document.createElement('canvas');
         offscreen.width = spectroW;
         offscreen.height = spectroH;
-        const offscreenCtx = offscreen.getContext('2d');
-        if (offscreenCtx) {
-          paintHistoryToCanvas(offscreenCtx, history, spectroW, spectroH, displayMode.mode);
-        }
         offscreenRef.current = offscreen;
-        scrollCarryRef.current = 0;
+        rowBandMetaRef.current = { height: 0, sampleRate: 0, fftBinCount: 0 };
+        renderCarryRef.current = 0;
+        lastRenderedFrameCountRef.current = -1;
         dirtyRef.current = true;
       }
     });
@@ -426,12 +463,10 @@ export function SpectrogramPanel(): React.ReactElement {
       };
     }
 
-    dirtyRef.current = true;
-
     const draw = () => {
       rafRef.current = requestAnimationFrame(draw);
       if (!dirtyRef.current || shouldSkipFrame(canvas)) return;
-      const frame = frameRef.current;
+
       const ctx = canvas.getContext('2d');
       const offscreen = offscreenRef.current;
       const history = historyRef.current;
@@ -446,76 +481,87 @@ export function SpectrogramPanel(): React.ReactElement {
       const activePalette = SPECTROGRAM_PALETTES[mode];
       const spectroX = axisW;
       const backgroundFill = theme.background;
-
-      const offscreenCtx = offscreen.getContext('2d');
-      if (!offscreenCtx) return;
-
-      if (mode !== lastModeRef.current) {
-        lastModeRef.current = mode;
-        paintHistoryToCanvas(offscreenCtx, history, offscreen.width, offscreen.height, mode);
-      }
-
-      // Clear history when dB range changes (quantized levels are invalid)
       const { dbMin, dbMax } = dbRangeRef.current;
-      if (dbMin !== lastDbMinRef.current || dbMax !== lastDbMaxRef.current) {
+
+      const needsRebuild =
+        lastRenderedFrameCountRef.current < 0 ||
+        dbMin !== lastDbMinRef.current ||
+        dbMax !== lastDbMaxRef.current ||
+        spectralAnatomy.currentFileId !== lastRenderedFileIdRef.current ||
+        spectralAnatomy.currentSampleRate !== lastRenderedSampleRateRef.current ||
+        spectralAnatomy.currentFftBinCount !== lastRenderedFftBinCountRef.current ||
+        spectralAnatomy.frameCount < lastRenderedFrameCountRef.current ||
+        spectralAnatomy.frameCount - lastRenderedFrameCountRef.current > spectralAnatomy.len;
+
+      const rowBands = ensureRowBands(spectroH, spectralAnatomy.currentSampleRate, spectralAnatomy.currentFftBinCount);
+
+      if (needsRebuild) {
+        renderCarryRef.current = replaySpectrogramHistory(
+          history,
+          spectroW,
+          rowBands,
+          dpr,
+          spectralAnatomy.advanceHistory,
+          spectralAnatomy.spectrogramLeftHistory,
+          spectralAnatomy.spectrogramRightHistory,
+          spectralAnatomy.ptr,
+          spectralAnatomy.len,
+          spectralAnatomy.capacity,
+          dbMin,
+          dbMax,
+        );
+        const offscreenCtx = offscreen.getContext('2d');
+        if (!offscreenCtx) return;
+        paintHistoryToCanvas(offscreenCtx, history, offscreen.width, offscreen.height, mode);
+        lastRenderedFrameCountRef.current = spectralAnatomy.frameCount;
+        lastRenderedFileIdRef.current = spectralAnatomy.currentFileId;
+        lastRenderedSampleRateRef.current = spectralAnatomy.currentSampleRate;
+        lastRenderedFftBinCountRef.current = spectralAnatomy.currentFftBinCount;
         lastDbMinRef.current = dbMin;
         lastDbMaxRef.current = dbMax;
-        clearHistory(history);
-        paintHistoryToCanvas(offscreenCtx, history, offscreen.width, offscreen.height, mode);
-      }
+        lastModeRef.current = mode;
+      } else {
+        const offscreenCtx = offscreen.getContext('2d');
+        if (!offscreenCtx) return;
 
-      if (frame && frame.fileId !== lastFileIdRef.current) {
-        lastFileIdRef.current = frame.fileId;
-        scrollCarryRef.current = 0;
-        clearHistory(history);
-        paintHistoryToCanvas(offscreenCtx, history, offscreen.width, offscreen.height, mode);
-      }
+        if (mode !== lastModeRef.current) {
+          lastModeRef.current = mode;
+          paintHistoryToCanvas(offscreenCtx, history, offscreen.width, offscreen.height, mode);
+        }
 
-      const isNewFrame = frame !== null && frame !== lastFrameRef.current;
-      lastFrameRef.current = frame;
-
-      if (isNewFrame && frame) {
-        scrollCarryRef.current += BASE_SCROLL_PX * audioEngine.playbackRate * scrollSpeed.value;
-        const scrollPx = Math.min(spectroW, Math.max(0, Math.floor(scrollCarryRef.current)));
-
-        if (scrollPx > 0) {
-          scrollCarryRef.current -= scrollPx;
-
-          offscreenCtx.drawImage(offscreen, -scrollPx, 0);
-          offscreenCtx.fillStyle = backgroundFill;
-          offscreenCtx.fillRect(spectroW - scrollPx, 0, scrollPx, spectroH);
-
-          const freqL = frame.frequencyDb;
-          const freqR = frame.frequencyDbRight;
-          const sampleRate = frame.sampleRate;
-          const stripStartX = spectroW - scrollPx;
-
-          for (let y = 0; y < spectroH; y++) {
-            const rowStart = y * spectroW;
-            const topT = 1 - y / spectroH;
-            const bottomT = 1 - (y + 1) / spectroH;
-            const highHz = 20 * Math.pow(1000, topT);
-            const lowHz = 20 * Math.pow(1000, Math.max(0, bottomT));
-            const avgL = bandAverageDb(freqL, lowHz, highHz, sampleRate);
-            const avgR = bandAverageDb(freqR, lowHz, highHz, sampleRate);
-            const linL = Math.pow(10, avgL / 20);
-            const linR = Math.pow(10, avgR / 20);
-            const mono = 20 * Math.log10((linL + linR) / 2);
-            const level = dbToHistoryLevel(mono, dbRangeRef.current.dbMin, dbRangeRef.current.dbMax);
-
-            history.copyWithin(rowStart, rowStart + scrollPx, rowStart + spectroW);
-            history.fill(level, rowStart + stripStartX, rowStart + spectroW);
-
-            const rgb = activePalette[Math.max(0, Math.min(HISTORY_LEVELS - 1, level))];
-            offscreenCtx.fillStyle = `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`;
-            offscreenCtx.fillRect(stripStartX, y, scrollPx, 1);
+        const newFrameCount = spectralAnatomy.frameCount - lastRenderedFrameCountRef.current;
+        if (newFrameCount > 0) {
+          const newestStep = Math.min(newFrameCount, spectralAnatomy.len);
+          for (let step = newestStep - 1; step >= 0; step--) {
+            const index = (spectralAnatomy.ptr - 1 - step + spectralAnatomy.capacity) % spectralAnatomy.capacity;
+            renderCarryRef.current += Math.max(0, spectralAnatomy.advanceHistory[index]) * dpr;
+            const scrollPx = Math.min(spectroW, Math.max(0, Math.floor(renderCarryRef.current)));
+            if (scrollPx <= 0) continue;
+            renderCarryRef.current -= scrollPx;
+            appendSpectrogramSlice(
+              history,
+              offscreen,
+              spectroW,
+              spectroH,
+              scrollPx,
+              rowBands,
+              spectralAnatomy.spectrogramLeftHistory[index],
+              spectralAnatomy.spectrogramRightHistory[index],
+              dbMin,
+              dbMax,
+              backgroundFill,
+              activePalette,
+            );
           }
+          lastRenderedFrameCountRef.current = spectralAnatomy.frameCount;
+          lastRenderedFileIdRef.current = spectralAnatomy.currentFileId;
+          lastRenderedSampleRateRef.current = spectralAnatomy.currentSampleRate;
+          lastRenderedFftBinCountRef.current = spectralAnatomy.currentFftBinCount;
         }
       }
 
       ctx.fillStyle = backgroundFill;
       ctx.fillRect(0, 0, W, H);
-
       ctx.drawImage(offscreen, spectroX, padY);
 
       const cellPx = Math.round(8 * dpr);
@@ -547,7 +593,7 @@ export function SpectrogramPanel(): React.ReactElement {
         const t = hzToT(hz);
         const yTick = padY + spectroH - t * spectroH;
 
-  ctx.strokeStyle = theme.axis;
+        ctx.strokeStyle = theme.axis;
         ctx.lineWidth = 0.5;
         ctx.beginPath();
         ctx.moveTo(axisW - 3 * dpr, yTick);
@@ -557,7 +603,7 @@ export function SpectrogramPanel(): React.ReactElement {
       }
 
       ctx.font = `${9 * dpr}px ${FONTS.mono}`;
-  ctx.fillStyle = theme.label;
+      ctx.fillStyle = theme.label;
       ctx.textAlign = 'right';
       ctx.textBaseline = 'top';
       ctx.fillText('SPECTROGRAM', W - 8 * dpr, 6 * dpr);
@@ -570,7 +616,7 @@ export function SpectrogramPanel(): React.ReactElement {
       ro.disconnect();
       if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
     };
-  }, [audioEngine, displayMode, scrollSpeed, theaterMode]);
+  }, [analysisConfig.spectroDbMax, analysisConfig.spectroDbMin, displayMode, ensureRowBands, spectralAnatomy, theaterMode]);
 
   return (
     <div style={{ ...panelStyle, background: SPECTROGRAM_THEMES[displayMode.mode].panelBackground }}>
@@ -609,6 +655,3 @@ const overlayStyle: React.CSSProperties = {
   height: '100%',
   pointerEvents: 'none',
 };
-
-
-

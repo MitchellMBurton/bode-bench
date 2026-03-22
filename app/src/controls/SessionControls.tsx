@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { useAudioEngine, useScrollSpeed, useScrollSpeedValue, useVisualMode } from '../core/session';
 import { CANVAS, COLORS, FONTS, SPACING } from '../theme';
@@ -27,9 +27,10 @@ interface SessionTheme {
   readonly buttonBg: string;
 }
 
-type TuningGroupId = 'playback' | 'monitor' | 'view';
+export type SessionControlKey = 'volume' | 'rate' | 'pitch' | 'scroll';
 
-interface TuningRow {
+interface SessionControlRow {
+  readonly key: SessionControlKey;
   readonly label: string;
   readonly value: number;
   readonly valueLabel: string;
@@ -42,11 +43,9 @@ interface TuningRow {
   readonly title: string;
 }
 
-interface TuningGroup {
-  readonly id: TuningGroupId;
-  readonly label: string;
-  readonly rows: readonly TuningRow[];
-}
+type ControlLayout = 'overlay' | 'inline';
+
+const INLINE_ROW_KEYS: readonly SessionControlKey[] = ['volume', 'rate'];
 
 const SESSION_THEMES = {
   default: {
@@ -124,12 +123,16 @@ function formatPitch(semitones: number): string {
   return `${semitones > 0 ? '+' : ''}${Math.round(semitones)} st`;
 }
 
-export function SessionControls(): React.ReactElement {
+function useSessionControlRows(): {
+  readonly rows: readonly SessionControlRow[];
+  readonly onReset: () => void;
+  readonly theme: SessionTheme;
+} {
   const audioEngine = useAudioEngine();
   const scrollSpeed = useScrollSpeed();
   const scroll = useScrollSpeedValue();
   const visualMode = useVisualMode();
-  const t = SESSION_THEMES[visualMode];
+  const theme = SESSION_THEMES[visualMode];
   const [volume, setVolume] = useState(audioEngine.volume);
   const [rate, setRate] = useState(audioEngine.playbackRate);
   const [pitch, setPitch] = useState(audioEngine.pitchSemitones);
@@ -151,8 +154,9 @@ export function SessionControls(): React.ReactElement {
     scrollSpeed.set(SCROLL_DEFAULT);
   }, [audioEngine, scrollSpeed]);
 
-  const playbackRows: readonly TuningRow[] = [
+  const rows = useMemo<readonly SessionControlRow[]>(() => [
     {
+      key: 'volume',
       label: 'VOL',
       value: volume,
       valueLabel: `${Math.round(volume * 100)}`,
@@ -162,11 +166,12 @@ export function SessionControls(): React.ReactElement {
       onChange: (nextValue: number) => {
         audioEngine.setVolume(nextValue);
       },
-      fill: t.fill,
+      fill: theme.fill,
       disabled: false,
       title: 'Master output level',
     },
     {
+      key: 'rate',
       label: 'RATE',
       value: rate,
       valueLabel: formatMultiplier(rate),
@@ -177,11 +182,12 @@ export function SessionControls(): React.ReactElement {
         setRate(nextValue);
         audioEngine.setPlaybackRate(nextValue);
       },
-      fill: t.fill,
+      fill: theme.fill,
       disabled: false,
       title: 'Playback rate multiplier',
     },
     {
+      key: 'pitch',
       label: 'PITCH',
       value: pitch,
       valueLabel: pitchAvailable ? formatPitch(pitch) : 'N/A',
@@ -192,11 +198,12 @@ export function SessionControls(): React.ReactElement {
         setPitch(nextValue);
         audioEngine.setPitchSemitones(nextValue);
       },
-      fill: pitchAvailable ? t.pitchFill : t.border,
+      fill: pitchAvailable ? theme.pitchFill : theme.border,
       disabled: !pitchAvailable,
       title: pitchAvailable ? 'Pitch transpose in semitones with tempo preserved.' : 'Studio pitch shift is unavailable in this runtime.',
     },
     {
+      key: 'scroll',
       label: 'SCRL',
       value: scroll,
       valueLabel: formatMultiplier(scroll),
@@ -206,100 +213,123 @@ export function SessionControls(): React.ReactElement {
       onChange: (nextValue: number) => {
         scrollSpeed.set(nextValue);
       },
-      fill: t.fill,
+      fill: theme.fill,
       disabled: false,
       title: 'Visual scroll speed multiplier',
     },
-  ];
+  ], [audioEngine, pitch, pitchAvailable, rate, scroll, scrollSpeed, theme.border, theme.fill, theme.pitchFill, volume]);
 
-  const groups: readonly TuningGroup[] = [
-    {
-      id: 'playback',
-      label: 'PLAYBACK TUNING',
-      rows: playbackRows,
-    },
-  ];
+  return {
+    rows,
+    onReset,
+    theme,
+  };
+}
+
+function TuningControlRow({
+  row,
+  theme,
+  layout,
+}: {
+  readonly row: SessionControlRow;
+  readonly theme: SessionTheme;
+  readonly layout: ControlLayout;
+}): React.ReactElement {
+  const width = fillWidth(row.value, row.min, row.max);
+  const inline = layout === 'inline';
 
   return (
-    <div style={wrapStyle}>
-      <div style={headerRowStyle}>
-        <span style={{ ...sectionLabelStyle, color: t.label }}>{groups[0].label}</span>
+    <div style={inline ? inlineControlRowStyle : overlayControlRowStyle}>
+      <span style={{ ...(inline ? inlineLabelStyle : overlayLabelStyle), color: theme.label }}>{row.label}</span>
+      <div style={inline ? inlineTrackShellStyle : overlayTrackShellStyle}>
+        <div style={{ ...(inline ? inlineTrackRailStyle : overlayTrackRailStyle), background: theme.track }} />
+        <div
+          style={{
+            ...(inline ? inlineFillStyle : overlayFillStyle),
+            width,
+            background: row.fill,
+          }}
+        />
+        <div
+          style={{
+            ...(inline ? inlineThumbStyle : overlayThumbStyle),
+            left: width,
+            background: row.fill,
+            borderColor: theme.clusterBg,
+            opacity: row.disabled ? 0.4 : 1,
+          }}
+        />
+        <input
+          type="range"
+          min={row.min}
+          max={row.max}
+          step={row.step}
+          value={row.value}
+          onChange={(event) => row.onChange(Number.parseFloat(event.target.value))}
+          style={rangeStyle}
+          title={row.title}
+          disabled={row.disabled}
+        />
+      </div>
+      <span style={{ ...(inline ? inlineValueStyle : overlayValueStyle), color: theme.text }}>{row.valueLabel}</span>
+    </div>
+  );
+}
+
+export function InlineSessionControls(): React.ReactElement {
+  const { rows, theme } = useSessionControlRows();
+  const inlineRows = rows.filter((row) => INLINE_ROW_KEYS.includes(row.key));
+
+  return (
+    <div style={inlineWrapStyle}>
+      {inlineRows.map((row) => (
+        <TuningControlRow key={row.key} row={row} theme={theme} layout="inline" />
+      ))}
+    </div>
+  );
+}
+
+export function SessionControls(): React.ReactElement {
+  const { rows, onReset, theme } = useSessionControlRows();
+
+  return (
+    <div style={overlayWrapStyle}>
+      <div style={overlayHeaderRowStyle}>
+        <span style={{ ...overlaySectionLabelStyle, color: theme.label }}>PLAYBACK TUNING</span>
         <button
-          style={{ ...resetButtonStyle, background: t.buttonBg, borderColor: t.border, color: t.label }}
+          style={{ ...resetButtonStyle, background: theme.buttonBg, borderColor: theme.border, color: theme.label }}
           onClick={onReset}
           title="Reset playback and scroll controls"
         >
           RESET
         </button>
       </div>
-      <div style={groupWrapStyle}>
-        {groups.map((group) => (
-          <div key={group.id} style={groupStyle}>
-            <div style={rowWrapStyle}>
-              {group.rows.map((row) => {
-                const width = fillWidth(row.value, row.min, row.max);
-                return (
-                  <div key={row.label} style={controlRowStyle}>
-                    <span style={{ ...chipLabelStyle, color: t.label }}>{row.label}</span>
-                    <div style={trackShellStyle}>
-                      <div style={{ ...trackRailStyle, background: t.track }} />
-                      <div
-                        style={{
-                          ...fillStyle,
-                          width,
-                          background: row.fill,
-                        }}
-                      />
-                      <div
-                        style={{
-                          ...thumbStyle,
-                          left: width,
-                          background: row.fill,
-                          borderColor: t.clusterBg,
-                          opacity: row.disabled ? 0.4 : 1,
-                        }}
-                      />
-                      <input
-                        type="range"
-                        min={row.min}
-                        max={row.max}
-                        step={row.step}
-                        value={row.value}
-                        onChange={(event) => row.onChange(Number.parseFloat(event.target.value))}
-                        style={rangeStyle}
-                        title={row.title}
-                        disabled={row.disabled}
-                      />
-                    </div>
-                    <span style={{ ...chipValueStyle, color: t.text }}>{row.valueLabel}</span>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
+      <div style={overlayRowsWrapStyle}>
+        {rows.map((row) => (
+          <TuningControlRow key={row.key} row={row} theme={theme} layout="overlay" />
         ))}
       </div>
     </div>
   );
 }
 
-const wrapStyle: React.CSSProperties = {
+const overlayWrapStyle: React.CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
   alignItems: 'stretch',
-  gap: 6,
+  gap: 10,
   minWidth: 0,
 };
 
-const headerRowStyle: React.CSSProperties = {
+const overlayHeaderRowStyle: React.CSSProperties = {
   display: 'flex',
-  alignItems: 'baseline',
+  alignItems: 'center',
   justifyContent: 'space-between',
-  gap: SPACING.xs,
+  gap: SPACING.sm,
   minWidth: 0,
 };
 
-const sectionLabelStyle: React.CSSProperties = {
+const overlaySectionLabelStyle: React.CSSProperties = {
   fontFamily: FONTS.mono,
   fontSize: FONTS.sizeXs,
   letterSpacing: '0.10em',
@@ -307,75 +337,61 @@ const sectionLabelStyle: React.CSSProperties = {
   lineHeight: 1,
 };
 
-const rowWrapStyle: React.CSSProperties = {
+const overlayRowsWrapStyle: React.CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
-  gap: 4,
+  gap: 7,
   minWidth: 0,
 };
 
-const groupWrapStyle: React.CSSProperties = {
+const overlayControlRowStyle: React.CSSProperties = {
   display: 'grid',
-  gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
-  gap: 8,
-  minWidth: 0,
-};
-
-const groupStyle: React.CSSProperties = {
-  display: 'flex',
-  flexDirection: 'column',
-  gap: 4,
-  minWidth: 0,
-};
-
-const controlRowStyle: React.CSSProperties = {
-  display: 'grid',
-  gridTemplateColumns: '36px minmax(180px, 1fr) 48px',
+  gridTemplateColumns: '40px minmax(196px, 1fr) 60px',
   alignItems: 'center',
-  gap: 10,
+  gap: 12,
   minWidth: 0,
 };
 
-const chipLabelStyle: React.CSSProperties = {
+const overlayLabelStyle: React.CSSProperties = {
   fontFamily: FONTS.mono,
   fontSize: FONTS.sizeXs,
   letterSpacing: '0.08em',
   flexShrink: 0,
 };
 
-const trackShellStyle: React.CSSProperties = {
+const overlayTrackShellStyle: React.CSSProperties = {
   position: 'relative',
   width: '100%',
-  height: 16,
-  minWidth: 180,
+  height: 18,
+  minWidth: 196,
 };
 
-const trackRailStyle: React.CSSProperties = {
+const overlayTrackRailStyle: React.CSSProperties = {
   position: 'absolute',
   left: 0,
   right: 0,
   top: '50%',
-  height: 6,
+  height: 7,
   transform: 'translateY(-50%)',
   borderRadius: 999,
   pointerEvents: 'none',
 };
 
-const fillStyle: React.CSSProperties = {
+const overlayFillStyle: React.CSSProperties = {
   position: 'absolute',
   left: 0,
   top: '50%',
-  height: 6,
+  height: 7,
   transform: 'translateY(-50%)',
   borderRadius: 999,
   pointerEvents: 'none',
 };
 
-const thumbStyle: React.CSSProperties = {
+const overlayThumbStyle: React.CSSProperties = {
   position: 'absolute',
   top: '50%',
-  width: 10,
-  height: 10,
+  width: 12,
+  height: 12,
   borderRadius: 999,
   borderWidth: 1,
   borderStyle: 'solid',
@@ -393,17 +409,90 @@ const rangeStyle: React.CSSProperties = {
   padding: 0,
 };
 
-const chipValueStyle: React.CSSProperties = {
+const overlayValueStyle: React.CSSProperties = {
   fontFamily: FONTS.mono,
   fontSize: FONTS.sizeXs,
   letterSpacing: '0.05em',
-  width: 48,
+  width: 60,
+  textAlign: 'right',
+  flexShrink: 0,
+};
+
+const inlineWrapStyle: React.CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(152px, 1fr))',
+  gap: 8,
+  minWidth: 0,
+  width: '100%',
+};
+
+const inlineControlRowStyle: React.CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: '26px minmax(92px, 1fr) 42px',
+  alignItems: 'center',
+  gap: 6,
+  minWidth: 0,
+};
+
+const inlineLabelStyle: React.CSSProperties = {
+  fontFamily: FONTS.mono,
+  fontSize: 8,
+  letterSpacing: '0.10em',
+  flexShrink: 0,
+};
+
+const inlineTrackShellStyle: React.CSSProperties = {
+  position: 'relative',
+  width: '100%',
+  height: 14,
+  minWidth: 92,
+};
+
+const inlineTrackRailStyle: React.CSSProperties = {
+  position: 'absolute',
+  left: 0,
+  right: 0,
+  top: '50%',
+  height: 5,
+  transform: 'translateY(-50%)',
+  borderRadius: 999,
+  pointerEvents: 'none',
+};
+
+const inlineFillStyle: React.CSSProperties = {
+  position: 'absolute',
+  left: 0,
+  top: '50%',
+  height: 5,
+  transform: 'translateY(-50%)',
+  borderRadius: 999,
+  pointerEvents: 'none',
+};
+
+const inlineThumbStyle: React.CSSProperties = {
+  position: 'absolute',
+  top: '50%',
+  width: 9,
+  height: 9,
+  borderRadius: 999,
+  borderWidth: 1,
+  borderStyle: 'solid',
+  transform: 'translate(-50%, -50%)',
+  boxSizing: 'border-box',
+  pointerEvents: 'none',
+};
+
+const inlineValueStyle: React.CSSProperties = {
+  fontFamily: FONTS.mono,
+  fontSize: 8,
+  letterSpacing: '0.04em',
+  width: 42,
   textAlign: 'right',
   flexShrink: 0,
 };
 
 const resetButtonStyle: React.CSSProperties = {
-  height: 18,
+  height: 20,
   padding: '0 8px',
   borderWidth: 1,
   borderStyle: 'solid',
