@@ -44,10 +44,24 @@ enum PickClipExportDestinationResult {
 #[derive(Clone, serde::Serialize)]
 #[serde(tag = "status", rename_all = "kebab-case")]
 enum ClipExportStatus {
-  Queued { progress_percent: f64, message: String },
-  Running { progress_percent: f64, message: String },
-  Completed { output_path: String },
-  Failed { error_text: String },
+  Queued {
+    #[serde(rename = "progressPercent")]
+    progress_percent: f64,
+    message: String,
+  },
+  Running {
+    #[serde(rename = "progressPercent")]
+    progress_percent: f64,
+    message: String,
+  },
+  Completed {
+    #[serde(rename = "outputPath")]
+    output_path: String,
+  },
+  Failed {
+    #[serde(rename = "errorText")]
+    error_text: String,
+  },
   Canceled,
 }
 
@@ -106,6 +120,7 @@ struct StartClipExportRequest {
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct StartClipExportResponse {
+  #[serde(rename = "jobId")]
   job_id: String,
 }
 
@@ -182,7 +197,7 @@ fn build_ffmpeg_args(request: &StartClipExportRequest) -> Result<Vec<OsString>, 
   ];
 
   match (request.source_kind, request.quality_mode) {
-    (_, QualityMode::CopyFast) => {
+    (SourceKind::Audio, QualityMode::CopyFast) => {
       args.extend([
         OsString::from("-ss"),
         OsString::from(format_ffmpeg_seconds(request.start_s)),
@@ -194,6 +209,35 @@ fn build_ffmpeg_args(request: &StartClipExportRequest) -> Result<Vec<OsString>, 
         OsString::from("0"),
         OsString::from("-c"),
         OsString::from("copy"),
+        OsString::from(&request.destination_path),
+      ]);
+    }
+    (SourceKind::Video, QualityMode::CopyFast) => {
+      args.extend([
+        OsString::from("-i"),
+        OsString::from(&request.source_path),
+        OsString::from("-ss"),
+        OsString::from(format_ffmpeg_seconds(request.start_s)),
+        OsString::from("-t"),
+        OsString::from(format_ffmpeg_seconds(duration)),
+        OsString::from("-map"),
+        OsString::from("0:v:0"),
+        OsString::from("-map"),
+        OsString::from("0:a?"),
+        OsString::from("-c:v"),
+        OsString::from("libx264"),
+        OsString::from("-preset"),
+        OsString::from("veryfast"),
+        OsString::from("-crf"),
+        OsString::from("22"),
+        OsString::from("-pix_fmt"),
+        OsString::from("yuv420p"),
+        OsString::from("-c:a"),
+        OsString::from("aac"),
+        OsString::from("-b:a"),
+        OsString::from("192k"),
+        OsString::from("-movflags"),
+        OsString::from("+faststart"),
         OsString::from(&request.destination_path),
       ]);
     }
@@ -281,17 +325,16 @@ fn build_save_dialog_filter(source_kind: SourceKind, quality_mode: QualityMode) 
       "Audio source containers|*.wav;*.flac;*.aiff;*.aif;*.mp3;*.m4a;*.aac;*.ogg;*.opus|All files (*.*)|*.*"
     }
     (SourceKind::Audio, QualityMode::ExactMaster) => "WAV master (*.wav)|*.wav|All files (*.*)|*.*",
-    (SourceKind::Video, QualityMode::CopyFast) => {
-      "Video source containers|*.mp4;*.mov;*.mkv;*.webm;*.m4v|All files (*.*)|*.*"
-    }
+    (SourceKind::Video, QualityMode::CopyFast) => "MP4 review (*.mp4)|*.mp4|All files (*.*)|*.*",
     (SourceKind::Video, QualityMode::ExactMaster) => "MP4 master (*.mp4)|*.mp4|All files (*.*)|*.*",
   }
 }
 
-fn build_save_dialog_title(quality_mode: QualityMode) -> &'static str {
-  match quality_mode {
-    QualityMode::CopyFast => "Save Fast Copy",
-    QualityMode::ExactMaster => "Save Exact Master",
+fn build_save_dialog_title(source_kind: SourceKind, quality_mode: QualityMode) -> &'static str {
+  match (source_kind, quality_mode) {
+    (SourceKind::Video, QualityMode::CopyFast) => "Save Fast Review",
+    (_, QualityMode::CopyFast) => "Save Fast Copy",
+    (_, QualityMode::ExactMaster) => "Save Exact Master",
   }
 }
 
@@ -339,7 +382,7 @@ fn open_save_as_dialog(
      $dialog = New-Object System.Windows.Forms.SaveFileDialog; \
      $dialog.Title = '",
   );
-  script.push_str(build_save_dialog_title(request.quality_mode));
+  script.push_str(build_save_dialog_title(request.source_kind, request.quality_mode));
   script.push_str("'; \
      $dialog.OverwritePrompt = $true; \
      $dialog.RestoreDirectory = $true; \
@@ -731,9 +774,8 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
   use super::{
-    build_ffmpeg_args, build_save_dialog_filter, build_save_dialog_title,
-    parse_ffmpeg_progress_seconds, QualityMode,
-    SourceKind, StartClipExportRequest,
+    build_ffmpeg_args, build_save_dialog_filter, build_save_dialog_title, parse_ffmpeg_progress_seconds,
+    ClipExportStatus, QualityMode, SourceKind, StartClipExportRequest, StartClipExportResponse,
   };
 
   fn args_as_strings(request: &StartClipExportRequest) -> Vec<String> {
@@ -760,13 +802,23 @@ mod tests {
       start_s: 3.0,
       end_s: 9.25,
       quality_mode: QualityMode::CopyFast,
-      destination_path: "C:/exports/clip.mov".into(),
+      destination_path: "C:/exports/clip.mp4".into(),
     });
 
     assert!(audio.windows(2).any(|pair| pair == ["-c", "copy"]));
-    assert!(video.windows(2).any(|pair| pair == ["-c", "copy"]));
     assert!(audio.iter().any(|arg| arg == "C:/exports/clip.flac"));
-    assert!(video.iter().any(|arg| arg == "C:/exports/clip.mov"));
+    assert!(video.windows(2).any(|pair| pair == ["-c:v", "libx264"]));
+    assert!(video.windows(2).any(|pair| pair == ["-preset", "veryfast"]));
+    assert!(video.windows(2).any(|pair| pair == ["-crf", "22"]));
+    assert!(video.windows(2).any(|pair| pair == ["-c:a", "aac"]));
+    assert!(video.windows(2).any(|pair| pair == ["-b:a", "192k"]));
+    assert!(video.windows(2).any(|pair| pair == ["-movflags", "+faststart"]));
+    assert!(!video.windows(2).any(|pair| pair == ["-c", "copy"]));
+    assert!(video.iter().any(|arg| arg == "C:/exports/clip.mp4"));
+
+    let input_index = video.iter().position(|arg| arg == "-i").expect("video fast args include input");
+    let seek_index = video.iter().position(|arg| arg == "-ss").expect("video fast args include seek");
+    assert!(input_index < seek_index, "video fast export should decode before seeking for exact boundaries");
   }
 
   #[test]
@@ -804,12 +856,44 @@ mod tests {
   fn builds_save_dialog_filters_for_fast_and_master_modes() {
     assert!(build_save_dialog_filter(SourceKind::Audio, QualityMode::CopyFast).contains("Audio source containers"));
     assert!(build_save_dialog_filter(SourceKind::Audio, QualityMode::ExactMaster).contains("WAV master"));
+    assert!(build_save_dialog_filter(SourceKind::Video, QualityMode::CopyFast).contains("MP4 review"));
     assert!(build_save_dialog_filter(SourceKind::Video, QualityMode::ExactMaster).contains("MP4 master"));
   }
 
   #[test]
   fn builds_clear_save_dialog_titles() {
-    assert_eq!(build_save_dialog_title(QualityMode::CopyFast), "Save Fast Copy");
-    assert_eq!(build_save_dialog_title(QualityMode::ExactMaster), "Save Exact Master");
+    assert_eq!(build_save_dialog_title(SourceKind::Audio, QualityMode::CopyFast), "Save Fast Copy");
+    assert_eq!(build_save_dialog_title(SourceKind::Video, QualityMode::CopyFast), "Save Fast Review");
+    assert_eq!(build_save_dialog_title(SourceKind::Video, QualityMode::ExactMaster), "Save Exact Master");
+  }
+
+  #[test]
+  fn serializes_export_responses_in_camel_case() {
+    let running = serde_json::to_value(ClipExportStatus::Running {
+      progress_percent: 48.0,
+      message: "Exporting 48%".into(),
+    }).expect("running status serializes");
+    assert_eq!(running["status"], "running");
+    assert_eq!(running["progressPercent"], 48.0);
+    assert!(running.get("progress_percent").is_none());
+
+    let completed = serde_json::to_value(ClipExportStatus::Completed {
+      output_path: "C:/exports/clip.mp4".into(),
+    }).expect("completed status serializes");
+    assert_eq!(completed["status"], "completed");
+    assert_eq!(completed["outputPath"], "C:/exports/clip.mp4");
+    assert!(completed.get("output_path").is_none());
+
+    let failed = serde_json::to_value(ClipExportStatus::Failed {
+      error_text: "boom".into(),
+    }).expect("failed status serializes");
+    assert_eq!(failed["errorText"], "boom");
+    assert!(failed.get("error_text").is_none());
+
+    let response = serde_json::to_value(StartClipExportResponse {
+      job_id: "clip-export-7".into(),
+    }).expect("start response serializes");
+    assert_eq!(response["jobId"], "clip-export-7");
+    assert!(response.get("job_id").is_none());
   }
 }

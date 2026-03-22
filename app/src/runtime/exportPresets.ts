@@ -35,10 +35,10 @@ const QUICK_AUDIO_EXPORT_PRESETS: Readonly<Record<MediaQualityMode, ExportPreset
 const QUICK_VIDEO_EXPORT_PRESETS: Readonly<Record<MediaQualityMode, ExportPreset>> = {
   'copy-fast': {
     id: 'video-copy-fast',
-    label: 'FAST COPY',
-    container: 'source',
-    audioCodec: 'copy',
-    videoCodec: 'copy',
+    label: 'FAST REVIEW',
+    container: 'mp4',
+    audioCodec: 'aac',
+    videoCodec: 'libx264',
     qualityMode: 'copy-fast',
   },
   'exact-master': {
@@ -76,12 +76,15 @@ export function getQuickClipExportPreset(
     : QUICK_AUDIO_EXPORT_PRESETS[qualityMode];
 }
 
-export function describeExportMode(qualityMode: MediaQualityMode): string {
-  return qualityMode === 'copy-fast' ? 'STREAM COPY' : 'EXACT MASTER';
+export function describeExportMode(sourceKind: SourceKind, qualityMode: MediaQualityMode): string {
+  if (qualityMode === 'exact-master') {
+    return 'EXACT MASTER';
+  }
+  return sourceKind === 'video' ? 'FAST REVIEW' : 'FAST COPY';
 }
 
 export function describeExportPreset(preset: ExportPreset): string {
-  if (preset.qualityMode === 'copy-fast') {
+  if (preset.container === 'source' && preset.audioCodec === 'copy' && (preset.videoCodec === null || preset.videoCodec === 'copy')) {
     return 'source container / no re-encode';
   }
 
@@ -163,7 +166,7 @@ export function createClipExportJobSpec(options: {
   return {
     kind: 'clip-export',
     sourceAssetId: buildSourceAssetId(options.filename, options.durationS),
-    label: `${options.range.label} ${describeExportMode(options.qualityMode)}`,
+    label: `${options.range.label} ${describeExportMode(options.sourceKind, options.qualityMode)}`,
     clip: {
       startS: options.range.startS,
       endS: options.range.endS,

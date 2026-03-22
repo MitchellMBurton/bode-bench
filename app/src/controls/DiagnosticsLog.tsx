@@ -467,7 +467,9 @@ export function DiagnosticsLog({
         return;
       }
 
-      if (state.filename !== prev.filename) {
+      const filenameChanged = state.filename !== prev.filename;
+
+      if (filenameChanged) {
         if (scrubTimerRef.current) {
           clearTimeout(scrubTimerRef.current);
           scrubTimerRef.current = null;
@@ -491,7 +493,7 @@ export function DiagnosticsLog({
         }
       }
 
-      if (state.playbackBackend !== prev.playbackBackend && state.filename) {
+      if (!filenameChanged && state.playbackBackend !== prev.playbackBackend && state.filename) {
         diagnosticsLog.push(
           state.playbackBackend === 'streamed'
             ? 'streamed large-media mode active'

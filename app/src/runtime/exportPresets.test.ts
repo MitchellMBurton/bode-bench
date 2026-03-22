@@ -18,10 +18,14 @@ describe('exportPresets', () => {
 
   it('returns quick presets for audio and video export modes', () => {
     const audioFast = getQuickClipExportPreset('audio', 'copy-fast');
+    const videoFast = getQuickClipExportPreset('video', 'copy-fast');
     const videoMaster = getQuickClipExportPreset('video', 'exact-master');
 
     expect(audioFast.audioCodec).toBe('copy');
     expect(audioFast.videoCodec).toBeNull();
+    expect(videoFast.label).toBe('FAST REVIEW');
+    expect(videoFast.container).toBe('mp4');
+    expect(videoFast.audioCodec).toBe('aac');
     expect(videoMaster.container).toBe('mp4');
     expect(videoMaster.videoCodec).toBe('libx264');
   });
@@ -51,9 +55,10 @@ describe('exportPresets', () => {
   });
 
   it('describes export modes and preset codecs for the UI', () => {
-    expect(describeExportMode('copy-fast')).toBe('STREAM COPY');
-    expect(describeExportMode('exact-master')).toBe('EXACT MASTER');
-    expect(describeExportPreset(getQuickClipExportPreset('video', 'copy-fast'))).toBe('source container / no re-encode');
+    expect(describeExportMode('audio', 'copy-fast')).toBe('FAST COPY');
+    expect(describeExportMode('video', 'copy-fast')).toBe('FAST REVIEW');
+    expect(describeExportMode('video', 'exact-master')).toBe('EXACT MASTER');
+    expect(describeExportPreset(getQuickClipExportPreset('video', 'copy-fast'))).toBe('MP4 / LIBX264 + AAC');
     expect(describeExportPreset(getQuickClipExportPreset('audio', 'exact-master'))).toBe('WAV / PCM_S24LE');
   });
 
@@ -74,7 +79,7 @@ describe('exportPresets', () => {
   it('maps export extensions for source-copy and master outputs', () => {
     expect(getSuggestedExportExtension('audio', 'copy-fast', 'Prelude.aiff')).toBe('aiff');
     expect(getSuggestedExportExtension('audio', 'exact-master', 'Prelude.aiff')).toBe('wav');
-    expect(getSuggestedExportExtension('video', 'copy-fast', 'Study.mov')).toBe('mov');
+    expect(getSuggestedExportExtension('video', 'copy-fast', 'Study.mov')).toBe('mp4');
     expect(getSuggestedExportExtension('video', 'exact-master', 'Study.mov')).toBe('mp4');
   });
 });

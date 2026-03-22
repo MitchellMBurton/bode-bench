@@ -14,6 +14,7 @@ import {
   pickSourceMediaFile,
   probeExportTools,
   revealInFolder,
+  resolveClipExportOutputPath,
   sourceMediaPathExists,
   startClipExport,
   type ExportToolStatus,
@@ -21,6 +22,7 @@ import {
 import {
   buildSuggestedClipExportFilename,
   createClipExportJobSpec,
+  describeExportMode,
   describeExportPreset,
   getQuickClipExportPreset,
   type SourceKind,
@@ -309,8 +311,15 @@ function getRangeDuration(range: RangeMark | null): string {
   return range ? formatTransportTime(range.endS - range.startS) : '--:--.-';
 }
 
-function getQualityTitle(qualityMode: MediaQualityMode): string {
-  return qualityMode === 'copy-fast' ? 'FAST COPY' : 'EXACT MASTER';
+function getQualityTitle(sourceKind: SourceKind, qualityMode: MediaQualityMode): string {
+  return describeExportMode(sourceKind, qualityMode);
+}
+
+function getQualityStatusToken(sourceKind: SourceKind, qualityMode: MediaQualityMode): string {
+  if (qualityMode === 'exact-master') {
+    return 'MASTER';
+  }
+  return sourceKind === 'video' ? 'REVIEW' : 'FAST';
 }
 
 function getModeDescriptor(sourceKind: SourceKind, qualityMode: MediaQualityMode): {
@@ -319,18 +328,21 @@ function getModeDescriptor(sourceKind: SourceKind, qualityMode: MediaQualityMode
   detail: string;
 } {
   const preset = getQuickClipExportPreset(sourceKind, qualityMode);
+  const title = getQualityTitle(sourceKind, qualityMode);
   if (qualityMode === 'copy-fast') {
     return {
-      title: getQualityTitle(qualityMode),
-      summary: 'Best for the quickest review clip.',
+      title,
+      summary: sourceKind === 'video'
+        ? 'Quick accurate MP4 for review and sharing.'
+        : 'Best for the quickest review clip.',
       detail: `Output: ${describeExportPreset(preset)}.`,
     };
   }
 
   return {
-    title: getQualityTitle(qualityMode),
+    title,
     summary: sourceKind === 'video'
-      ? 'Best for a dependable final video clip.'
+      ? 'Best for the highest-quality final video clip.'
       : 'Best for a dependable final audio clip.',
     detail: `Output: ${describeExportPreset(preset)}.`,
   };
@@ -454,13 +466,13 @@ export function ClipExportStrip({
             }, 350);
             return;
           case 'completed':
-            rememberExportFolder(status.outputPath);
+            rememberExportFolder(resolveClipExportOutputPath(status.outputPath, phase.destinationPath));
             derivedMedia.completeJob(phase.recordId, {
               artifacts: [
                 {
                   id: `${phase.recordId}-media`,
                   role: 'media',
-                  path: status.outputPath,
+                  path: resolveClipExportOutputPath(status.outputPath, phase.destinationPath),
                   sha256: null,
                   createdAtMs: Date.now(),
                 },
@@ -469,12 +481,20 @@ export function ClipExportStrip({
                 durationS: phase.range.endS - phase.range.startS,
               },
             });
-            diagnosticsLog.push(`export complete ${status.outputPath}`, 'info', 'transport');
-            setPhase({ kind: 'done', outputPath: status.outputPath, qualityMode: phase.qualityMode });
+            diagnosticsLog.push(
+              `export complete ${resolveClipExportOutputPath(status.outputPath, phase.destinationPath)}`,
+              'info',
+              'transport',
+            );
+            setPhase({
+              kind: 'done',
+              outputPath: resolveClipExportOutputPath(status.outputPath, phase.destinationPath),
+              qualityMode: phase.qualityMode,
+            });
             return;
           case 'failed': {
-            const message = phase.qualityMode === 'copy-fast'
-              ? `${status.errorText} Retry with Export Master if exact trimming is acceptable.`
+            const message = phase.qualityMode === 'copy-fast' && sourceKind === 'audio'
+              ? `${status.errorText} Retry with Export Master if source-copy compatibility is a problem.`
               : status.errorText;
             derivedMedia.failJob(phase.recordId, message);
             diagnosticsLog.push(`export failed ${status.errorText}`, 'warn', 'transport');
@@ -507,7 +527,7 @@ export function ClipExportStrip({
         window.clearTimeout(timer);
       }
     };
-  }, [derivedMedia, diagnosticsLog, phase]);
+  }, [derivedMedia, diagnosticsLog, phase, sourceKind]);
 
   const onAuditionRange = useCallback(() => {
     if (!selectedRange) {
@@ -622,7 +642,7 @@ export function ClipExportStrip({
 
       derivedMedia.markJobRunning(job.id, 0, `Exporting ${selectedRange.label}...`);
       diagnosticsLog.push(
-        `export start ${selectedRange.label} ${qualityMode === 'copy-fast' ? 'fast' : 'master'} -> ${destination.path}`,
+        `export start ${selectedRange.label} ${getQualityStatusToken(sourceKind, qualityMode).toLowerCase()} -> ${destination.path}`,
         'info',
         'transport',
       );
@@ -738,13 +758,13 @@ export function ClipExportStrip({
       readinessLabel = 'SAVE AS';
       break;
     case 'running':
-      readinessLabel = `EXPORTING ${activeQualityMode === 'copy-fast' ? 'FAST' : 'MASTER'}`;
+      readinessLabel = `EXPORTING ${getQualityStatusToken(sourceKind, activeQualityMode ?? 'exact-master')}`;
       break;
     case 'done':
       readinessLabel = 'EXPORTED';
       break;
     case 'failed':
-      readinessLabel = 'CHECK STATUS';
+      readinessLabel = 'EXPORT ERROR';
       break;
     default: {
       const _exhaustive: never = phase;
@@ -846,14 +866,14 @@ export function ClipExportStrip({
     case 'choosing-destination':
       status = {
         tone: theme.accent,
-        text: `Save As is open for ${phase.qualityMode === 'copy-fast' ? 'FAST COPY' : 'EXACT MASTER'}. Choose the folder and file name to continue.`,
+        text: `Save As is open for ${getQualityTitle(sourceKind, phase.qualityMode)}. Choose the folder and file name to continue.`,
         path: null,
       };
       break;
     case 'running':
       status = {
         tone: theme.accent,
-        text: `Exporting ${phase.qualityMode === 'copy-fast' ? 'FAST COPY' : 'EXACT MASTER'}...`,
+        text: `Exporting ${getQualityTitle(sourceKind, phase.qualityMode)}...`,
         path: phase.destinationPath,
       };
       break;
@@ -863,7 +883,7 @@ export function ClipExportStrip({
     case 'done':
       status = {
         tone: theme.ok,
-        text: `${getQualityTitle(phase.qualityMode)} complete.`,
+        text: `${getQualityTitle(sourceKind, phase.qualityMode)} complete.`,
         path: phase.outputPath,
       };
       break;
@@ -986,15 +1006,19 @@ export function ClipExportStrip({
           </div>
 
           <div style={modeGridStyle}>
-            {(['copy-fast', 'exact-master'] as const).map((qualityMode) => {
+            {(sourceKind === 'video'
+              ? (['exact-master', 'copy-fast'] as const)
+              : (['copy-fast', 'exact-master'] as const)).map((qualityMode) => {
               const mode = getModeDescriptor(sourceKind, qualityMode);
               const active = activeQualityMode === qualityMode;
               const buttonLabel = exportBusy && active
                 ? phase.kind === 'choosing-destination'
                   ? 'SAVE AS...'
-                  : `EXPORTING ${qualityMode === 'copy-fast' ? 'FAST' : 'MASTER'}`
+                  : `EXPORTING ${getQualityStatusToken(sourceKind, qualityMode)}`
                 : qualityMode === 'copy-fast'
-                  ? 'EXPORT FAST'
+                  ? sourceKind === 'video'
+                    ? 'EXPORT REVIEW'
+                    : 'EXPORT FAST'
                   : 'EXPORT MASTER';
 
               return (
@@ -1022,8 +1046,10 @@ export function ClipExportStrip({
                     disabled={exportDisabled}
                     onClick={() => void onStartExport(qualityMode)}
                     title={qualityMode === 'copy-fast'
-                      ? 'Quick stream-copy export when possible'
-                      : 'Exact export with a dependable re-encode'}
+                      ? sourceKind === 'video'
+                        ? 'Quick accurate MP4 export for review and sharing'
+                        : 'Quick stream-copy export when possible'
+                      : 'Highest-quality accurate export'}
                     data-shell-interactive="true"
                   >
                     {buttonLabel}
@@ -1075,7 +1101,7 @@ export function ClipExportStrip({
           <div style={statusHeaderStyle}>
             <span style={{ ...metricLabelStyle, color: theme.label }}>STATUS</span>
             <span style={{ ...metricLabelStyle, color: theme.dim }}>
-              {exportBusy ? 'WORKING' : phase.kind === 'done' ? 'COMPLETE' : 'CHECK STATUS'}
+              {exportBusy ? 'WORKING' : phase.kind === 'done' ? 'COMPLETE' : phase.kind === 'failed' ? 'EXPORT ERROR' : 'CHECK STATUS'}
             </span>
           </div>
           <div style={{ ...statusValueStyle, color: status.tone }}>{status.text}</div>
