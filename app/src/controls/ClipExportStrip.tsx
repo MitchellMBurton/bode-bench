@@ -28,7 +28,7 @@ import {
   type SourceKind,
 } from '../runtime/exportPresets';
 import { CANVAS, COLORS, FONTS, SPACING } from '../theme';
-import type { MediaQualityMode, RangeMark } from '../types';
+import type { ClipExportTuning, MediaQualityMode, RangeMark } from '../types';
 import { formatTransportTime } from '../utils/format';
 
 interface Props {
@@ -355,6 +355,38 @@ function getStartFailureMessage(message: string): string {
   return message;
 }
 
+function formatTuningRate(value: number): string {
+  return `${value.toFixed(2)}x`;
+}
+
+function formatTuningPitch(value: number): string {
+  const rounded = Math.round(value);
+  const prefix = rounded > 0 ? '+' : '';
+  return `${prefix}${rounded} st`;
+}
+
+function buildTuningSummary(tuning: ClipExportTuning): string {
+  return `VOL ${Math.round(tuning.volume * 100)} • RATE ${formatTuningRate(tuning.playbackRate)} • PITCH ${formatTuningPitch(tuning.pitchSemitones)}`;
+}
+
+function getTuningSnapshot(options: {
+  enabled: boolean;
+  volume: number;
+  playbackRate: number;
+  pitchSemitones: number;
+  pitchAvailable: boolean;
+}): ClipExportTuning | null {
+  if (!options.enabled) {
+    return null;
+  }
+
+  return {
+    volume: options.volume,
+    playbackRate: options.playbackRate,
+    pitchSemitones: options.pitchAvailable ? options.pitchSemitones : 0,
+  };
+}
+
 export function ClipExportStrip({
   sessionFilename,
   sessionDurationS,
@@ -369,11 +401,24 @@ export function ClipExportStrip({
   const diagnosticsLog = useDiagnosticsLog();
   const theme = DOCK_THEMES[visualMode];
   const selectedRange = getSelectedRange(snapshot.rangeMarks, snapshot.selectedRangeId);
+  const sourceSessionKey = `${sourceKind}:${sessionFilename}:${sessionDurationS.toFixed(3)}`;
   const [tools, setTools] = useState<ToolState>({ kind: 'probing' });
   const [phase, setPhase] = useState<ExportPhase>({ kind: 'idle' });
   const [linkedSource, setLinkedSource] = useState<LinkedSource>({ kind: 'none' });
+  const [tuningPreference, setTuningPreference] = useState(() => ({
+    sourceSessionKey,
+    enabled: false,
+  }));
+  const [transportTuning, setTransportTuning] = useState(() => ({
+    volume: audioEngine.volume,
+    playbackRate: audioEngine.playbackRate,
+    pitchSemitones: audioEngine.pitchSemitones,
+    pitchAvailable: true,
+  }));
   const sourceStatus = getSourceStatus(sourcePath, linkedSource);
   const effectiveSourcePath = getEffectiveSourcePath(sourceStatus);
+  const includeCurrentTuning =
+    tuningPreference.sourceSessionKey === sourceSessionKey ? tuningPreference.enabled : false;
 
   useEffect(() => {
     if (!desktopRuntime) {
@@ -398,6 +443,37 @@ export function ClipExportStrip({
       cancelled = true;
     };
   }, [desktopRuntime]);
+
+  useEffect(() => {
+    return audioEngine.onTransport((state) => {
+      setTransportTuning((previous) => {
+        if (
+          Math.abs(previous.volume - state.volume) < 0.0001 &&
+          Math.abs(previous.playbackRate - state.playbackRate) < 0.0001 &&
+          Math.abs(previous.pitchSemitones - state.pitchSemitones) < 0.0001 &&
+          previous.pitchAvailable === state.pitchShiftAvailable
+        ) {
+          return previous;
+        }
+
+        return {
+          volume: state.volume,
+          playbackRate: state.playbackRate,
+          pitchSemitones: state.pitchSemitones,
+          pitchAvailable: state.pitchShiftAvailable,
+        };
+      });
+    });
+  }, [audioEngine]);
+
+  useEffect(() => {
+    return audioEngine.onReset(() => {
+      setTuningPreference({
+        sourceSessionKey,
+        enabled: false,
+      });
+    });
+  }, [audioEngine, sourceSessionKey]);
 
   useEffect(() => {
     if (!sourcePath || sessionDurationS <= 0) {
@@ -601,6 +677,10 @@ export function ClipExportStrip({
       setPhase({ kind: 'failed', message: 'Locate the original source file to unlock export.' });
       return;
     }
+    if (includeCurrentTuning && sourceKind === 'audio' && qualityMode === 'copy-fast') {
+      setPhase({ kind: 'failed', message: 'FAST COPY is unavailable when Include current tuning is enabled. Use EXACT MASTER for tuned audio exports.' });
+      return;
+    }
 
     let recordId: string | null = null;
 
@@ -613,6 +693,7 @@ export function ClipExportStrip({
           range: selectedRange,
           sourceKind,
           qualityMode,
+          tuned: includeCurrentTuning,
         }),
         sourceKind,
         qualityMode,
@@ -622,12 +703,21 @@ export function ClipExportStrip({
         return;
       }
 
+      const tuningSnapshot = getTuningSnapshot({
+        enabled: includeCurrentTuning,
+        volume: audioEngine.volume,
+        playbackRate: audioEngine.playbackRate,
+        pitchSemitones: audioEngine.pitchSemitones,
+        pitchAvailable: transportTuning.pitchAvailable,
+      });
+
       const job = derivedMedia.enqueueJob(createClipExportJobSpec({
         filename: sessionFilename,
         durationS: sessionDurationS,
         range: selectedRange,
         sourceKind,
         qualityMode,
+        tuning: tuningSnapshot,
       }));
       recordId = job.id;
 
@@ -638,11 +728,12 @@ export function ClipExportStrip({
         endS: selectedRange.endS,
         qualityMode,
         destinationPath: destination.path,
+        tuning: tuningSnapshot,
       });
 
       derivedMedia.markJobRunning(job.id, 0, `Exporting ${selectedRange.label}...`);
       diagnosticsLog.push(
-        `export start ${selectedRange.label} ${getQualityStatusToken(sourceKind, qualityMode).toLowerCase()} -> ${destination.path}`,
+        `export start ${selectedRange.label} ${getQualityStatusToken(sourceKind, qualityMode).toLowerCase()}${tuningSnapshot ? ` tuned ${buildTuningSummary(tuningSnapshot)}` : ''} -> ${destination.path}`,
         'info',
         'transport',
       );
@@ -718,6 +809,15 @@ export function ClipExportStrip({
     phase.kind === 'choosing-destination' ||
     phase.kind === 'running';
   const exportDisabled = gate.kind !== 'ready' || exportBusy;
+  const tuningDisabled = exportBusy || gate.kind !== 'ready';
+  const tunedAudioFastDisabled = includeCurrentTuning && sourceKind === 'audio';
+  const tuningSnapshotPreview = getTuningSnapshot({
+    enabled: includeCurrentTuning,
+    volume: transportTuning.volume,
+    playbackRate: transportTuning.playbackRate,
+    pitchSemitones: transportTuning.pitchSemitones,
+    pitchAvailable: transportTuning.pitchAvailable,
+  });
   const activeQualityMode =
     phase.kind === 'choosing-destination' || phase.kind === 'running' || phase.kind === 'done'
       ? phase.qualityMode
@@ -777,6 +877,12 @@ export function ClipExportStrip({
   const showStatusPanel = phase.kind !== 'idle';
   const resolvedSource = readySaveDirectory ? getResolvedSourceSummary(sourceStatus) : null;
   const quietNeedsRange = phase.kind === 'idle' && gate.kind === 'needs-range';
+  const qualityModes =
+    sourceKind === 'video'
+      ? (['exact-master', 'copy-fast'] as const)
+      : tunedAudioFastDisabled
+        ? (['exact-master', 'copy-fast'] as const)
+        : (['copy-fast', 'exact-master'] as const);
 
   let guidance: {
     title: string;
@@ -1006,16 +1112,15 @@ export function ClipExportStrip({
           </div>
 
           <div style={modeGridStyle}>
-            {(sourceKind === 'video'
-              ? (['exact-master', 'copy-fast'] as const)
-              : (['copy-fast', 'exact-master'] as const)).map((qualityMode) => {
-              const mode = getModeDescriptor(sourceKind, qualityMode);
-              const active = activeQualityMode === qualityMode;
-              const buttonLabel = exportBusy && active
-                ? phase.kind === 'choosing-destination'
-                  ? 'SAVE AS...'
-                  : `EXPORTING ${getQualityStatusToken(sourceKind, qualityMode)}`
-                : qualityMode === 'copy-fast'
+            {qualityModes.map((qualityMode) => {
+                const mode = getModeDescriptor(sourceKind, qualityMode);
+                const active = activeQualityMode === qualityMode;
+                const modeDisabled = exportDisabled || (qualityMode === 'copy-fast' && tunedAudioFastDisabled);
+                const buttonLabel = exportBusy && active
+                  ? phase.kind === 'choosing-destination'
+                    ? 'SAVE AS...'
+                    : `EXPORTING ${getQualityStatusToken(sourceKind, qualityMode)}`
+                  : qualityMode === 'copy-fast'
                   ? sourceKind === 'video'
                     ? 'EXPORT REVIEW'
                     : 'EXPORT FAST'
@@ -1034,21 +1139,31 @@ export function ClipExportStrip({
                     <span style={{ ...modeTitleStyle, color: theme.text }}>{mode.title}</span>
                   </div>
                   <div style={{ ...modeSummaryStyle, color: theme.text }}>{mode.summary}</div>
-                  <div style={{ ...modeDetailStyle, color: theme.dim }}>{mode.detail}</div>
+                  <div style={{ ...modeDetailStyle, color: qualityMode === 'copy-fast' && tunedAudioFastDisabled ? COLORS.statusWarn : theme.dim }}>
+                    {qualityMode === 'copy-fast' && tunedAudioFastDisabled
+                      ? 'Unavailable while Include current tuning is enabled for audio. Use EXACT MASTER.'
+                      : includeCurrentTuning
+                        ? `${mode.detail} Applies current VOL / RATE / PITCH during export.`
+                        : mode.detail}
+                  </div>
                   <button
                     type="button"
                     style={{
                       ...actionButtonStyle,
-                      color: exportDisabled ? theme.dim : theme.text,
-                      borderColor: exportDisabled ? theme.border : active ? theme.accentBorder : theme.border,
-                      background: exportDisabled ? theme.buttonBg : theme.buttonActiveBg,
+                      color: modeDisabled ? theme.dim : theme.text,
+                      borderColor: modeDisabled ? theme.border : active ? theme.accentBorder : theme.border,
+                      background: modeDisabled ? theme.buttonBg : theme.buttonActiveBg,
                     }}
-                    disabled={exportDisabled}
+                    disabled={modeDisabled}
                     onClick={() => void onStartExport(qualityMode)}
                     title={qualityMode === 'copy-fast'
                       ? sourceKind === 'video'
-                        ? 'Quick accurate MP4 export for review and sharing'
-                        : 'Quick stream-copy export when possible'
+                        ? includeCurrentTuning
+                          ? 'Quick accurate MP4 export with current tuning applied'
+                          : 'Quick accurate MP4 export for review and sharing'
+                        : includeCurrentTuning
+                          ? 'FAST COPY is unavailable when Include current tuning is enabled'
+                          : 'Quick stream-copy export when possible'
                       : 'Highest-quality accurate export'}
                     data-shell-interactive="true"
                   >
@@ -1057,6 +1172,44 @@ export function ClipExportStrip({
                 </div>
               );
             })}
+          </div>
+
+          <div style={{ ...tuningPanelStyle, borderColor: theme.border, background: theme.buttonBg }}>
+            <div style={tuningHeaderStyle}>
+              <span style={{ ...metricLabelStyle, color: theme.label }}>EXPORT OPTIONS</span>
+              <button
+                type="button"
+                style={{
+                  ...toggleButtonStyle,
+                  color: tuningDisabled ? theme.dim : theme.text,
+                  borderColor: includeCurrentTuning ? theme.accentBorder : theme.border,
+                  background: includeCurrentTuning ? theme.buttonActiveBg : theme.buttonBg,
+                  opacity: tuningDisabled ? 0.7 : 1,
+                }}
+                disabled={tuningDisabled}
+                onClick={() => {
+                  setTuningPreference({
+                    sourceSessionKey,
+                    enabled: !includeCurrentTuning,
+                  });
+                  setPhase((prevPhase) => (prevPhase.kind === 'failed' ? { kind: 'idle' } : prevPhase));
+                }}
+                title="Bake the current VOL, RATE, and PITCH settings into the export"
+                data-shell-interactive="true"
+              >
+                {includeCurrentTuning ? 'ON' : 'OFF'}  INCLUDE CURRENT TUNING
+              </button>
+            </div>
+            <div style={{ ...detailTextStyle, color: includeCurrentTuning ? theme.text : theme.dim }}>
+              {tuningSnapshotPreview
+                ? `${buildTuningSummary(tuningSnapshotPreview)}${transportTuning.pitchAvailable ? '' : ' • PITCH LOCKED TO 0 ST IN THIS RUNTIME'}`
+                : 'Exports use the original saved range audio unless you opt in to bake the current VOL / RATE / PITCH settings.'}
+            </div>
+            {tunedAudioFastDisabled ? (
+              <div style={{ ...detailTextStyle, color: COLORS.statusWarn }}>
+                Tuned audio export requires EXACT MASTER because FAST COPY cannot apply processing.
+              </div>
+            ) : null}
           </div>
         </>
       ) : null}
@@ -1198,6 +1351,36 @@ const modeGridStyle: React.CSSProperties = {
   display: 'grid',
   gridTemplateColumns: 'repeat(auto-fit, minmax(156px, 1fr))',
   gap: 8,
+};
+
+const tuningPanelStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 6,
+  borderWidth: 1,
+  borderStyle: 'solid',
+  padding: 8,
+  minWidth: 0,
+  boxSizing: 'border-box',
+};
+
+const tuningHeaderStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  gap: 8,
+  flexWrap: 'wrap',
+};
+
+const toggleButtonStyle: React.CSSProperties = {
+  fontFamily: FONTS.mono,
+  fontSize: 9,
+  letterSpacing: '0.08em',
+  borderWidth: 1,
+  borderStyle: 'solid',
+  padding: '4px 8px',
+  cursor: 'pointer',
+  whiteSpace: 'nowrap',
 };
 
 const guidancePanelStyle: React.CSSProperties = {

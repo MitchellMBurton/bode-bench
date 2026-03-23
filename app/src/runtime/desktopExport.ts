@@ -1,4 +1,4 @@
-import type { MediaQualityMode } from '../types';
+import type { ClipExportTuning, MediaQualityMode } from '../types';
 import type { SourceKind } from './exportPresets';
 
 interface TauriInvokeBridge {
@@ -38,6 +38,7 @@ export interface StartClipExportRequest {
   readonly endS: number;
   readonly qualityMode: MediaQualityMode;
   readonly destinationPath: string;
+  readonly tuning: ClipExportTuning | null;
 }
 
 export interface StartClipExportResponse {

@@ -1,4 +1,5 @@
 import type {
+  ClipExportTuning,
   ExportPreset,
   MediaJobSpec,
   MediaQualityMode,
@@ -144,14 +145,16 @@ export function buildSuggestedClipExportFilename(options: {
   range: RangeMark;
   sourceKind: SourceKind;
   qualityMode: MediaQualityMode;
+  tuned?: boolean;
 }): string {
   const stem = sanitizeFilenameToken(options.filename);
   const label = sanitizeFilenameToken(options.range.label);
   const startToken = formatExportTimeToken(options.range.startS);
   const endToken = formatExportTimeToken(options.range.endS);
+  const tunedToken = options.tuned ? '__tuned' : '';
   const modeToken = options.qualityMode === 'copy-fast' ? 'fast' : 'master';
   const extension = getSuggestedExportExtension(options.sourceKind, options.qualityMode, options.filename);
-  return `${stem}__${label}__${startToken}_to_${endToken}__${modeToken}.${extension}`;
+  return `${stem}__${label}__${startToken}_to_${endToken}${tunedToken}__${modeToken}.${extension}`;
 }
 
 export function createClipExportJobSpec(options: {
@@ -160,18 +163,21 @@ export function createClipExportJobSpec(options: {
   range: RangeMark;
   sourceKind: SourceKind;
   qualityMode: MediaQualityMode;
+  tuning: ClipExportTuning | null;
 }): Extract<MediaJobSpec, { kind: 'clip-export' }> {
   const preset = getQuickClipExportPreset(options.sourceKind, options.qualityMode);
+  const tunedLabel = options.tuning ? ' TUNED' : '';
 
   return {
     kind: 'clip-export',
     sourceAssetId: buildSourceAssetId(options.filename, options.durationS),
-    label: `${options.range.label} ${describeExportMode(options.sourceKind, options.qualityMode)}`,
+    label: `${options.range.label} ${describeExportMode(options.sourceKind, options.qualityMode)}${tunedLabel}`,
     clip: {
       startS: options.range.startS,
       endS: options.range.endS,
       presetId: preset.id,
     },
+    tuning: options.tuning,
     preset,
     processor: {
       kind: 'ffmpeg',

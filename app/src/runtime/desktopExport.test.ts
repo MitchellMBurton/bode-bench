@@ -14,6 +14,7 @@ const START_REQUEST: StartClipExportRequest = {
   endS: 18.75,
   qualityMode: 'copy-fast',
   destinationPath: 'C:/exports/clip.mp4',
+  tuning: null,
 };
 
 describe('desktopExport', () => {
@@ -72,6 +73,24 @@ describe('desktopExport', () => {
       progressPercent: 64,
       message: 'Exporting 64%',
     });
+  });
+
+  it('passes tuned export requests through to the desktop bridge', async () => {
+    invoke.mockResolvedValueOnce({ jobId: 'clip-export-8' });
+
+    const tunedRequest: StartClipExportRequest = {
+      ...START_REQUEST,
+      tuning: {
+        volume: 0.66,
+        playbackRate: 1.15,
+        pitchSemitones: 2,
+      },
+    };
+
+    await expect(startClipExport(tunedRequest)).resolves.toEqual({
+      jobId: 'clip-export-8',
+    });
+    expect(invoke).toHaveBeenCalledWith('start_clip_export', { request: tunedRequest });
   });
 
   it('falls back to the chosen destination when completed status omits outputPath', async () => {

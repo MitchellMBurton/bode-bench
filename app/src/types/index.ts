@@ -168,6 +168,12 @@ export interface ClipSpec {
   readonly presetId: string;
 }
 
+export interface ClipExportTuning {
+  readonly volume: number;
+  readonly playbackRate: number;
+  readonly pitchSemitones: number;
+}
+
 export interface RepairRecipe {
   readonly id: string;
   readonly label: string;
@@ -185,14 +191,15 @@ export interface DerivedArtifact {
 }
 
 export type MediaJobSpec =
-  | {
-      readonly kind: 'clip-export';
-      readonly sourceAssetId: string;
-      readonly label: string;
-      readonly clip: ClipSpec;
-      readonly preset: ExportPreset;
-      readonly processor: ProcessorDescriptor;
-    }
+    | {
+        readonly kind: 'clip-export';
+        readonly sourceAssetId: string;
+        readonly label: string;
+        readonly clip: ClipSpec;
+        readonly tuning: ClipExportTuning | null;
+        readonly preset: ExportPreset;
+        readonly processor: ProcessorDescriptor;
+      }
   | {
       readonly kind: 'audio-repair';
       readonly sourceAssetId: string;

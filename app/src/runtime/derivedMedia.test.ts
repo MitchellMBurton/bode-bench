@@ -12,6 +12,7 @@ const EXPORT_JOB_SPEC: MediaJobSpec = {
     endS: 24,
     presetId: 'wav-24',
   },
+  tuning: null,
   preset: {
     id: 'wav-24',
     label: 'WAV 24-bit PCM',

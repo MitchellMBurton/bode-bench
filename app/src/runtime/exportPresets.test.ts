@@ -42,15 +42,25 @@ describe('exportPresets', () => {
         startS: 8,
         endS: 12.5,
       },
+      tuning: {
+        volume: 0.66,
+        playbackRate: 1.15,
+        pitchSemitones: 2,
+      },
     });
 
     expect(spec.kind).toBe('clip-export');
     expect(spec.sourceAssetId).toBe('prelude-wav:120.000');
-    expect(spec.label).toBe('R3 EXACT MASTER');
+    expect(spec.label).toBe('R3 EXACT MASTER TUNED');
     expect(spec.clip).toEqual({
       startS: 8,
       endS: 12.5,
       presetId: 'audio-exact-master',
+    });
+    expect(spec.tuning).toEqual({
+      volume: 0.66,
+      playbackRate: 1.15,
+      pitchSemitones: 2,
     });
   });
 
@@ -74,6 +84,16 @@ describe('exportPresets', () => {
         qualityMode: 'copy-fast',
       }),
     ).toBe('Every-Hour__R2__00-25-8_to_00-34-1__fast.flac');
+
+    expect(
+      buildSuggestedClipExportFilename({
+        filename: 'Every Hour.flac',
+        range: { id: 2, label: 'R2', startS: 25.8, endS: 34.1 },
+        sourceKind: 'audio',
+        qualityMode: 'exact-master',
+        tuned: true,
+      }),
+    ).toBe('Every-Hour__R2__00-25-8_to_00-34-1__tuned__master.wav');
   });
 
   it('maps export extensions for source-copy and master outputs', () => {

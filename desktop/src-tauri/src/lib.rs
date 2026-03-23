@@ -27,6 +27,14 @@ enum QualityMode {
   ExactMaster,
 }
 
+#[derive(Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ExportTuning {
+  volume: f64,
+  playback_rate: f64,
+  pitch_semitones: f64,
+}
+
 #[derive(Clone, serde::Serialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 enum ExportToolStatus {
@@ -115,6 +123,7 @@ struct StartClipExportRequest {
   end_s: f64,
   quality_mode: QualityMode,
   destination_path: String,
+  tuning: Option<ExportTuning>,
 }
 
 #[derive(serde::Serialize)]
@@ -164,6 +173,65 @@ fn format_ffmpeg_seconds(seconds: f64) -> String {
   format!("{seconds:.6}")
 }
 
+fn format_ffmpeg_scalar(value: f64) -> String {
+  format!("{value:.6}")
+}
+
+fn validate_tuning(tuning: Option<&ExportTuning>) -> Result<(), String> {
+  let Some(tuning) = tuning else {
+    return Ok(());
+  };
+
+  if !tuning.volume.is_finite() || tuning.volume < 0.0 {
+    return Err("Clip export volume must be a finite non-negative value.".into());
+  }
+  if !tuning.playback_rate.is_finite() || tuning.playback_rate <= 0.0 {
+    return Err("Clip export playback rate must be a finite positive value.".into());
+  }
+  if !tuning.pitch_semitones.is_finite() {
+    return Err("Clip export pitch must be finite.".into());
+  }
+  Ok(())
+}
+
+fn has_meaningful_tuning(tuning: Option<&ExportTuning>) -> bool {
+  tuning.is_some_and(|tuning| {
+    (tuning.volume - 1.0).abs() > 0.0001
+      || (tuning.playback_rate - 1.0).abs() > 0.0001
+      || tuning.pitch_semitones.abs() > 0.0001
+  })
+}
+
+fn build_audio_filter_chain(tuning: &ExportTuning) -> Option<String> {
+  let mut filters = Vec::new();
+
+  if (tuning.playback_rate - 1.0).abs() > 0.0001 || tuning.pitch_semitones.abs() > 0.0001 {
+    let pitch_ratio = 2_f64.powf(tuning.pitch_semitones / 12.0);
+    filters.push(format!(
+      "rubberband=tempo={}:pitch={}:formant=preserved",
+      format_ffmpeg_scalar(tuning.playback_rate),
+      format_ffmpeg_scalar(pitch_ratio)
+    ));
+  }
+
+  if (tuning.volume - 1.0).abs() > 0.0001 {
+    filters.push(format!("volume={}", format_ffmpeg_scalar(tuning.volume)));
+  }
+
+  if filters.is_empty() {
+    None
+  } else {
+    Some(filters.join(","))
+  }
+}
+
+fn build_video_filter_chain(tuning: &ExportTuning) -> Option<String> {
+  if (tuning.playback_rate - 1.0).abs() <= 0.0001 {
+    return None;
+  }
+  Some(format!("setpts=PTS/{}", format_ffmpeg_scalar(tuning.playback_rate)))
+}
+
 fn parse_timecode_to_seconds(value: &str) -> Option<f64> {
   let mut parts = value.trim().split(':');
   let hours = parts.next()?.parse::<f64>().ok()?;
@@ -187,6 +255,15 @@ fn parse_ffmpeg_progress_seconds(line: &str) -> Option<f64> {
 
 fn build_ffmpeg_args(request: &StartClipExportRequest) -> Result<Vec<OsString>, String> {
   let duration = clip_duration_seconds(request)?;
+  validate_tuning(request.tuning.as_ref())?;
+  if matches!((request.source_kind, request.quality_mode), (SourceKind::Audio, QualityMode::CopyFast))
+    && request.tuning.is_some()
+  {
+    return Err("FAST COPY is unavailable when Include current tuning is enabled. Use EXACT MASTER for tuned audio exports.".into());
+  }
+
+  let audio_filter = request.tuning.as_ref().and_then(build_audio_filter_chain);
+  let video_filter = request.tuning.as_ref().and_then(build_video_filter_chain);
   let mut args = vec![
     OsString::from("-hide_banner"),
     OsString::from("-nostdin"),
@@ -224,6 +301,14 @@ fn build_ffmpeg_args(request: &StartClipExportRequest) -> Result<Vec<OsString>, 
         OsString::from("0:v:0"),
         OsString::from("-map"),
         OsString::from("0:a?"),
+      ]);
+      if let Some(filter) = video_filter.as_ref() {
+        args.extend([OsString::from("-vf"), OsString::from(filter)]);
+      }
+      if let Some(filter) = audio_filter.as_ref() {
+        args.extend([OsString::from("-af"), OsString::from(filter)]);
+      }
+      args.extend([
         OsString::from("-c:v"),
         OsString::from("libx264"),
         OsString::from("-preset"),
@@ -252,6 +337,11 @@ fn build_ffmpeg_args(request: &StartClipExportRequest) -> Result<Vec<OsString>, 
         OsString::from("-vn"),
         OsString::from("-map"),
         OsString::from("0:a:0?"),
+      ]);
+      if let Some(filter) = audio_filter.as_ref() {
+        args.extend([OsString::from("-af"), OsString::from(filter)]);
+      }
+      args.extend([
         OsString::from("-c:a"),
         OsString::from("pcm_s24le"),
         OsString::from(&request.destination_path),
@@ -269,6 +359,14 @@ fn build_ffmpeg_args(request: &StartClipExportRequest) -> Result<Vec<OsString>, 
         OsString::from("0:v:0"),
         OsString::from("-map"),
         OsString::from("0:a?"),
+      ]);
+      if let Some(filter) = video_filter.as_ref() {
+        args.extend([OsString::from("-vf"), OsString::from(filter)]);
+      }
+      if let Some(filter) = audio_filter.as_ref() {
+        args.extend([OsString::from("-af"), OsString::from(filter)]);
+      }
+      args.extend([
         OsString::from("-c:v"),
         OsString::from("libx264"),
         OsString::from("-preset"),
@@ -286,6 +384,10 @@ fn build_ffmpeg_args(request: &StartClipExportRequest) -> Result<Vec<OsString>, 
         OsString::from(&request.destination_path),
       ]);
     }
+  }
+
+  if request.tuning.is_some() && !has_meaningful_tuning(request.tuning.as_ref()) {
+    log::info!("clip export tuning enabled but no-op values were supplied");
   }
 
   Ok(args)
@@ -775,7 +877,7 @@ pub fn run() {
 mod tests {
   use super::{
     build_ffmpeg_args, build_save_dialog_filter, build_save_dialog_title, parse_ffmpeg_progress_seconds,
-    ClipExportStatus, QualityMode, SourceKind, StartClipExportRequest, StartClipExportResponse,
+    ClipExportStatus, ExportTuning, QualityMode, SourceKind, StartClipExportRequest, StartClipExportResponse,
   };
 
   fn args_as_strings(request: &StartClipExportRequest) -> Vec<String> {
@@ -795,6 +897,7 @@ mod tests {
       end_s: 18.5,
       quality_mode: QualityMode::CopyFast,
       destination_path: "C:/exports/clip.flac".into(),
+      tuning: None,
     });
     let video = args_as_strings(&StartClipExportRequest {
       source_path: "C:/video/source.mov".into(),
@@ -803,6 +906,7 @@ mod tests {
       end_s: 9.25,
       quality_mode: QualityMode::CopyFast,
       destination_path: "C:/exports/clip.mp4".into(),
+      tuning: None,
     });
 
     assert!(audio.windows(2).any(|pair| pair == ["-c", "copy"]));
@@ -830,6 +934,7 @@ mod tests {
       end_s: 18.5,
       quality_mode: QualityMode::ExactMaster,
       destination_path: "C:/exports/clip.wav".into(),
+      tuning: None,
     });
     let video = args_as_strings(&StartClipExportRequest {
       source_path: "C:/video/source.mov".into(),
@@ -838,11 +943,72 @@ mod tests {
       end_s: 9.25,
       quality_mode: QualityMode::ExactMaster,
       destination_path: "C:/exports/clip.mp4".into(),
+      tuning: None,
     });
 
     assert!(audio.windows(2).any(|pair| pair == ["-c:a", "pcm_s24le"]));
     assert!(video.windows(2).any(|pair| pair == ["-c:v", "libx264"]));
     assert!(video.windows(2).any(|pair| pair == ["-b:a", "320k"]));
+  }
+
+  #[test]
+  fn builds_tuned_video_exports_with_audio_and_video_filters() {
+    let request = StartClipExportRequest {
+      source_path: "C:/video/source.mov".into(),
+      source_kind: SourceKind::Video,
+      start_s: 3.0,
+      end_s: 9.25,
+      quality_mode: QualityMode::CopyFast,
+      destination_path: "C:/exports/clip.mp4".into(),
+      tuning: Some(ExportTuning {
+        volume: 0.66,
+        playback_rate: 1.15,
+        pitch_semitones: 2.0,
+      }),
+    };
+
+    let fast = args_as_strings(&request);
+    assert!(fast.windows(2).any(|pair| pair == ["-vf", "setpts=PTS/1.150000"]));
+    assert!(fast.iter().any(|arg| arg.contains("rubberband=tempo=1.150000:pitch=1.122462:formant=preserved")));
+    assert!(fast.iter().any(|arg| arg.contains("volume=0.660000")));
+
+    let master = args_as_strings(&StartClipExportRequest {
+      quality_mode: QualityMode::ExactMaster,
+      ..request
+    });
+    assert!(master.windows(2).any(|pair| pair == ["-vf", "setpts=PTS/1.150000"]));
+    assert!(master.iter().any(|arg| arg.contains("rubberband=tempo=1.150000:pitch=1.122462:formant=preserved")));
+    assert!(master.iter().any(|arg| arg.contains("volume=0.660000")));
+    assert!(master.windows(2).any(|pair| pair == ["-preset", "slow"]));
+  }
+
+  #[test]
+  fn builds_tuned_audio_master_exports_and_rejects_fast_copy() {
+    let request = StartClipExportRequest {
+      source_path: "C:/audio/source.flac".into(),
+      source_kind: SourceKind::Audio,
+      start_s: 12.0,
+      end_s: 18.5,
+      quality_mode: QualityMode::ExactMaster,
+      destination_path: "C:/exports/clip.wav".into(),
+      tuning: Some(ExportTuning {
+        volume: 0.75,
+        playback_rate: 0.9,
+        pitch_semitones: -1.0,
+      }),
+    };
+
+    let master = args_as_strings(&request);
+    assert!(master.iter().any(|arg| arg.contains("rubberband=tempo=0.900000:pitch=0.943874:formant=preserved")));
+    assert!(master.iter().any(|arg| arg.contains("volume=0.750000")));
+    assert!(master.windows(2).any(|pair| pair == ["-c:a", "pcm_s24le"]));
+
+    let fast_error = build_ffmpeg_args(&StartClipExportRequest {
+      quality_mode: QualityMode::CopyFast,
+      destination_path: "C:/exports/clip.flac".into(),
+      ..request
+    }).expect_err("tuned audio fast copy should fail");
+    assert!(fast_error.contains("FAST COPY is unavailable"));
   }
 
   #[test]
