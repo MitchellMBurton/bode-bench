@@ -7,6 +7,15 @@ import type {
 } from '../types';
 
 export type SourceKind = 'audio' | 'video';
+export type ExportStatusToken = 'FAST' | 'REVIEW' | 'MASTER';
+
+export interface QuickClipExportModeDescriptor {
+  readonly title: string;
+  readonly statusToken: ExportStatusToken;
+  readonly summary: string;
+  readonly buttonLabel: string;
+  readonly detail: string;
+}
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) {
@@ -52,6 +61,40 @@ const QUICK_VIDEO_EXPORT_PRESETS: Readonly<Record<MediaQualityMode, ExportPreset
   },
 };
 
+const QUICK_EXPORT_MODE_COPY: Readonly<Record<SourceKind, {
+  readonly title: string;
+  readonly statusToken: ExportStatusToken;
+  readonly summary: string;
+  readonly buttonLabel: string;
+}>> = {
+  audio: {
+    title: 'FAST COPY',
+    statusToken: 'FAST',
+    summary: 'Best for the quickest review clip.',
+    buttonLabel: 'EXPORT FAST',
+  },
+  video: {
+    title: 'FAST REVIEW',
+    statusToken: 'REVIEW',
+    summary: 'Quick accurate MP4 for review and sharing.',
+    buttonLabel: 'EXPORT REVIEW',
+  },
+};
+
+const QUICK_EXPORT_MODE_MASTER: Readonly<Record<SourceKind, {
+  readonly title: string;
+  readonly summary: string;
+}>> = {
+  audio: {
+    title: 'EXACT MASTER',
+    summary: 'Best for a dependable final audio clip.',
+  },
+  video: {
+    title: 'EXACT MASTER',
+    summary: 'Best for the highest-quality final video clip.',
+  },
+};
+
 function sanitizeAssetToken(value: string): string {
   const token = value
     .trim()
@@ -78,10 +121,7 @@ export function getQuickClipExportPreset(
 }
 
 export function describeExportMode(sourceKind: SourceKind, qualityMode: MediaQualityMode): string {
-  if (qualityMode === 'exact-master') {
-    return 'EXACT MASTER';
-  }
-  return sourceKind === 'video' ? 'FAST REVIEW' : 'FAST COPY';
+  return getQuickClipExportModeDescriptor(sourceKind, qualityMode).title;
 }
 
 export function describeExportPreset(preset: ExportPreset): string {
@@ -94,6 +134,28 @@ export function describeExportPreset(preset: ExportPreset): string {
     .map((part) => part.toUpperCase());
 
   return `${preset.container.toUpperCase()} / ${codecParts.join(' + ')}`;
+}
+
+export function getQuickClipExportModeDescriptor(
+  sourceKind: SourceKind,
+  qualityMode: MediaQualityMode,
+): QuickClipExportModeDescriptor {
+  const preset = getQuickClipExportPreset(sourceKind, qualityMode);
+
+  if (qualityMode === 'copy-fast') {
+    const mode = QUICK_EXPORT_MODE_COPY[sourceKind];
+    return {
+      ...mode,
+      detail: `Output: ${describeExportPreset(preset)}.`,
+    };
+  }
+
+  return {
+    ...QUICK_EXPORT_MODE_MASTER[sourceKind],
+    statusToken: 'MASTER',
+    buttonLabel: 'EXPORT MASTER',
+    detail: `Output: ${describeExportPreset(preset)}.`,
+  };
 }
 
 function sanitizeFilenameToken(value: string): string {
@@ -166,12 +228,13 @@ export function createClipExportJobSpec(options: {
   tuning: ClipExportTuning | null;
 }): Extract<MediaJobSpec, { kind: 'clip-export' }> {
   const preset = getQuickClipExportPreset(options.sourceKind, options.qualityMode);
+  const mode = getQuickClipExportModeDescriptor(options.sourceKind, options.qualityMode);
   const tunedLabel = options.tuning ? ' TUNED' : '';
 
   return {
     kind: 'clip-export',
     sourceAssetId: buildSourceAssetId(options.filename, options.durationS),
-    label: `${options.range.label} ${describeExportMode(options.sourceKind, options.qualityMode)}${tunedLabel}`,
+    label: `${options.range.label} ${mode.title}${tunedLabel}`,
     clip: {
       startS: options.range.startS,
       endS: options.range.endS,

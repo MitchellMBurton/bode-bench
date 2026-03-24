@@ -7,6 +7,7 @@ import {
   describeExportMode,
   describeExportPreset,
   formatExportTimeToken,
+  getQuickClipExportModeDescriptor,
   getQuickClipExportPreset,
   getSuggestedExportExtension,
 } from './exportPresets';
@@ -70,6 +71,27 @@ describe('exportPresets', () => {
     expect(describeExportMode('video', 'exact-master')).toBe('EXACT MASTER');
     expect(describeExportPreset(getQuickClipExportPreset('video', 'copy-fast'))).toBe('MP4 / LIBX264 + AAC');
     expect(describeExportPreset(getQuickClipExportPreset('audio', 'exact-master'))).toBe('WAV / PCM_S24LE');
+    expect(getQuickClipExportModeDescriptor('audio', 'copy-fast')).toEqual({
+      title: 'FAST COPY',
+      statusToken: 'FAST',
+      summary: 'Best for the quickest review clip.',
+      buttonLabel: 'EXPORT FAST',
+      detail: 'Output: source container / no re-encode.',
+    });
+    expect(getQuickClipExportModeDescriptor('video', 'copy-fast')).toEqual({
+      title: 'FAST REVIEW',
+      statusToken: 'REVIEW',
+      summary: 'Quick accurate MP4 for review and sharing.',
+      buttonLabel: 'EXPORT REVIEW',
+      detail: 'Output: MP4 / LIBX264 + AAC.',
+    });
+    expect(getQuickClipExportModeDescriptor('video', 'exact-master')).toEqual({
+      title: 'EXACT MASTER',
+      statusToken: 'MASTER',
+      summary: 'Best for the highest-quality final video clip.',
+      buttonLabel: 'EXPORT MASTER',
+      detail: 'Output: MP4 / LIBX264 + AAC.',
+    });
   });
 
   it('builds filesystem-safe time tokens and suggested clip export filenames', () => {

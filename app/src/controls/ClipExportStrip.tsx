@@ -22,9 +22,7 @@ import {
 import {
   buildSuggestedClipExportFilename,
   createClipExportJobSpec,
-  describeExportMode,
-  describeExportPreset,
-  getQuickClipExportPreset,
+  getQuickClipExportModeDescriptor,
   type SourceKind,
 } from '../runtime/exportPresets';
 import { CANVAS, COLORS, FONTS, SPACING } from '../theme';
@@ -309,43 +307,6 @@ function getResolvedSourceSummary(sourceStatus: SourceStatus): {
 
 function getRangeDuration(range: RangeMark | null): string {
   return range ? formatTransportTime(range.endS - range.startS) : '--:--.-';
-}
-
-function getQualityTitle(sourceKind: SourceKind, qualityMode: MediaQualityMode): string {
-  return describeExportMode(sourceKind, qualityMode);
-}
-
-function getQualityStatusToken(sourceKind: SourceKind, qualityMode: MediaQualityMode): string {
-  if (qualityMode === 'exact-master') {
-    return 'MASTER';
-  }
-  return sourceKind === 'video' ? 'REVIEW' : 'FAST';
-}
-
-function getModeDescriptor(sourceKind: SourceKind, qualityMode: MediaQualityMode): {
-  title: string;
-  summary: string;
-  detail: string;
-} {
-  const preset = getQuickClipExportPreset(sourceKind, qualityMode);
-  const title = getQualityTitle(sourceKind, qualityMode);
-  if (qualityMode === 'copy-fast') {
-    return {
-      title,
-      summary: sourceKind === 'video'
-        ? 'Quick accurate MP4 for review and sharing.'
-        : 'Best for the quickest review clip.',
-      detail: `Output: ${describeExportPreset(preset)}.`,
-    };
-  }
-
-  return {
-    title,
-    summary: sourceKind === 'video'
-      ? 'Best for the highest-quality final video clip.'
-      : 'Best for a dependable final audio clip.',
-    detail: `Output: ${describeExportPreset(preset)}.`,
-  };
 }
 
 function getStartFailureMessage(message: string): string {
@@ -732,8 +693,9 @@ export function ClipExportStrip({
       });
 
       derivedMedia.markJobRunning(job.id, 0, `Exporting ${selectedRange.label}...`);
+      const mode = getQuickClipExportModeDescriptor(sourceKind, qualityMode);
       diagnosticsLog.push(
-        `export start ${selectedRange.label} ${getQualityStatusToken(sourceKind, qualityMode).toLowerCase()}${tuningSnapshot ? ` tuned ${buildTuningSummary(tuningSnapshot)}` : ''} -> ${destination.path}`,
+        `export start ${selectedRange.label} ${mode.statusToken.toLowerCase()}${tuningSnapshot ? ` tuned ${buildTuningSummary(tuningSnapshot)}` : ''} -> ${destination.path}`,
         'info',
         'transport',
       );
@@ -858,7 +820,7 @@ export function ClipExportStrip({
       readinessLabel = 'SAVE AS';
       break;
     case 'running':
-      readinessLabel = `EXPORTING ${getQualityStatusToken(sourceKind, activeQualityMode ?? 'exact-master')}`;
+      readinessLabel = `EXPORTING ${getQuickClipExportModeDescriptor(sourceKind, activeQualityMode ?? 'exact-master').statusToken}`;
       break;
     case 'done':
       readinessLabel = 'EXPORTED';
@@ -970,28 +932,37 @@ export function ClipExportStrip({
       };
       break;
     case 'choosing-destination':
-      status = {
-        tone: theme.accent,
-        text: `Save As is open for ${getQualityTitle(sourceKind, phase.qualityMode)}. Choose the folder and file name to continue.`,
-        path: null,
-      };
+      {
+        const mode = getQuickClipExportModeDescriptor(sourceKind, phase.qualityMode);
+        status = {
+          tone: theme.accent,
+          text: `Save As is open for ${mode.title}. Choose the folder and file name to continue.`,
+          path: null,
+        };
+      }
       break;
     case 'running':
-      status = {
-        tone: theme.accent,
-        text: `Exporting ${getQualityTitle(sourceKind, phase.qualityMode)}...`,
-        path: phase.destinationPath,
-      };
+      {
+        const mode = getQuickClipExportModeDescriptor(sourceKind, phase.qualityMode);
+        status = {
+          tone: theme.accent,
+          text: `Exporting ${mode.title}...`,
+          path: phase.destinationPath,
+        };
+      }
       break;
     case 'failed':
       status = { tone: COLORS.statusErr, text: phase.message, path: null };
       break;
     case 'done':
-      status = {
-        tone: theme.ok,
-        text: `${getQualityTitle(sourceKind, phase.qualityMode)} complete.`,
-        path: phase.outputPath,
-      };
+      {
+        const mode = getQuickClipExportModeDescriptor(sourceKind, phase.qualityMode);
+        status = {
+          tone: theme.ok,
+          text: `${mode.title} complete.`,
+          path: phase.outputPath,
+        };
+      }
       break;
     default: {
       const _exhaustive: never = phase;
@@ -1113,18 +1084,14 @@ export function ClipExportStrip({
 
           <div style={modeGridStyle}>
             {qualityModes.map((qualityMode) => {
-                const mode = getModeDescriptor(sourceKind, qualityMode);
+                const mode = getQuickClipExportModeDescriptor(sourceKind, qualityMode);
                 const active = activeQualityMode === qualityMode;
                 const modeDisabled = exportDisabled || (qualityMode === 'copy-fast' && tunedAudioFastDisabled);
                 const buttonLabel = exportBusy && active
                   ? phase.kind === 'choosing-destination'
                     ? 'SAVE AS...'
-                    : `EXPORTING ${getQualityStatusToken(sourceKind, qualityMode)}`
-                  : qualityMode === 'copy-fast'
-                  ? sourceKind === 'video'
-                    ? 'EXPORT REVIEW'
-                    : 'EXPORT FAST'
-                  : 'EXPORT MASTER';
+                    : `EXPORTING ${mode.statusToken}`
+                  : mode.buttonLabel;
 
               return (
                 <div
