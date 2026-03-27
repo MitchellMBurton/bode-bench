@@ -1268,6 +1268,7 @@ export class AudioEngine {
     if (this.stretchEnabledForBuffer && this.stretchNode && !useNativeScrubPreview) {
       const outputTime = ctx.currentTime + this.stretchLatency;
       const scheduledOffset = this.offsetAt;
+      const playAttemptId = this.playId + 1;
       this.rampPlayGain(1, DECLICK_IN_S, outputTime);
 
       const schedule: StretchSchedule = {
@@ -1287,7 +1288,7 @@ export class AudioEngine {
 
       void this.stretchNode.start(schedule).catch((error) => {
         console.error('stretch start failed, falling back to native playback', error);
-        if (!this._isPlaying || !this.stretchEnabledForBuffer) return;
+        if (playAttemptId !== this.playId || !this._isPlaying || !this.stretchEnabledForBuffer) return;
         this.offsetAt = scheduledOffset;
         this.fallbackToNativePlayback('start');
       });

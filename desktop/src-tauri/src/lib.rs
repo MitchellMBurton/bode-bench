@@ -6,7 +6,7 @@ use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use tauri::{Manager, State};
 use tauri_plugin_log::{RotationStrategy, Target, TargetKind, TimezoneStrategy};
@@ -635,6 +635,7 @@ fn run_clip_export(job: JobHandle, ffmpeg_path: PathBuf, request: StartClipExpor
     guard.cancel_flag.clone()
   };
   let mut last_error = String::from("ffmpeg exited without a detailed error.");
+  let deadline = Instant::now() + Duration::from_secs(2 * 60 * 60);
   set_job_status(
     &job,
     ClipExportStatus::Running {
@@ -690,6 +691,17 @@ fn run_clip_export(job: JobHandle, ffmpeg_path: PathBuf, request: StartClipExpor
         return;
       }
       Ok(None) => {
+        if Instant::now() >= deadline {
+          let _ = child.kill();
+          let _ = child.wait();
+          set_job_status(
+            &job,
+            ClipExportStatus::Failed {
+              error_text: "Export timed out after 2 hours.".into(),
+            },
+          );
+          return;
+        }
         thread::sleep(Duration::from_millis(120));
       }
       Err(error) => {

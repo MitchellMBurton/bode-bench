@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { VisualMode } from '../audio/displayMode';
 import {
   useAudioEngine,
@@ -313,7 +313,7 @@ function formatTuningPitch(value: number): string {
 }
 
 function buildTuningSummary(tuning: ClipExportTuning): string {
-  return `VOL ${Math.round(tuning.volume * 100)} • RATE ${formatTuningRate(tuning.playbackRate)} • PITCH ${formatTuningPitch(tuning.pitchSemitones)}`;
+  return `VOL ${Math.round(tuning.volume * 100)} / RATE ${formatTuningRate(tuning.playbackRate)} / PITCH ${formatTuningPitch(tuning.pitchSemitones)}`;
 }
 
 function getTuningSnapshot(options: {
@@ -338,6 +338,26 @@ function isTuningEnabled(preference: TuningPreference, sourceSessionKey: string)
   return preference.kind === 'enabled' && preference.sourceSessionKey === sourceSessionKey;
 }
 
+function formatElapsedCompact(ms: number): string {
+  const totalS = Math.floor(ms / 1000);
+  const m = Math.floor(totalS / 60);
+  const s = totalS % 60;
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
+
+function getPathLeaf(path: string): string {
+  const slashIndex = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+  return slashIndex >= 0 ? path.slice(slashIndex + 1) : path;
+}
+
+function getPathParent(path: string): string | null {
+  const slashIndex = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+  if (slashIndex <= 0) {
+    return null;
+  }
+  return path.slice(0, slashIndex);
+}
+
 export function ClipExportStrip({
   sessionFilename,
   sessionDurationS,
@@ -357,6 +377,8 @@ export function ClipExportStrip({
   const [phase, setPhase] = useState<ExportPhase>({ kind: 'idle' });
   const [linkedSource, setLinkedSource] = useState<LinkedSource>({ kind: 'none' });
   const [tuningPreference, setTuningPreference] = useState<TuningPreference>({ kind: 'disabled' });
+  const [runningProgress, setRunningProgress] = useState<{ percent: number; message: string; elapsedMs: number } | null>(null);
+  const exportStartedAtRef = useRef(0);
   const [transportTuning, setTransportTuning] = useState(() => ({
     volume: audioEngine.volume,
     playbackRate: audioEngine.playbackRate,
@@ -464,9 +486,11 @@ export function ClipExportStrip({
 
   useEffect(() => {
     if (phase.kind !== 'running') {
+      exportStartedAtRef.current = 0;
       return;
     }
 
+    exportStartedAtRef.current = Date.now();
     let cancelled = false;
     let timer = 0;
 
@@ -481,11 +505,13 @@ export function ClipExportStrip({
           case 'queued':
           case 'running':
             derivedMedia.markJobRunning(phase.recordId, status.progressPercent, status.message);
+            setRunningProgress({ percent: status.progressPercent, message: status.message, elapsedMs: Date.now() - exportStartedAtRef.current });
             timer = window.setTimeout(() => {
               void poll();
             }, 350);
             return;
           case 'completed':
+            setRunningProgress(null);
             rememberExportFolder(resolveClipExportOutputPath(status.outputPath, phase.destinationPath));
             derivedMedia.completeJob(phase.recordId, {
               artifacts: [
@@ -513,6 +539,7 @@ export function ClipExportStrip({
             });
             return;
           case 'failed': {
+            setRunningProgress(null);
             const message = phase.qualityMode === 'copy-fast' && sourceKind === 'audio'
               ? `${status.errorText} Retry with Export Master if source-copy compatibility is a problem.`
               : status.errorText;
@@ -522,6 +549,7 @@ export function ClipExportStrip({
             return;
           }
           case 'canceled':
+            setRunningProgress(null);
             derivedMedia.cancelJob(phase.recordId);
             diagnosticsLog.push('export canceled', 'dim', 'transport');
             setPhase({ kind: 'idle' });
@@ -532,6 +560,7 @@ export function ClipExportStrip({
           }
         }
       } catch (error) {
+        setRunningProgress(null);
         const message = readError(error);
         derivedMedia.failJob(phase.recordId, message);
         diagnosticsLog.push(`export poll failed ${message}`, 'warn', 'transport');
@@ -802,9 +831,13 @@ export function ClipExportStrip({
     case 'choosing-destination':
       readinessLabel = 'SAVE AS';
       break;
-    case 'running':
-      readinessLabel = `EXPORTING ${getQuickClipExportModeDescriptor(sourceKind, activeQualityMode ?? 'exact-master').statusToken}`;
+    case 'running': {
+      const modeToken = getQuickClipExportModeDescriptor(sourceKind, activeQualityMode ?? 'exact-master').statusToken;
+      readinessLabel = runningProgress && runningProgress.percent > 0
+        ? `EXPORTING ${modeToken} ${runningProgress.percent.toFixed(0)}%`
+        : `EXPORTING ${modeToken}`;
       break;
+    }
     case 'done':
       readinessLabel = 'EXPORTED';
       break;
@@ -814,6 +847,18 @@ export function ClipExportStrip({
     default: {
       const _exhaustive: never = phase;
       readinessLabel = _exhaustive;
+    }
+  }
+
+  let progressTimeLabel: string | null = null;
+  if (runningProgress) {
+    const elapsed = formatElapsedCompact(runningProgress.elapsedMs);
+    if (runningProgress.percent > 1) {
+      const totalEstMs = (runningProgress.elapsedMs / runningProgress.percent) * 100;
+      const remainMs = Math.max(0, totalEstMs - runningProgress.elapsedMs);
+      progressTimeLabel = `${elapsed} ELAPSED / ~${formatElapsedCompact(remainMs)} LEFT`;
+    } else {
+      progressTimeLabel = `${elapsed} ELAPSED`;
     }
   }
 
@@ -929,7 +974,7 @@ export function ClipExportStrip({
         const mode = getQuickClipExportModeDescriptor(sourceKind, phase.qualityMode);
         status = {
           tone: theme.accent,
-          text: `Exporting ${mode.title}...`,
+          text: runningProgress?.message ?? `Exporting ${mode.title}...`,
           path: phase.destinationPath,
         };
       }
@@ -1073,7 +1118,9 @@ export function ClipExportStrip({
                 const buttonLabel = exportBusy && active
                   ? phase.kind === 'choosing-destination'
                     ? 'SAVE AS...'
-                    : `EXPORTING ${mode.statusToken}`
+                    : runningProgress && runningProgress.percent > 0
+                      ? `EXPORT ${runningProgress.percent.toFixed(0)}%`
+                      : `EXPORTING ${mode.statusToken}`
                   : mode.buttonLabel;
 
               return (
@@ -1153,7 +1200,7 @@ export function ClipExportStrip({
             </div>
             <div style={{ ...detailTextStyle, color: includeCurrentTuning ? theme.text : theme.dim }}>
               {tuningSnapshotPreview
-                ? `${buildTuningSummary(tuningSnapshotPreview)}${transportTuning.pitchAvailable ? '' : ' • PITCH LOCKED TO 0 ST IN THIS RUNTIME'}`
+                ? `${buildTuningSummary(tuningSnapshotPreview)}${transportTuning.pitchAvailable ? '' : ' / PITCH LOCKED TO 0 ST IN THIS RUNTIME'}`
                 : 'Exports use the original saved range audio unless you opt in to bake the current VOL / RATE / PITCH settings.'}
             </div>
             {tunedAudioFastDisabled ? (
@@ -1208,10 +1255,37 @@ export function ClipExportStrip({
               {exportBusy ? 'WORKING' : phase.kind === 'done' ? 'COMPLETE' : phase.kind === 'failed' ? 'EXPORT ERROR' : 'CHECK STATUS'}
             </span>
           </div>
+          {phase.kind === 'running' && runningProgress !== null ? (
+            <div style={progressContainerStyle}>
+              <div style={{ ...progressTrackStyle, background: theme.border }}>
+                <div style={{
+                  height: '100%',
+                  width: `${runningProgress.percent}%`,
+                  background: theme.accent,
+                  transition: 'width 0.3s linear',
+                }} />
+              </div>
+              <div style={progressMetricsStyle}>
+                <span style={{ ...progressMetricStyle, color: theme.accent }}>
+                  {runningProgress.percent.toFixed(1)}%
+                </span>
+                <span style={{ ...progressMetricStyle, color: theme.dim }}>
+                  {progressTimeLabel}
+                </span>
+              </div>
+            </div>
+          ) : null}
           <div style={{ ...statusValueStyle, color: status.tone }}>{status.text}</div>
           {status.path ? (
-            <div style={{ ...pathTextStyle, color: phase.kind === 'done' ? theme.ok : theme.dim }}>
-              {status.path}
+            <div style={statusPathBlockStyle}>
+              <div style={{ ...pathLeafStyle, color: phase.kind === 'done' ? theme.ok : theme.text }} title={status.path}>
+                {getPathLeaf(status.path)}
+              </div>
+              {getPathParent(status.path) ? (
+                <div style={{ ...pathTextStyle, color: theme.dim }} title={status.path}>
+                  {getPathParent(status.path)}
+                </div>
+              ) : null}
             </div>
           ) : null}
         </div>
@@ -1456,6 +1530,30 @@ const statusHeaderStyle: React.CSSProperties = {
   gap: 8,
 };
 
+const progressContainerStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 3,
+};
+
+const progressTrackStyle: React.CSSProperties = {
+  width: '100%',
+  height: 3,
+  overflow: 'hidden',
+};
+
+const progressMetricsStyle: React.CSSProperties = {
+  display: 'flex',
+  justifyContent: 'space-between',
+  gap: 8,
+};
+
+const progressMetricStyle: React.CSSProperties = {
+  fontFamily: FONTS.mono,
+  fontSize: 9,
+  letterSpacing: '0.06em',
+};
+
 const statusValueStyle: React.CSSProperties = {
   fontFamily: FONTS.mono,
   fontSize: 10,
@@ -1463,6 +1561,24 @@ const statusValueStyle: React.CSSProperties = {
   lineHeight: 1.5,
   minWidth: 0,
   overflowWrap: 'anywhere',
+};
+
+const statusPathBlockStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 2,
+  minWidth: 0,
+};
+
+const pathLeafStyle: React.CSSProperties = {
+  fontFamily: FONTS.mono,
+  fontSize: 10,
+  letterSpacing: '0.03em',
+  lineHeight: 1.4,
+  minWidth: 0,
+  whiteSpace: 'nowrap',
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
 };
 
 const detailTextStyle: React.CSSProperties = {
