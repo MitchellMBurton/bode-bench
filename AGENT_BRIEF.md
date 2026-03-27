@@ -45,7 +45,7 @@ The product already has:
 - alternate audio attachment
 - subtitle attachment
 - review ranges
-- desktop clip export with fast copy and exact master modes
+- desktop clip export with source-aware `FAST COPY`, `FAST REVIEW`, and `EXACT MASTER` modes
 - diagnostics logging for support and bug reports
 
 ## Current UX Direction
@@ -204,8 +204,10 @@ Current model:
 
 - saved review range
 - selected clip
-- `FAST COPY`
+- audio `FAST COPY`
+- video `FAST REVIEW`
 - `EXACT MASTER`
+- optional current tuning bake-in for `VOL`, `RATE`, and `PITCH`
 
 Export should feel:
 
@@ -218,6 +220,7 @@ The UI should make it obvious:
 
 - what clip is selected
 - what mode is being used
+- whether tuning is being baked into the export
 - where the result will go
 - whether the source file is linked
 
@@ -274,6 +277,7 @@ If you need direction, focus on these:
 If you want to reason from the codebase, these are the most important files:
 
 - `README.md`
+- `STARTUP_RUNBOOK.md`
 - `PROJECT.md`
 - `ARCHITECTURE.md`
 - `TASKS.md`

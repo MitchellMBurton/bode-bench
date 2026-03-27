@@ -6,7 +6,7 @@
 // ============================================================
 
 import { useCallback, useEffect, useRef } from 'react';
-import { useDisplayMode, useSpectralAnatomyStore, useTheaterMode } from '../core/session';
+import { useAnalysisConfig, useDisplayMode, useSpectralAnatomyStore, useTheaterMode } from '../core/session';
 import { COLORS, FONTS, SPACING, CANVAS } from '../theme';
 import { shouldSkipFrame } from '../utils/rafGuard';
 import { useMeasurementCursor, type CursorMapFn } from './useMeasurementCursor';
@@ -41,6 +41,7 @@ function dbToY(db: number, H: number, padV: number): number {
 }
 
 export function LoudnessHistoryPanel(): React.ReactElement {
+  const analysisConfig = useAnalysisConfig();
   const displayMode = useDisplayMode();
   const spectralAnatomy = useSpectralAnatomyStore();
   const theaterMode = useTheaterMode();
@@ -117,24 +118,26 @@ export function LoudnessHistoryPanel(): React.ReactElement {
       ctx.fillStyle = hyper ? 'rgba(32,52,110,0.92)' : optic ? 'rgba(159,199,223,0.84)' : red ? 'rgba(124,40,39,0.84)' : eva ? 'rgba(74,26,144,0.92)' : COLORS.border;
       ctx.fillRect(0, 0, W, 1);
 
-      ctx.setLineDash([3 * dpr, 4 * dpr]);
-      for (const [db, label] of REF_LINES) {
-        const y = Math.round(dbToY(db, H, padV)) + 0.5;
-        ctx.strokeStyle = db === -6
-          ? (hyper ? 'rgba(88,124,255,0.72)' : optic ? 'rgba(123,182,212,0.76)' : red ? 'rgba(156,52,46,0.72)' : eva ? 'rgba(120,50,200,0.72)' : 'rgba(50,50,72,1)')
-          : (hyper ? 'rgba(28,42,88,0.92)' : optic ? 'rgba(191,218,233,0.92)' : red ? 'rgba(64,16,18,0.92)' : eva ? 'rgba(40,16,80,0.92)' : 'rgba(32,32,48,1)');
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(0, y);
-        ctx.lineTo(W, y);
-        ctx.stroke();
-        ctx.font = `${6.5 * dpr}px ${FONTS.mono}`;
-        ctx.fillStyle = hyper ? HYPER_LABEL : optic ? OPTIC_LABEL : red ? RED_LABEL : eva ? EVA_LABEL : 'rgba(80,80,110,1)';
-        ctx.textAlign = 'right';
-        ctx.textBaseline = 'bottom';
-        ctx.fillText(label, W - SPACING.xs * dpr, y - 1 * dpr);
+      if (analysisConfig.loudness.showRmsGuides) {
+        ctx.setLineDash([3 * dpr, 4 * dpr]);
+        for (const [db, label] of REF_LINES) {
+          const y = Math.round(dbToY(db, H, padV)) + 0.5;
+          ctx.strokeStyle = db === -6
+            ? (hyper ? 'rgba(88,124,255,0.72)' : optic ? 'rgba(123,182,212,0.76)' : red ? 'rgba(156,52,46,0.72)' : eva ? 'rgba(120,50,200,0.72)' : 'rgba(50,50,72,1)')
+            : (hyper ? 'rgba(28,42,88,0.92)' : optic ? 'rgba(191,218,233,0.92)' : red ? 'rgba(64,16,18,0.92)' : eva ? 'rgba(40,16,80,0.92)' : 'rgba(32,32,48,1)');
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.moveTo(0, y);
+          ctx.lineTo(W, y);
+          ctx.stroke();
+          ctx.font = `${6.5 * dpr}px ${FONTS.mono}`;
+          ctx.fillStyle = hyper ? HYPER_LABEL : optic ? OPTIC_LABEL : red ? RED_LABEL : eva ? EVA_LABEL : 'rgba(80,80,110,1)';
+          ctx.textAlign = 'right';
+          ctx.textBaseline = 'bottom';
+          ctx.fillText(label, W - SPACING.xs * dpr, y - 1 * dpr);
+        }
+        ctx.setLineDash([]);
       }
-      ctx.setLineDash([]);
 
       const latestAdvanceDev = Math.max(1, Math.max(BASE_PX_PER_FRAME, spectralAnatomy.latestAdvanceCssPx) * dpr);
       const elapsed = performance.now() - spectralAnatomy.latestFrameAtMs;
@@ -217,7 +220,7 @@ export function LoudnessHistoryPanel(): React.ReactElement {
     return () => {
       if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
     };
-  }, [displayMode, spectralAnatomy, theaterMode]);
+  }, [analysisConfig.loudness.showRmsGuides, displayMode, spectralAnatomy, theaterMode]);
 
   return (
     <div style={panelStyle}>

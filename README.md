@@ -12,7 +12,7 @@ This repo is active. It is no longer an archived alpha handoff. The legacy Bach 
 - Session Console on the left for media routing, preview, transport, clip export, and diagnostics
 - Live Diagnostic quadrant on the right for review, overview, waveform, pitch, oscilloscope, and response work
 - Alternate audio and subtitle attachment for playback
-- Desktop clip export workflow with fast copy and exact master modes
+- Desktop clip export workflow with source-aware `FAST COPY`, `FAST REVIEW`, and `EXACT MASTER` modes
 - Diagnostics log designed for support, review, and reproducible bug reports
 
 ## What It Is For
@@ -68,12 +68,13 @@ npm run dev
 
 Default dev URL:
 
-- `http://127.0.0.1:4173/`
+- `http://127.0.0.1:5173/`
 
 ### Frontend verification
 
 ```bash
 cd app
+npx tsc --noEmit
 npm run lint
 npm test
 npm run build
@@ -98,6 +99,8 @@ This refreshes:
 
 - `desktop/share/ScientificListeningInstrument-Setup.exe`
 - `desktop/share/webapp.html`
+- `desktop/share/latest.json`
+- `desktop/share/ScientificListeningInstrument-Setup.exe.sha256.txt`
 
 ## Using the Console
 
@@ -110,8 +113,10 @@ This refreshes:
 ## Export Notes
 
 - Clip export is desktop-first.
-- `FAST COPY` keeps the source container and avoids re-encode when possible.
-- `EXACT MASTER` performs a fresh encode for reliable trim accuracy.
+- Audio `FAST COPY` keeps the source container and avoids re-encode when no processing is required.
+- Video `FAST REVIEW` is the quick accurate MP4 path for iteration and review.
+- `EXACT MASTER` performs the higher-quality accurate export path.
+- `Include current tuning` can bake `VOL`, `RATE`, and `PITCH` into exports. `SCRL` remains preview-only.
 - Export may still need the original source file path if the session was loaded without a durable desktop path.
 
 ## Optional Annotation Workflow
@@ -157,6 +162,7 @@ av_project_claude_2/
 | `ARCHITECTURE.md` | Current technical seams and system structure |
 | `TASKS.md` | Active work order and milestone status |
 | `HANDOFF.md` | Practical continuation notes for the next work session |
+| `STARTUP_RUNBOOK.md` | Daily startup, build, share, and verification procedure |
 | `MEMORY.md` | Durable accepted decisions and recent context |
 | `UX_PRINCIPLES.md` | Interface doctrine |
 | `POWER_USER_UX.md` | Expert workflow and workspace direction |

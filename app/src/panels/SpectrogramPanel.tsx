@@ -351,22 +351,22 @@ export function SpectrogramPanel(): React.ReactElement {
   const rafRef = useRef<number | null>(null);
   const dimRef = useRef({ W: 0, H: 0, axisW: 0, spectroW: 0, spectroH: 0, padY: 0 });
   const lastModeRef = useRef<VisualMode>(displayMode.mode);
-  const lastDbMinRef = useRef(analysisConfig.spectroDbMin);
-  const lastDbMaxRef = useRef(analysisConfig.spectroDbMax);
+  const lastDbMinRef = useRef(analysisConfig.spectrogram.dbMin);
+  const lastDbMaxRef = useRef(analysisConfig.spectrogram.dbMax);
   const lastRenderedFrameCountRef = useRef(-1);
   const lastRenderedFileIdRef = useRef(-1);
   const lastRenderedSampleRateRef = useRef(0);
   const lastRenderedFftBinCountRef = useRef(0);
   const renderCarryRef = useRef(0);
   const hoverReadoutRef = useRef<HTMLDivElement>(null);
-  const dbRangeRef = useRef({ dbMin: analysisConfig.spectroDbMin, dbMax: analysisConfig.spectroDbMax });
+  const dbRangeRef = useRef({ dbMin: analysisConfig.spectrogram.dbMin, dbMax: analysisConfig.spectrogram.dbMax });
   const rowBandsRef = useRef<readonly RowBand[]>([]);
   const rowBandMetaRef = useRef({ height: 0, sampleRate: 0, fftBinCount: 0 });
 
   useEffect(() => {
-    dbRangeRef.current = { dbMin: analysisConfig.spectroDbMin, dbMax: analysisConfig.spectroDbMax };
+    dbRangeRef.current = { dbMin: analysisConfig.spectrogram.dbMin, dbMax: analysisConfig.spectrogram.dbMax };
     dirtyRef.current = true;
-  }, [analysisConfig.spectroDbMax, analysisConfig.spectroDbMin]);
+  }, [analysisConfig.spectrogram.dbMax, analysisConfig.spectrogram.dbMin]);
 
   const ensureRowBands = useCallback((spectroH: number, sampleRate: number, fftBinCount: number): readonly RowBand[] => {
     const meta = rowBandMetaRef.current;
@@ -482,6 +482,7 @@ export function SpectrogramPanel(): React.ReactElement {
       const spectroX = axisW;
       const backgroundFill = theme.background;
       const { dbMin, dbMax } = dbRangeRef.current;
+      const gridDensity = analysisConfig.spectrogram.gridDensity;
 
       const needsRebuild =
         lastRenderedFrameCountRef.current < 0 ||
@@ -564,22 +565,28 @@ export function SpectrogramPanel(): React.ReactElement {
       ctx.fillRect(0, 0, W, H);
       ctx.drawImage(offscreen, spectroX, padY);
 
-      const cellPx = Math.round(8 * dpr);
-      ctx.fillStyle = theme.cellGrid;
-      for (let gx = spectroX; gx < spectroX + spectroW; gx += cellPx) {
-        ctx.fillRect(gx, padY, 1, spectroH);
+      if (gridDensity === 'major+minor') {
+        const cellPx = Math.round(8 * dpr);
+        ctx.fillStyle = theme.cellGrid;
+        for (let gx = spectroX; gx < spectroX + spectroW; gx += cellPx) {
+          ctx.fillRect(gx, padY, 1, spectroH);
+        }
       }
 
-      ctx.fillStyle = theme.minorGrid;
-      for (const hz of MINOR_GRID_HZ) {
-        const t = hzToT(hz);
-        ctx.fillRect(spectroX, padY + spectroH - t * spectroH, spectroW, 1);
+      if (gridDensity === 'major+minor') {
+        ctx.fillStyle = theme.minorGrid;
+        for (const hz of MINOR_GRID_HZ) {
+          const t = hzToT(hz);
+          ctx.fillRect(spectroX, padY + spectroH - t * spectroH, spectroW, 1);
+        }
       }
 
-      ctx.fillStyle = theme.majorGrid;
-      for (const hz of GRID_HZ) {
-        const t = hzToT(hz);
-        ctx.fillRect(spectroX, padY + spectroH - t * spectroH, spectroW, 1);
+      if (gridDensity !== 'off') {
+        ctx.fillStyle = theme.majorGrid;
+        for (const hz of GRID_HZ) {
+          const t = hzToT(hz);
+          ctx.fillRect(spectroX, padY + spectroH - t * spectroH, spectroW, 1);
+        }
       }
 
       ctx.font = `${8 * dpr}px ${FONTS.mono}`;
@@ -616,7 +623,15 @@ export function SpectrogramPanel(): React.ReactElement {
       ro.disconnect();
       if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
     };
-  }, [analysisConfig.spectroDbMax, analysisConfig.spectroDbMin, displayMode, ensureRowBands, spectralAnatomy, theaterMode]);
+  }, [
+    analysisConfig.spectrogram.dbMax,
+    analysisConfig.spectrogram.dbMin,
+    analysisConfig.spectrogram.gridDensity,
+    displayMode,
+    ensureRowBands,
+    spectralAnatomy,
+    theaterMode,
+  ]);
 
   return (
     <div style={{ ...panelStyle, background: SPECTROGRAM_THEMES[displayMode.mode].panelBackground }}>

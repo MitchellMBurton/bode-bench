@@ -550,7 +550,7 @@ export function ConsoleLayout({
               background: analysisConfigOpen ? lt.toolbarButtonBorder : lt.toolbarButtonBg,
             }}
             onClick={() => setAnalysisConfigOpen((o) => !o)}
-            title="Analysis configuration (FFT size, smoothing, bandwidth, dB range)"
+            title="Analysis configuration (engine, spectrogram, response, loudness)"
           >
             ANALYSIS
           </button>

@@ -5,10 +5,11 @@
 // ============================================================
 
 import { useCallback, useEffect, useRef } from 'react';
-import { useDisplayMode, useSpectralAnatomyStore, useTheaterMode } from '../core/session';
+import { useAnalysisConfig, useDisplayMode, useSpectralAnatomyStore, useTheaterMode } from '../core/session';
 import { COLORS, FONTS, SPACING, CANVAS } from '../theme';
 import { shouldSkipFrame } from '../utils/rafGuard';
 import { useMeasurementCursor, type CursorMapFn } from './useMeasurementCursor';
+import type { LoudnessTargetPreset } from '../types';
 
 const PANEL_DPR_MAX = 1.25;
 const BASE_PX_PER_FRAME = CANVAS.timelineScrollPx;
@@ -24,6 +25,12 @@ const REF_LINES: [number, string][] = [
   [-23, '-23 EBU'],
   [-24, '-24 CIN'],
 ];
+const TARGET_LINE_BY_PRESET: Record<LoudnessTargetPreset, readonly [number, string]> = {
+  stream: REF_LINES[0],
+  apple: REF_LINES[1],
+  ebu: REF_LINES[2],
+  cinema: REF_LINES[3],
+};
 
 function lufsToY(lufs: number, H: number, padV: number): number {
   const t = (Math.max(LUFS_BOT, Math.min(LUFS_TOP, lufs)) - LUFS_TOP) / (LUFS_BOT - LUFS_TOP);
@@ -31,6 +38,7 @@ function lufsToY(lufs: number, H: number, padV: number): number {
 }
 
 export function LoudnessMeterPanel(): React.ReactElement {
+  const analysisConfig = useAnalysisConfig();
   const displayMode = useDisplayMode();
   const spectralAnatomy = useSpectralAnatomyStore();
   const theaterMode = useTheaterMode();
@@ -100,6 +108,8 @@ export function LoudnessMeterPanel(): React.ReactElement {
       const traceColor = nge ? '#a0d840' : hyper ? CANVAS.hyper.trace : optic ? CANVAS.optic.trace : red ? CANVAS.red.trace : eva ? CANVAS.eva.trace : COLORS.waveform;
       const labelColor = nge ? 'rgba(140,210,40,0.5)' : hyper ? CANVAS.hyper.label : optic ? CANVAS.optic.label : red ? CANVAS.red.label : eva ? CANVAS.eva.label : COLORS.textDim;
       const textColor = nge ? 'rgba(140,210,40,0.72)' : hyper ? CANVAS.hyper.text : optic ? CANVAS.optic.text : red ? CANVAS.red.text : eva ? CANVAS.eva.text : COLORS.textSecondary;
+      const targetLine = TARGET_LINE_BY_PRESET[analysisConfig.loudness.targetPreset];
+      const referenceLines = analysisConfig.loudness.referenceMode === 'target-only' ? [targetLine] : REF_LINES;
 
       ctx.fillStyle = hyper ? CANVAS.hyper.bg2 : optic ? CANVAS.optic.bg2 : red ? CANVAS.red.bg2 : eva ? CANVAS.eva.bg : COLORS.bg1;
       ctx.fillRect(0, 0, W, H);
@@ -118,9 +128,9 @@ export function LoudnessMeterPanel(): React.ReactElement {
       ctx.fillRect(0, y23, W, yBot - y23);
 
       ctx.setLineDash([3 * dpr, 4 * dpr]);
-      for (const [lufs, label] of REF_LINES) {
+      for (const [lufs, label] of referenceLines) {
         const y = Math.round(lufsToY(lufs, H, padV)) + 0.5;
-        const isTarget = lufs === -14;
+        const isTarget = lufs === targetLine[0];
         ctx.strokeStyle = isTarget
           ? (hyper ? 'rgba(88,124,255,0.65)' : nge ? 'rgba(100,200,40,0.55)' : optic ? 'rgba(116,186,220,0.72)' : red ? 'rgba(255,132,116,0.64)' : eva ? 'rgba(255,123,0,0.55)' : 'rgba(60,60,90,1)')
           : (hyper ? 'rgba(28,42,88,0.85)' : nge ? 'rgba(40,80,20,0.45)' : optic ? 'rgba(191,218,233,0.92)' : red ? 'rgba(64,16,18,0.85)' : eva ? 'rgba(74,26,144,0.55)' : 'rgba(38,38,56,1)');
@@ -269,7 +279,13 @@ export function LoudnessMeterPanel(): React.ReactElement {
     return () => {
       if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
     };
-  }, [displayMode, spectralAnatomy, theaterMode]);
+  }, [
+    analysisConfig.loudness.referenceMode,
+    analysisConfig.loudness.targetPreset,
+    displayMode,
+    spectralAnatomy,
+    theaterMode,
+  ]);
 
   return (
     <div style={panelStyle}>

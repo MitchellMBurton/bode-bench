@@ -80,12 +80,19 @@ type LinkedSource =
   | { kind: 'remembered'; path: string }
   | { kind: 'missing'; rememberedPath: string };
 
-type SourceStatus =
+type TuningPreference =
+  | { kind: 'disabled' }
+  | { kind: 'enabled'; sourceSessionKey: string };
+
+type SourceResolution =
   | { kind: 'none' }
-  | { kind: 'loaded'; path: string }
-  | { kind: 'linked'; path: string }
-  | { kind: 'remembered'; path: string }
-  | { kind: 'missing'; rememberedPath: string };
+  | { kind: 'missing'; rememberedPath: string }
+  | {
+      kind: 'resolved';
+      path: string;
+      label: string;
+      detail: string;
+    };
 
 type Gate =
   | { kind: 'needs-range' }
@@ -248,58 +255,37 @@ function getPreferredSaveDirectory(sourcePath: string): SaveDirectory {
   return { path: getParentFolder(sourcePath), kind: 'source' };
 }
 
-function getSourceStatus(sourcePath: string | null, linkedSource: LinkedSource): SourceStatus {
+function getSourceResolution(sourcePath: string | null, linkedSource: LinkedSource): SourceResolution {
   if (sourcePath) {
-    return { kind: 'loaded', path: sourcePath };
+    return {
+      kind: 'resolved',
+      path: sourcePath,
+      label: 'OPENED FILE',
+      detail: 'Export will use the file you opened.',
+    };
   }
-  return linkedSource;
-}
 
-function getEffectiveSourcePath(sourceStatus: SourceStatus): string | null {
-  switch (sourceStatus.kind) {
+  switch (linkedSource.kind) {
     case 'none':
+      return linkedSource;
     case 'missing':
-      return null;
-    case 'loaded':
-    case 'linked':
-    case 'remembered':
-      return sourceStatus.path;
-    default: {
-      const _exhaustive: never = sourceStatus;
-      return _exhaustive;
-    }
-  }
-}
-
-function getResolvedSourceSummary(sourceStatus: SourceStatus): {
-  label: string;
-  detail: string;
-  path: string;
-} {
-  switch (sourceStatus.kind) {
-    case 'loaded':
-      return {
-        label: 'OPENED FILE',
-        detail: 'Export will use the file you opened.',
-        path: sourceStatus.path,
-      };
+      return linkedSource;
     case 'linked':
       return {
+        kind: 'resolved',
+        path: linkedSource.path,
         label: 'LINKED THIS SESSION',
         detail: 'Export will use the original file you linked for this session.',
-        path: sourceStatus.path,
       };
     case 'remembered':
       return {
+        kind: 'resolved',
+        path: linkedSource.path,
         label: 'AUTO-RELINKED',
         detail: 'Export recovered the last original file you linked for this clip.',
-        path: sourceStatus.path,
       };
-    case 'none':
-    case 'missing':
-      throw new Error('source is not resolved');
     default: {
-      const _exhaustive: never = sourceStatus;
+      const _exhaustive: never = linkedSource;
       return _exhaustive;
     }
   }
@@ -348,6 +334,10 @@ function getTuningSnapshot(options: {
   };
 }
 
+function isTuningEnabled(preference: TuningPreference, sourceSessionKey: string): boolean {
+  return preference.kind === 'enabled' && preference.sourceSessionKey === sourceSessionKey;
+}
+
 export function ClipExportStrip({
   sessionFilename,
   sessionDurationS,
@@ -366,20 +356,16 @@ export function ClipExportStrip({
   const [tools, setTools] = useState<ToolState>({ kind: 'probing' });
   const [phase, setPhase] = useState<ExportPhase>({ kind: 'idle' });
   const [linkedSource, setLinkedSource] = useState<LinkedSource>({ kind: 'none' });
-  const [tuningPreference, setTuningPreference] = useState(() => ({
-    sourceSessionKey,
-    enabled: false,
-  }));
+  const [tuningPreference, setTuningPreference] = useState<TuningPreference>({ kind: 'disabled' });
   const [transportTuning, setTransportTuning] = useState(() => ({
     volume: audioEngine.volume,
     playbackRate: audioEngine.playbackRate,
     pitchSemitones: audioEngine.pitchSemitones,
     pitchAvailable: true,
   }));
-  const sourceStatus = getSourceStatus(sourcePath, linkedSource);
-  const effectiveSourcePath = getEffectiveSourcePath(sourceStatus);
-  const includeCurrentTuning =
-    tuningPreference.sourceSessionKey === sourceSessionKey ? tuningPreference.enabled : false;
+  const sourceResolution = getSourceResolution(sourcePath, linkedSource);
+  const effectiveSourcePath = sourceResolution.kind === 'resolved' ? sourceResolution.path : null;
+  const includeCurrentTuning = isTuningEnabled(tuningPreference, sourceSessionKey);
 
   useEffect(() => {
     if (!desktopRuntime) {
@@ -429,12 +415,9 @@ export function ClipExportStrip({
 
   useEffect(() => {
     return audioEngine.onReset(() => {
-      setTuningPreference({
-        sourceSessionKey,
-        enabled: false,
-      });
+      setTuningPreference({ kind: 'disabled' });
     });
-  }, [audioEngine, sourceSessionKey]);
+  }, [audioEngine]);
 
   useEffect(() => {
     if (!sourcePath || sessionDurationS <= 0) {
@@ -802,7 +785,7 @@ export function ClipExportStrip({
           readinessLabel = 'UNAVAILABLE';
           break;
         case 'needs-source':
-          readinessLabel = sourceStatus.kind === 'missing' ? 'SOURCE MOVED' : 'LINK SOURCE';
+          readinessLabel = sourceResolution.kind === 'missing' ? 'SOURCE MOVED' : 'LINK SOURCE';
           break;
         case 'ready':
           readinessLabel = 'READY';
@@ -837,7 +820,7 @@ export function ClipExportStrip({
   const readySaveDirectory = gate.kind === 'ready' ? gate.saveDirectory : null;
   const sourceActionLabel = readySaveDirectory ? 'CHANGE SOURCE' : 'LINK ORIGINAL FILE';
   const showStatusPanel = phase.kind !== 'idle';
-  const resolvedSource = readySaveDirectory ? getResolvedSourceSummary(sourceStatus) : null;
+  const resolvedSource = readySaveDirectory && sourceResolution.kind === 'resolved' ? sourceResolution : null;
   const quietNeedsRange = phase.kind === 'idle' && gate.kind === 'needs-range';
   const qualityModes =
     sourceKind === 'video'
@@ -891,14 +874,14 @@ export function ClipExportStrip({
       };
       break;
     case 'needs-source':
-      assert(sourceStatus.kind === 'none' || sourceStatus.kind === 'missing', 'source must be unresolved');
-      if (sourceStatus.kind === 'missing') {
+      assert(sourceResolution.kind === 'none' || sourceResolution.kind === 'missing', 'source must be unresolved');
+      if (sourceResolution.kind === 'missing') {
         guidance = {
           title: 'LAST SOURCE PATH IS GONE',
           detail: 'We looked in the last known original location and did not find the file there. Link it again to continue.',
           tone: COLORS.statusWarn,
           actionLabel: sourceActionLabel,
-          path: sourceStatus.rememberedPath,
+          path: sourceResolution.rememberedPath,
         };
         break;
       }
@@ -1155,10 +1138,11 @@ export function ClipExportStrip({
                 }}
                 disabled={tuningDisabled}
                 onClick={() => {
-                  setTuningPreference({
-                    sourceSessionKey,
-                    enabled: !includeCurrentTuning,
-                  });
+                  setTuningPreference((previous) =>
+                    isTuningEnabled(previous, sourceSessionKey)
+                      ? { kind: 'disabled' }
+                      : { kind: 'enabled', sourceSessionKey },
+                  );
                   setPhase((prevPhase) => (prevPhase.kind === 'failed' ? { kind: 'idle' } : prevPhase));
                 }}
                 title="Bake the current VOL, RATE, and PITCH settings into the export"

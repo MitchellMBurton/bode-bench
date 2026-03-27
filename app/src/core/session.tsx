@@ -46,7 +46,7 @@ export function createAppSession(): AppSession {
   const analysisConfig = new AnalysisConfigStore();
   diagnosticsLog.attachGlobalCapture();
 
-  const audioEngine = new AudioEngine(frameBus, performanceDiagnostics);
+  const audioEngine = new AudioEngine(frameBus, performanceDiagnostics, analysisConfig.getSnapshot());
   const spectralAnatomy = new SpectralAnatomyStore(frameBus, audioEngine, scrollSpeed);
 
   // Propagate analysis config changes to the engine's analyser nodes.

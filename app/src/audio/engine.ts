@@ -88,10 +88,16 @@ const SCRUB_STYLE_CONFIG: Record<ScrubStyle, ScrubStyleConfig> = {
 export class AudioEngine {
   private readonly frameBus: FrameBus;
   private readonly performanceDiagnostics: PerformanceDiagnosticsStore | null;
+  private analysisConfig: AnalysisConfig;
 
-  constructor(frameBus: FrameBus, performanceDiagnostics: PerformanceDiagnosticsStore | null = null) {
+  constructor(
+    frameBus: FrameBus,
+    performanceDiagnostics: PerformanceDiagnosticsStore | null = null,
+    analysisConfig: AnalysisConfig,
+  ) {
     this.frameBus = frameBus;
     this.performanceDiagnostics = performanceDiagnostics;
+    this.analysisConfig = analysisConfig;
   }
 
   private ctx: AudioContext | null = null;
@@ -200,19 +206,22 @@ export class AudioEngine {
 
   private buildGraph(): void {
     const ctx = this.ctx!;
-    const fftSize = CANVAS.fftSize;
+    const fftSize = this.analysisConfig.general.fftSize;
+    const smoothing = this.analysisConfig.general.smoothing;
+    const dbMin = this.analysisConfig.spectrogram.dbMin;
+    const dbMax = this.analysisConfig.spectrogram.dbMax;
 
     this.analyserL = ctx.createAnalyser();
     this.analyserL.fftSize = fftSize;
-    this.analyserL.smoothingTimeConstant = CANVAS.smoothingTimeConstant;
-    this.analyserL.minDecibels = CANVAS.dbMin;
-    this.analyserL.maxDecibels = CANVAS.dbMax;
+    this.analyserL.smoothingTimeConstant = smoothing;
+    this.analyserL.minDecibels = dbMin;
+    this.analyserL.maxDecibels = dbMax;
 
     this.analyserR = ctx.createAnalyser();
     this.analyserR.fftSize = fftSize;
-    this.analyserR.smoothingTimeConstant = CANVAS.smoothingTimeConstant;
-    this.analyserR.minDecibels = CANVAS.dbMin;
-    this.analyserR.maxDecibels = CANVAS.dbMax;
+    this.analyserR.smoothingTimeConstant = smoothing;
+    this.analyserR.minDecibels = dbMin;
+    this.analyserR.maxDecibels = dbMax;
 
     this.timeDomainData = new Float32Array(new ArrayBuffer(fftSize * 4));
     this.timeDomainDataR = new Float32Array(new ArrayBuffer(fftSize * 4));
@@ -244,25 +253,26 @@ export class AudioEngine {
   /** Apply analysis configuration changes to the live analyser nodes.
    *  Called by AppSession when the AnalysisConfigStore emits. */
   applyAnalysisConfig(config: AnalysisConfig): void {
+    this.analysisConfig = config;
     if (!this.analyserL || !this.analyserR) return;
 
-    const fftSizeChanged = this.analyserL.fftSize !== config.fftSize;
+    const fftSizeChanged = this.analyserL.fftSize !== config.general.fftSize;
 
-    this.analyserL.fftSize = config.fftSize;
-    this.analyserL.smoothingTimeConstant = config.smoothing;
-    this.analyserL.minDecibels = config.spectroDbMin;
-    this.analyserL.maxDecibels = config.spectroDbMax;
+    this.analyserL.fftSize = config.general.fftSize;
+    this.analyserL.smoothingTimeConstant = config.general.smoothing;
+    this.analyserL.minDecibels = config.spectrogram.dbMin;
+    this.analyserL.maxDecibels = config.spectrogram.dbMax;
 
-    this.analyserR.fftSize = config.fftSize;
-    this.analyserR.smoothingTimeConstant = config.smoothing;
-    this.analyserR.minDecibels = config.spectroDbMin;
-    this.analyserR.maxDecibels = config.spectroDbMax;
+    this.analyserR.fftSize = config.general.fftSize;
+    this.analyserR.smoothingTimeConstant = config.general.smoothing;
+    this.analyserR.minDecibels = config.spectrogram.dbMin;
+    this.analyserR.maxDecibels = config.spectrogram.dbMax;
 
     if (fftSizeChanged) {
-      this.timeDomainData = new Float32Array(config.fftSize);
-      this.timeDomainDataR = new Float32Array(config.fftSize);
-      this.frequencyData = new Float32Array(config.fftSize / 2);
-      this.frequencyDataR = new Float32Array(config.fftSize / 2);
+      this.timeDomainData = new Float32Array(config.general.fftSize);
+      this.timeDomainDataR = new Float32Array(config.general.fftSize);
+      this.frequencyData = new Float32Array(config.general.fftSize / 2);
+      this.frequencyDataR = new Float32Array(config.general.fftSize / 2);
     }
   }
 

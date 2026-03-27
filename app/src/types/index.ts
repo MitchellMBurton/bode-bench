@@ -257,19 +257,41 @@ export type FftSizeOption = 2048 | 4096 | 8192 | 16384;
 
 /** Frequency response panel smoothing bandwidth. */
 export type FreqResponseBandwidth = '1/12-oct' | '1/6-oct' | '1/3-oct' | '1-oct';
+export type FreqResponseDbSpan = 36 | 54 | 72;
+export type SpectrogramGridDensity = 'off' | 'major-only' | 'major+minor';
+export type LoudnessTargetPreset = 'stream' | 'apple' | 'ebu' | 'cinema';
+export type LoudnessReferenceMode = 'all' | 'target-only';
 
 /** Serialisable analysis parameter snapshot — persisted to localStorage and future session files. */
 export interface AnalysisConfig {
-  /** FFT window size. Larger = better frequency resolution, worse time resolution. */
-  readonly fftSize: FftSizeOption;
-  /** AnalyserNode smoothing time constant (0.0 – 1.0). */
-  readonly smoothing: number;
-  /** Frequency response band-average width. */
-  readonly freqResponseBandwidth: FreqResponseBandwidth;
-  /** Spectrogram colour-map minimum dB (e.g. -80). */
-  readonly spectroDbMin: number;
-  /** Spectrogram colour-map maximum dB (e.g. 0). */
-  readonly spectroDbMax: number;
+  readonly general: {
+    /** FFT window size. Larger = better frequency resolution, worse time resolution. */
+    readonly fftSize: FftSizeOption;
+    /** AnalyserNode smoothing time constant (0.0 – 1.0). */
+    readonly smoothing: number;
+  };
+  readonly frequencyResponse: {
+    /** Frequency response band-average width. */
+    readonly bandwidth: FreqResponseBandwidth;
+    /** Visible vertical dB span for the response panel. */
+    readonly dbSpan: FreqResponseDbSpan;
+  };
+  readonly spectrogram: {
+    /** Spectrogram colour-map minimum dB (e.g. -80). */
+    readonly dbMin: number;
+    /** Spectrogram colour-map maximum dB (e.g. 0). */
+    readonly dbMax: number;
+    /** Grid overlay density for the spectrogram display. */
+    readonly gridDensity: SpectrogramGridDensity;
+  };
+  readonly loudness: {
+    /** Highlighted loudness target preset. */
+    readonly targetPreset: LoudnessTargetPreset;
+    /** Whether to show all loudness references or only the selected target. */
+    readonly referenceMode: LoudnessReferenceMode;
+    /** Whether the RMS history panel should draw guide lines. */
+    readonly showRmsGuides: boolean;
+  };
 }
 
 // ----------------------------------------------------------

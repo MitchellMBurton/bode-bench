@@ -4,7 +4,7 @@
 
 Repo: `av_project_claude_2`
 Branch: `main`
-Accepted baseline at this handoff: `da8511e`
+Accepted baseline at this handoff: `66a101b`
 
 This repo is active. It is not a preserved no-change alpha. The handoff below is for continuing refinement work, not for migrating away from a frozen artifact.
 
@@ -17,6 +17,7 @@ This repo is active. It is not a preserved no-change alpha. The handoff below is
 - right Live Diagnostic quadrant used as the primary analytical surface
 - alternate audio and subtitle attachment for playback
 - desktop-first clip export flow
+- optional tuned clip export using current `VOL`, `RATE`, and `PITCH`
 - diagnostics drawer for support and reproducibility
 
 ### UX direction already in flight

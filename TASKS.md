@@ -16,6 +16,7 @@ Deliver a review-and-export console that feels coherent, trustworthy, and demons
 - [x] Live Diagnostic command deck promoted into chrome
 - [x] Alternate audio and subtitle attachment for playback
 - [x] Desktop clip export flow with fast and exact master modes
+- [x] Optional tuned clip export for `VOL`, `RATE`, and `PITCH`
 - [x] ffmpeg bundled/desktop seam work
 - [x] Diagnostics log drawer and copy/save flows
 - [x] Control hierarchy refinement across top chrome and left workbench

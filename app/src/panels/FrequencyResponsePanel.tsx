@@ -10,9 +10,7 @@ const PAD = SPACING.panelPad;
 const MIN_HZ = 20;
 const MAX_HZ = 20000;
 const FREQ_TICKS = [20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000];
-const REL_TICKS = [0, -12, -24, -36, -48];
 const CURVE_SMOOTHING = 0.22;
-const DISPLAY_DB_SPAN = 54;
 const PANEL_DPR_MAX = 1.25;
 const NGE_TRACE = '#a0d840';
 const NGE_TRACE_SOFT = 'rgba(160,216,64,0.78)';
@@ -56,6 +54,17 @@ function formatFreqLabel(hz: number): string {
 
 function hzAtFraction(fraction: number): number {
   return MIN_HZ * Math.pow(MAX_HZ / MIN_HZ, fraction);
+}
+
+function getRelativeTicks(dbSpan: number): readonly number[] {
+  const ticks: number[] = [];
+  for (let db = 0; db >= -dbSpan; db -= 12) {
+    ticks.push(db);
+  }
+  if (ticks[ticks.length - 1] !== -dbSpan) {
+    ticks.push(-dbSpan);
+  }
+  return ticks;
 }
 
 
@@ -132,11 +141,18 @@ export function FrequencyResponsePanel(): React.ReactElement {
   const drawLayoutRef = useRef({ padX: 0, padY: 0, drawW: 1, drawH: 1, topDb: 0, bottomDb: -54 });
 
   // Bandwidth map: config string → numeric octaves
-  const bandwidthRef = useRef(1/6);
+  const bandwidthRef = useRef(1 / 6);
+  const dbSpanRef = useRef(analysisConfig.frequencyResponse.dbSpan);
   useEffect(() => {
-    const BW_MAP: Record<string, number> = { '1/12-oct': 1/12, '1/6-oct': 1/6, '1/3-oct': 1/3, '1-oct': 1 };
-    bandwidthRef.current = BW_MAP[analysisConfig.freqResponseBandwidth] ?? 1/6;
-  }, [analysisConfig.freqResponseBandwidth]);
+    const BW_MAP: Record<string, number> = { '1/12-oct': 1 / 12, '1/6-oct': 1 / 6, '1/3-oct': 1 / 3, '1-oct': 1 };
+    bandwidthRef.current = BW_MAP[analysisConfig.frequencyResponse.bandwidth] ?? 1 / 6;
+    dirtyRef.current = true;
+  }, [analysisConfig.frequencyResponse.bandwidth]);
+
+  useEffect(() => {
+    dbSpanRef.current = analysisConfig.frequencyResponse.dbSpan;
+    dirtyRef.current = true;
+  }, [analysisConfig.frequencyResponse.dbSpan]);
 
   const mapToValues: CursorMapFn = useCallback((devX: number, devY: number) => {
     const { padX, padY, drawW, drawH, topDb, bottomDb } = drawLayoutRef.current;
@@ -318,7 +334,8 @@ export function FrequencyResponsePanel(): React.ReactElement {
       }
 
       const topDb = Math.min(0, hottestDb + 6);
-      const bottomDb = topDb - DISPLAY_DB_SPAN;
+      const dbSpan = dbSpanRef.current;
+      const bottomDb = topDb - dbSpan;
       drawLayoutRef.current = { padX, padY, drawW, drawH, topDb, bottomDb };
       const averageY = new Float32Array(pointCount);
       const leftY = new Float32Array(pointCount);
@@ -330,7 +347,7 @@ export function FrequencyResponsePanel(): React.ReactElement {
         rightY[i] = dbToPanelY(smoothRight[i], topDb, bottomDb, padY, drawH);
       }
 
-      for (const relTick of REL_TICKS) {
+      for (const relTick of getRelativeTicks(dbSpan)) {
         const tickDb = topDb + relTick;
         const y = dbToPanelY(tickDb, topDb, bottomDb, padY, drawH);
         ctx.strokeStyle = relTick === 0
@@ -551,6 +568,3 @@ const overlayStyle: React.CSSProperties = {
   height: '100%',
   pointerEvents: 'none',
 };
-
-
-
