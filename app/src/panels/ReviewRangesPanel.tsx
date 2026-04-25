@@ -28,6 +28,16 @@ const REVIEW_THEMES: Record<VisualMode, ReviewTheme> = {
     dim: COLORS.textDim,
     accent: COLORS.accent,
   },
+  amber: {
+    panelBg: 'linear-gradient(180deg, rgba(12,8,3,0.99), rgba(20,13,4,0.99))',
+    buttonActiveBg: 'linear-gradient(135deg, rgba(42,24,6,0.98), rgba(68,36,8,0.96))',
+    border: 'rgba(102,70,20,0.76)',
+    accentBorder: CANVAS.amber.chromeBorderActive,
+    text: CANVAS.amber.text,
+    label: CANVAS.amber.category,
+    dim: 'rgba(212,170,86,0.64)',
+    accent: 'rgba(255,176,48,0.96)',
+  },
   optic: {
     panelBg: 'linear-gradient(180deg, rgba(248,251,253,0.99), rgba(238,245,249,0.99))',
     buttonActiveBg: 'linear-gradient(135deg, rgba(252,254,255,0.99), rgba(231,239,245,0.99))',

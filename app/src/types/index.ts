@@ -295,6 +295,23 @@ export interface AnalysisConfig {
 }
 
 // ----------------------------------------------------------
+// Waveform Pyramid
+// ----------------------------------------------------------
+
+export type WaveformConfidence = 0 | 1 | 2;
+export type WaveformRenderMode = 'sample' | 'envelope' | 'scaffold';
+export type WaveformVerticalScale = 'linear' | 'db';
+
+export interface WaveformLevel {
+  readonly binCount: number;
+  readonly min: Float32Array;
+  readonly max: Float32Array;
+  readonly rms: Float32Array;
+  readonly clipDensity: Float32Array;
+  readonly confidence: Uint8Array;
+}
+
+// ----------------------------------------------------------
 // Measurement Cursors
 // ----------------------------------------------------------
 

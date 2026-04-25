@@ -1,24 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useAudioEngine, useDisplayMode, useFrameBus, usePerformanceProfile, useTheaterMode } from '../core/session';
-import type { TimelineProfile } from '../runtime/performanceProfile';
+import { useAudioEngine, useDisplayMode, useFrameBus, useTheaterMode, useWaveformPyramidStore } from '../core/session';
 import { CANVAS, COLORS, FONTS, SPACING } from '../theme';
 import { shouldSkipFrame } from '../utils/rafGuard';
-import type { FileAnalysis, Marker, RangeMark, ScrubStyle, TransportState } from '../types';
+import type { Marker, RangeMark, ScrubStyle, TransportState, WaveformLevel } from '../types';
 import { formatTransportTime } from '../utils/format';
 import { drawCanvasRangeChip } from '../controls/reviewChromeShared';
 import {
-  buildDetailScoutTargets,
-  chooseDetailRenderMode,
-  DETAIL_READY_RATIO,
-  type StreamedScoutTarget,
-  targetNeedsSample,
-} from './waveformOverviewCoverage';
-
-interface EnvelopeData {
-  peakEnv: Float32Array;
-  rmsEnv: Float32Array;
-  clipMap: Uint8Array;
-}
+  amplitudeToEventHeight,
+  computeEventModeBlend,
+  computeTransientIntensity,
+  pickWaveformDetailRenderMode,
+  shouldUseEventScaffold,
+  type WaveformDetailRenderMode,
+} from './waveformDetailMode';
 
 interface ViewRange {
   readonly start: number;
@@ -37,18 +31,6 @@ interface TimelineLayout {
   readonly view: TimelineRect;
   readonly loop: TimelineRect;
   readonly detail: TimelineRect;
-}
-
-interface StreamedEnvelopeCacheEntry {
-  readonly sessionPeakEnv: Float32Array;
-  readonly sessionRmsEnv: Float32Array;
-  readonly sessionCoverage: Uint8Array;
-  readonly detailPeakEnv: Float32Array;
-  readonly detailRmsEnv: Float32Array;
-  readonly detailCoverage: Uint8Array;
-  sessionPeakMax: number;
-  detailPeakMax: number;
-  sessionLearnedCount: number;
 }
 
 type TimelineGestureKind =
@@ -109,17 +91,7 @@ interface RangeHit {
   readonly isSelected: boolean;
 }
 
-const CLIP_THRESHOLD = 0.9999;
 const PANEL_DPR_MAX = 1.25;
-const DEFAULT_ENVELOPE_COLS = 1024;
-const ENVELOPE_COL_BUCKET = 64;
-const ENVELOPE_SLICE_BUDGET_MS = 5;
-const STREAMED_ENVELOPE_BRIDGE_MAX_BINS = 24;
-const STREAMED_DETAIL_SECONDS_PER_COL = 0.5;
-const STREAMED_DETAIL_BRIDGE_MAX_BINS = 96;
-const STREAMED_SCOUT_READY_TIMEOUT_MS = 1800;
-const STREAMED_SCOUT_SAMPLE_WINDOW_MS = 110;
-const STREAMED_SCOUT_IDLE_DELAY_MS = 24;
 const MIN_VIEWPORT_SECONDS = 3;
 const MIN_LOOP_SECONDS = 0.1;
 const MIN_RANGE_EDIT_SECONDS = 0.01;
@@ -137,7 +109,6 @@ const EXPANDED_CONTROL_ROW_MIN_PX = 16;
 const EXPANDED_CONTROL_ROW_MAX_PX = 22;
 const EXPANDED_TIMELINE_SEPARATOR_PX = 2;
 const HANDLE_HIT_PX = 14;
-const streamedEnvelopeCache = new Map<string, StreamedEnvelopeCacheEntry>();
 
 const SCRUB_STYLE_OPTIONS: ReadonlyArray<{
   readonly value: ScrubStyle;
@@ -149,325 +120,8 @@ const SCRUB_STYLE_OPTIONS: ReadonlyArray<{
   { value: 'wheel', label: 'WHEEL', detail: 'jog emphasis' },
 ];
 
-function bucketEnvelopeCols(cols: number, minCols = DEFAULT_ENVELOPE_COLS): number {
-  const rounded = Math.max(minCols, Math.round(cols / ENVELOPE_COL_BUCKET) * ENVELOPE_COL_BUCKET);
-  return Math.max(64, rounded);
-}
-
-function pickStreamedEnvelopeCols(duration: number, timeline: TimelineProfile): number {
-  const target = Math.max(timeline.sessionMapMinCols, Math.round(duration / timeline.sessionMapSecondsPerCol));
-  return Math.min(timeline.sessionMapMaxCols, bucketEnvelopeCols(target, timeline.sessionMapMinCols));
-}
-
-function pickStreamedDetailEnvelopeCols(duration: number, timeline: TimelineProfile): number {
-  const target = Math.max(DEFAULT_ENVELOPE_COLS, Math.round(duration / STREAMED_DETAIL_SECONDS_PER_COL));
-  return Math.min(timeline.detailMapMaxCols, bucketEnvelopeCols(target));
-}
-
-function buildMediaKey(filename: string | null, duration: number): string | null {
-  if (!filename || !Number.isFinite(duration) || duration <= 0) return null;
-  return `${filename}:${duration.toFixed(3)}`;
-}
-
-function buildStreamedProfileKey(
-  filename: string | null,
-  duration: number,
-  profileId: string,
-): string | null {
-  const mediaKey = buildMediaKey(filename, duration);
-  return mediaKey ? `${mediaKey}:${profileId}` : null;
-}
-
-function buildStreamedDetailScoutKey(
-  filename: string,
-  duration: number,
-  profileId: string,
-  viewRange: ViewRange,
-): string | null {
-  const profileKey = buildStreamedProfileKey(filename, duration, profileId);
-  if (!profileKey) return null;
-  if (duration <= 45) return `${profileKey}:detail:full`;
-  return `${profileKey}:detail:${viewRange.start.toFixed(2)}:${viewRange.end.toFixed(2)}`;
-}
-
-function createStreamedEnvelopeCacheEntry(cols: number, detailCols: number): StreamedEnvelopeCacheEntry {
-  return {
-    sessionPeakEnv: new Float32Array(cols),
-    sessionRmsEnv: new Float32Array(cols),
-    sessionCoverage: new Uint8Array(cols),
-    detailPeakEnv: new Float32Array(detailCols),
-    detailRmsEnv: new Float32Array(detailCols),
-    detailCoverage: new Uint8Array(detailCols),
-    sessionPeakMax: 0,
-    detailPeakMax: 0,
-    sessionLearnedCount: 0,
-  };
-}
-
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    window.setTimeout(resolve, ms);
-  });
-}
-
-function waitForMediaReadyState(element: HTMLMediaElement, timeoutMs: number): Promise<void> {
-  if (element.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
-    return Promise.resolve();
-  }
-
-  return new Promise((resolve) => {
-    let settled = false;
-    let timer = 0;
-
-    const cleanup = () => {
-      element.removeEventListener('loadeddata', onReady);
-      element.removeEventListener('canplay', onReady);
-      element.removeEventListener('error', onReady);
-      if (timer) window.clearTimeout(timer);
-    };
-
-    const onReady = () => {
-      if (settled) return;
-      settled = true;
-      cleanup();
-      resolve();
-    };
-
-    timer = window.setTimeout(onReady, timeoutMs);
-    element.addEventListener('loadeddata', onReady, { once: true });
-    element.addEventListener('canplay', onReady, { once: true });
-    element.addEventListener('error', onReady, { once: true });
-  });
-}
-
-function seekMediaElement(element: HTMLMediaElement, time: number, timeoutMs: number): Promise<void> {
-  if (!Number.isFinite(time) || time < 0) return Promise.resolve();
-  if (Math.abs(element.currentTime - time) <= 0.025) return Promise.resolve();
-
-  return new Promise((resolve) => {
-    let settled = false;
-    let timer = 0;
-
-    const cleanup = () => {
-      element.removeEventListener('seeked', onDone);
-      element.removeEventListener('error', onDone);
-      if (timer) window.clearTimeout(timer);
-    };
-
-    const onDone = () => {
-      if (settled) return;
-      settled = true;
-      cleanup();
-      resolve();
-    };
-
-    timer = window.setTimeout(onDone, timeoutMs);
-    element.addEventListener('seeked', onDone, { once: true });
-    element.addEventListener('error', onDone, { once: true });
-    element.currentTime = time;
-  });
-}
-
-function mergeTimeDomainShapeIntoRange(
-  peakEnv: Float32Array,
-  rmsEnv: Float32Array,
-  coverage: Uint8Array,
-  startIndex: number,
-  endIndex: number,
-  data: Float32Array,
-  coverageValue = 1,
-): number {
-  if (peakEnv.length === 0 || rmsEnv.length === 0 || coverage.length === 0 || data.length === 0) return 0;
-
-  const boundedStart = Math.max(0, Math.min(peakEnv.length - 1, startIndex));
-  const boundedEnd = Math.max(boundedStart, Math.min(peakEnv.length - 1, endIndex));
-  const columnCount = boundedEnd - boundedStart + 1;
-  const samplesPerColumn = Math.max(1, Math.floor(data.length / columnCount));
-  let localPeakMax = 0;
-
-  for (let column = 0; column < columnCount; column++) {
-    const envIndex = boundedStart + column;
-    const sampleStart = Math.min(data.length - 1, column * samplesPerColumn);
-    const sampleEnd = column === columnCount - 1
-      ? data.length
-      : Math.min(data.length, sampleStart + samplesPerColumn);
-
-    let peak = 0;
-    let sumSquares = 0;
-    let count = 0;
-
-    for (let sample = sampleStart; sample < sampleEnd; sample++) {
-      const value = data[sample];
-      const abs = Math.abs(value);
-      if (abs > peak) peak = abs;
-      sumSquares += value * value;
-      count++;
-    }
-
-    const rms = count > 0 ? Math.sqrt(sumSquares / count) : 0;
-    peakEnv[envIndex] = Math.max(peakEnv[envIndex], peak);
-    rmsEnv[envIndex] = Math.max(rmsEnv[envIndex], Math.min(peak, rms));
-    coverage[envIndex] = Math.max(coverage[envIndex], coverageValue);
-    if (peak > localPeakMax) localPeakMax = peak;
-  }
-
-  return localPeakMax;
-}
-
-function buildBisectionSlots(count: number): number[] {
-  // Bisection / level-order order: scan middle first, then quarters, eighths…
-  // After N probes the whole timeline has evenly-spaced coverage rather than
-  // only covering the first N/total fraction of the file (sequential order).
-  const slots: number[] = [];
-  const queue: Array<[number, number]> = [[0, count - 1]];
-  while (queue.length > 0 && slots.length < count) {
-    const [lo, hi] = queue.shift()!;
-    const mid = lo + Math.floor((hi - lo) / 2);
-    slots.push(mid);
-    if (lo < mid) queue.push([lo, mid - 1]);
-    if (mid < hi) queue.push([mid + 1, hi]);
-  }
-  return slots;
-}
-
-function buildStreamedScoutTargets(cols: number, duration: number, timeline: TimelineProfile): StreamedScoutTarget[] {
-  const targetCount = Math.max(1, Math.min(cols, timeline.scoutTargetSamples));
-  const slots = buildBisectionSlots(targetCount);
-
-  return slots.map((slot) => {
-    const colStart = Math.floor((slot * cols) / targetCount);
-    const colEnd = Math.min(cols - 1, Math.max(colStart, Math.floor(((slot + 1) * cols) / targetCount) - 1));
-    const timeStart = Math.max(0, Math.min(duration, (colStart / cols) * duration));
-    const timeEnd = Math.max(timeStart, Math.min(duration, ((colEnd + 1) / cols) * duration));
-    const timeFraction = ((colStart + colEnd + 1) / 2) / cols;
-
-    return {
-      colStart,
-      colEnd,
-      timeStart,
-      timeEnd,
-      time: Math.max(0, Math.min(duration, timeFraction * duration)),
-    };
-  });
-}
-
-function buildScoutSampleTimes(target: StreamedScoutTarget, timeline: TimelineProfile): number[] {
-  const span = Math.max(0, target.timeEnd - target.timeStart);
-  if (span <= 0.25) {
-    return [target.time];
-  }
-
-  const samples: number[] = [];
-  const divisor = timeline.scoutSamplesPerTarget + 1;
-  for (let index = 1; index <= timeline.scoutSamplesPerTarget; index++) {
-    const fraction = index / divisor;
-    samples.push(target.timeStart + span * fraction);
-  }
-  return samples;
-}
-
-function shouldThrottleStreamedScout(transport: TransportState): boolean {
-  if (transport.scrubActive) return true;
-  if (!transport.isPlaying) return false;
-  return Math.abs(transport.playbackRate - 1) > 0.15 || transport.pitchSemitones !== 0;
-}
-
-function hasStreamedCoverageGap(coverage: Uint8Array | null): boolean {
-  if (!coverage || coverage.length === 0) return false;
-  for (let index = 0; index < coverage.length; index++) {
-    if (coverage[index] === 0) return true;
-  }
-  return false;
-}
-
-function hasDetailCoverageGap(
-  coverage: Uint8Array | null,
-  viewRange: ViewRange,
-  duration: number,
-): boolean {
-  return coverageRatioInRange(coverage, viewRange.start, viewRange.end, duration) < DETAIL_READY_RATIO;
-}
-
-function computeEnvelopeAndClipMapAsync(
-  buffer: AudioBuffer,
-  cols: number,
-  onComplete: (data: EnvelopeData) => void,
-): () => void {
-  const left = buffer.getChannelData(0);
-  const right = buffer.numberOfChannels > 1 ? buffer.getChannelData(1) : null;
-  const samplesPerCol = left.length / cols;
-  const peakEnv = new Float32Array(cols);
-  const rmsEnv = new Float32Array(cols);
-  const clipMap = new Uint8Array(cols);
-  let envPeak = 0;
-  let col = 0;
-  let cancelled = false;
-  let timer: number | null = null;
-
-  const finish = (): void => {
-    if (cancelled) return;
-    if (envPeak > 0) {
-      for (let index = 0; index < cols; index++) {
-        peakEnv[index] /= envPeak;
-        rmsEnv[index] /= envPeak;
-      }
-    }
-    onComplete({ peakEnv, rmsEnv, clipMap });
-  };
-
-  const step = (): void => {
-    timer = null;
-    if (cancelled) return;
-
-    const sliceStartedAt = performance.now();
-    while (col < cols) {
-      const start = Math.floor(col * samplesPerCol);
-      const end = Math.min(Math.floor((col + 1) * samplesPerCol), left.length);
-      let colPeak = 0;
-      let rmsSum = 0;
-      let sampleCount = 0;
-
-      for (let sample = start; sample < end; sample++) {
-        const leftValue = left[sample];
-        const leftAbs = Math.abs(leftValue);
-        if (leftAbs > colPeak) colPeak = leftAbs;
-        rmsSum += leftValue * leftValue;
-        sampleCount++;
-        if (leftAbs >= CLIP_THRESHOLD) clipMap[col] = 1;
-
-        if (right) {
-          const rightValue = right[sample];
-          const rightAbs = Math.abs(rightValue);
-          if (rightAbs > colPeak) colPeak = rightAbs;
-          rmsSum += rightValue * rightValue;
-          sampleCount++;
-          if (rightAbs >= CLIP_THRESHOLD) clipMap[col] = 1;
-        }
-      }
-
-      peakEnv[col] = colPeak;
-      rmsEnv[col] = sampleCount > 0 ? Math.sqrt(rmsSum / sampleCount) : 0;
-      if (colPeak > envPeak) envPeak = colPeak;
-      col++;
-
-      if (performance.now() - sliceStartedAt >= ENVELOPE_SLICE_BUDGET_MS) {
-        timer = window.setTimeout(step, 0);
-        return;
-      }
-    }
-
-    finish();
-  };
-
-  step();
-
-  return () => {
-    cancelled = true;
-    if (timer !== null) {
-      window.clearTimeout(timer);
-      timer = null;
-    }
-  };
+function peakAt(level: WaveformLevel, index: number): number {
+  return Math.max(Math.abs(level.min[index]), Math.abs(level.max[index]));
 }
 
 function pickGridInterval(duration: number): number {
@@ -524,35 +178,6 @@ function centerViewRange(centerTime: number, span: number, duration: number): Vi
   const safeSpan = Math.min(duration, Math.max(0.25, span));
   const start = clampNumber(centerTime - safeSpan / 2, 0, Math.max(0, duration - safeSpan));
   return { start, end: start + safeSpan };
-}
-
-function coverageRatioInRange(
-  coverageMap: Uint8Array | null,
-  start: number,
-  end: number,
-  duration: number,
-): number {
-  if (!coverageMap || coverageMap.length === 0) return 0;
-  if (!Number.isFinite(duration) || duration <= 0) return 0;
-
-  const clampedStart = clampNumber(start, 0, duration);
-  const clampedEnd = clampNumber(end, clampedStart, duration);
-  if (clampedEnd <= clampedStart) return 0;
-
-  const indexStart = Math.max(0, Math.floor((clampedStart / duration) * coverageMap.length));
-  const indexEnd = Math.min(
-    coverageMap.length - 1,
-    Math.max(indexStart, Math.ceil((clampedEnd / duration) * coverageMap.length) - 1),
-  );
-
-  let covered = 0;
-  let total = 0;
-  for (let index = indexStart; index <= indexEnd; index++) {
-    total++;
-    if (coverageMap[index] !== 0) covered++;
-  }
-
-  return total > 0 ? covered / total : 0;
 }
 
 function isExpandedTimelineLayout(height: number, dpr: number): boolean {
@@ -647,10 +272,11 @@ export function WaveformOverviewPanel({
 }: WaveformOverviewPanelProps): React.ReactElement {
   const frameBus = useFrameBus();
   const audioEngine = useAudioEngine();
+  const waveformPyramid = useWaveformPyramidStore();
   const displayMode = useDisplayMode();
+  const amber = displayMode.mode === 'amber';
   const optic = displayMode.mode === 'optic';
   const red = displayMode.mode === 'red';
-  const performanceProfile = usePerformanceProfile();
   const theaterMode = useTheaterMode();
   const [scrubStyle, setScrubStyle] = useState<ScrubStyle>(() => audioEngine.scrubStyle);
   const markersRef = useRef<readonly Marker[]>(markers);
@@ -672,25 +298,6 @@ export function WaveformOverviewPanel({
   const onUpdateRangeRef = useRef(onUpdateRange);
   onUpdateRangeRef.current = onUpdateRange;
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const peakEnvRef = useRef<Float32Array | null>(null);
-  const rmsEnvRef = useRef<Float32Array | null>(null);
-  const clipMapRef = useRef<Uint8Array | null>(null);
-  const streamedPeakEnvRef = useRef<Float32Array | null>(null);
-  const streamedRmsEnvRef = useRef<Float32Array | null>(null);
-  const streamedCoverageRef = useRef<Uint8Array | null>(null);
-  const streamedPeakMaxRef = useRef(0);
-  const streamedLearnedCountRef = useRef(0);
-  const streamedDetailPeakEnvRef = useRef<Float32Array | null>(null);
-  const streamedDetailRmsEnvRef = useRef<Float32Array | null>(null);
-  const streamedDetailCoverageRef = useRef<Uint8Array | null>(null);
-  const streamedDetailPeakMaxRef = useRef(0);
-  const streamedFileIdRef = useRef<number | null>(null);
-  const streamedLastBinRef = useRef<number | null>(null);
-  const streamedDetailLastBinRef = useRef<number | null>(null);
-  const streamedEnvelopeKeyRef = useRef<string | null>(null);
-  const streamedScoutCancelRef = useRef<(() => void) | null>(null);
-  const streamedScoutKeyRef = useRef<string | null>(null);
-  const transportModeRef = useRef<TransportState['playbackBackend']>('decoded');
   const transportKeyRef = useRef<string | null>(null);
   const transportRef = useRef<TransportState>({
     isPlaying: false,
@@ -706,386 +313,14 @@ export function WaveformOverviewPanel({
     loopStart: null,
     loopEnd: null,
   });
-  const analysisRef = useRef<FileAnalysis | null>(null);
   const centroidRef = useRef(0);
   const liveCurrentTimeRef = useRef(0);
   const rafRef = useRef<number | null>(null);
-  const envelopeCancelRef = useRef<(() => void) | null>(null);
-  const envelopeRequestIdRef = useRef(0);
-  const envelopeColsRef = useRef(0);
-  const envelopeFileIdRef = useRef(-1);
   const gestureRef = useRef<TimelineGesture | null>(null);
   const viewRangeRef = useRef<ViewRange>({ start: 0, end: 0 });
   const viewFollowRef = useRef(true);
   const viewKeyRef = useRef<string | null>(null);
   const loopKeyRef = useRef<string | null>(null);
-
-  const cancelEnvelopeCompute = useCallback(() => {
-    if (envelopeCancelRef.current) {
-      envelopeCancelRef.current();
-      envelopeCancelRef.current = null;
-    }
-  }, []);
-
-  const cancelStreamedScout = useCallback(() => {
-    if (streamedScoutCancelRef.current) {
-      streamedScoutCancelRef.current();
-      streamedScoutCancelRef.current = null;
-    }
-    streamedScoutKeyRef.current = null;
-  }, []);
-
-  const syncStreamedEnvelopeCache = useCallback(() => {
-    const key = streamedEnvelopeKeyRef.current;
-    if (!key) return;
-    const cached = streamedEnvelopeCache.get(key);
-    if (!cached) return;
-    cached.sessionPeakMax = streamedPeakMaxRef.current;
-    cached.detailPeakMax = streamedDetailPeakMaxRef.current;
-    cached.sessionLearnedCount = streamedLearnedCountRef.current;
-  }, []);
-
-  const mergeStreamedEnvelopeRange = useCallback((timeStart: number, timeEnd: number, peak: number, rms: number) => {
-    const duration = Math.max(0.001, transportRef.current.duration);
-    const boundedPeak = Math.max(0, peak);
-    const boundedRms = Math.max(0, Math.min(boundedPeak, rms));
-    const apply = (
-      peakEnv: Float32Array | null,
-      rmsEnv: Float32Array | null,
-      coverage: Uint8Array | null,
-      peakMaxRef: React.MutableRefObject<number>,
-      trackLearnedCount: boolean,
-    ) => {
-      if (!peakEnv || !rmsEnv || !coverage || peakEnv.length === 0) return;
-      const startIndex = Math.max(0, Math.min(peakEnv.length - 1, Math.floor((Math.max(0, Math.min(duration, timeStart)) / duration) * peakEnv.length)));
-      const endIndex = Math.max(
-        startIndex,
-        Math.min(
-          peakEnv.length - 1,
-          Math.ceil((Math.max(0, Math.min(duration, timeEnd)) / duration) * peakEnv.length) - 1,
-        ),
-      );
-
-      for (let index = startIndex; index <= endIndex; index++) {
-        peakEnv[index] = Math.max(peakEnv[index], boundedPeak);
-        rmsEnv[index] = Math.max(rmsEnv[index], boundedRms);
-        const wasUnknown = coverage[index] === 0;
-        coverage[index] = Math.max(coverage[index], 1);
-        if (wasUnknown && trackLearnedCount) streamedLearnedCountRef.current++;
-      }
-
-      if (boundedPeak > peakMaxRef.current) {
-        peakMaxRef.current = boundedPeak;
-      }
-    };
-
-    apply(streamedPeakEnvRef.current, streamedRmsEnvRef.current, streamedCoverageRef.current, streamedPeakMaxRef, true);
-    syncStreamedEnvelopeCache();
-  }, [syncStreamedEnvelopeCache]);
-
-  const mergeStreamedEnvelopeShape = useCallback((
-    timeStart: number,
-    timeEnd: number,
-    timeDomain: Float32Array,
-    coverageValue = 2,
-  ) => {
-    const duration = Math.max(0.001, transportRef.current.duration);
-    const apply = (
-      peakEnv: Float32Array | null,
-      rmsEnv: Float32Array | null,
-      coverage: Uint8Array | null,
-      peakMaxRef: React.MutableRefObject<number>,
-      trackLearnedCount: boolean,
-    ) => {
-      if (!peakEnv || !rmsEnv || !coverage || peakEnv.length === 0) return;
-      const startIndex = Math.max(0, Math.min(peakEnv.length - 1, Math.floor((Math.max(0, Math.min(duration, timeStart)) / duration) * peakEnv.length)));
-      const endIndex = Math.max(
-        startIndex,
-        Math.min(
-          peakEnv.length - 1,
-          Math.ceil((Math.max(0, Math.min(duration, timeEnd)) / duration) * peakEnv.length) - 1,
-        ),
-      );
-      const previousLearnedCount = trackLearnedCount ? streamedLearnedCountRef.current : 0;
-      const localPeakMax = mergeTimeDomainShapeIntoRange(
-        peakEnv,
-        rmsEnv,
-        coverage,
-        startIndex,
-        endIndex,
-        timeDomain,
-        coverageValue,
-      );
-
-      if (trackLearnedCount) {
-        let learnedCount = 0;
-        for (let index = 0; index < coverage.length; index++) {
-          if (coverage[index] !== 0) learnedCount++;
-        }
-        if (learnedCount !== previousLearnedCount) {
-          streamedLearnedCountRef.current = learnedCount;
-        }
-      }
-
-      if (localPeakMax > peakMaxRef.current) {
-        peakMaxRef.current = localPeakMax;
-      }
-    };
-
-    apply(streamedPeakEnvRef.current, streamedRmsEnvRef.current, streamedCoverageRef.current, streamedPeakMaxRef, true);
-    apply(streamedDetailPeakEnvRef.current, streamedDetailRmsEnvRef.current, streamedDetailCoverageRef.current, streamedDetailPeakMaxRef, false);
-    syncStreamedEnvelopeCache();
-  }, [syncStreamedEnvelopeCache]);
-
-  const resetStreamedEnvelope = useCallback(() => {
-    streamedPeakEnvRef.current = null;
-    streamedRmsEnvRef.current = null;
-    streamedCoverageRef.current = null;
-    streamedPeakMaxRef.current = 0;
-    streamedLearnedCountRef.current = 0;
-    streamedDetailPeakEnvRef.current = null;
-    streamedDetailRmsEnvRef.current = null;
-    streamedDetailCoverageRef.current = null;
-    streamedDetailPeakMaxRef.current = 0;
-    streamedFileIdRef.current = null;
-    streamedLastBinRef.current = null;
-    streamedDetailLastBinRef.current = null;
-    streamedEnvelopeKeyRef.current = null;
-  }, []);
-
-  const initializeStreamedEnvelope = useCallback((filename: string, duration: number, force = false): boolean => {
-    const key = buildStreamedProfileKey(filename, duration, performanceProfile.activeProfile);
-    if (!key) {
-      resetStreamedEnvelope();
-      return false;
-    }
-
-    const cols = pickStreamedEnvelopeCols(duration, performanceProfile.timeline);
-    const detailCols = pickStreamedDetailEnvelopeCols(duration, performanceProfile.timeline);
-    let cached = !force ? streamedEnvelopeCache.get(key) ?? null : null;
-    if (
-      cached
-      && (cached.sessionPeakEnv.length !== cols || cached.detailPeakEnv.length !== detailCols)
-    ) {
-      cached = null;
-    }
-
-    if (!cached) {
-      cached = createStreamedEnvelopeCacheEntry(cols, detailCols);
-      streamedEnvelopeCache.set(key, cached);
-    }
-
-    streamedPeakEnvRef.current = cached.sessionPeakEnv;
-    streamedRmsEnvRef.current = cached.sessionRmsEnv;
-    streamedCoverageRef.current = cached.sessionCoverage;
-    streamedPeakMaxRef.current = cached.sessionPeakMax;
-    streamedLearnedCountRef.current = cached.sessionLearnedCount;
-    streamedDetailPeakEnvRef.current = cached.detailPeakEnv;
-    streamedDetailRmsEnvRef.current = cached.detailRmsEnv;
-    streamedDetailCoverageRef.current = cached.detailCoverage;
-    streamedDetailPeakMaxRef.current = cached.detailPeakMax;
-    streamedFileIdRef.current = null;
-    streamedLastBinRef.current = null;
-    streamedDetailLastBinRef.current = null;
-    streamedEnvelopeKeyRef.current = key;
-    return true;
-  }, [performanceProfile.activeProfile, performanceProfile.timeline, resetStreamedEnvelope]);
-
-  const scheduleEnvelopeCompute = useCallback((requestedCols: number, force = false) => {
-    const buffer = audioEngine.audioBuffer;
-    const analysis = analysisRef.current;
-    if (!buffer || !analysis || requestedCols <= 0) return;
-
-    const targetCols = bucketEnvelopeCols(requestedCols);
-    if (
-      !force
-      && envelopeFileIdRef.current === analysis.fileId
-      && envelopeColsRef.current === targetCols
-      && peakEnvRef.current
-      && rmsEnvRef.current
-      && clipMapRef.current
-    ) {
-      return;
-    }
-
-    cancelEnvelopeCompute();
-
-    const requestId = envelopeRequestIdRef.current + 1;
-    envelopeRequestIdRef.current = requestId;
-    const fileId = analysis.fileId;
-
-    envelopeCancelRef.current = computeEnvelopeAndClipMapAsync(buffer, targetCols, (data) => {
-      if (envelopeRequestIdRef.current !== requestId) return;
-      if (analysisRef.current?.fileId !== fileId) return;
-      peakEnvRef.current = data.peakEnv;
-      rmsEnvRef.current = data.rmsEnv;
-      clipMapRef.current = data.clipMap;
-      envelopeColsRef.current = targetCols;
-      envelopeFileIdRef.current = fileId;
-      envelopeCancelRef.current = null;
-    });
-  }, [audioEngine, cancelEnvelopeCompute]);
-
-  const startStreamedScout = useCallback((filename: string, duration: number, requestedViewRange: ViewRange) => {
-    const detailViewRange = normalizeViewRange(
-      requestedViewRange.start,
-      requestedViewRange.end || pickDefaultViewSpan(duration),
-      duration,
-      Math.min(MIN_VIEWPORT_SECONDS, duration),
-    );
-    const key = buildStreamedDetailScoutKey(filename, duration, performanceProfile.activeProfile, detailViewRange);
-    if (!key) return;
-
-    if (!initializeStreamedEnvelope(filename, duration)) return;
-    if (streamedScoutKeyRef.current === key && streamedScoutCancelRef.current) return;
-
-    cancelStreamedScout();
-
-    const probe = audioEngine.createStreamedOverviewProbe();
-    if (!probe) return;
-
-    let cancelled = false;
-    const cancel = () => {
-      if (cancelled) return;
-      cancelled = true;
-      probe.dispose();
-      if (streamedScoutCancelRef.current === cancel) {
-        streamedScoutCancelRef.current = null;
-      }
-      if (streamedScoutKeyRef.current === key) {
-        streamedScoutKeyRef.current = null;
-      }
-    };
-
-    streamedScoutKeyRef.current = key;
-    streamedScoutCancelRef.current = cancel;
-
-    const run = async () => {
-      const sampleTarget = async (target: StreamedScoutTarget) => {
-        let sampledAny = false;
-        let sampledPeak = 0;
-        let sampledRmsSum = 0;
-        let sampledCount = 0;
-        const sampleTimes = buildScoutSampleTimes(target, performanceProfile.timeline);
-
-        for (let sampleIndex = 0; sampleIndex < sampleTimes.length; sampleIndex++) {
-          const sampleTime = sampleTimes[sampleIndex];
-          await seekMediaElement(probe.element, sampleTime, STREAMED_SCOUT_READY_TIMEOUT_MS);
-          if (cancelled) break;
-          await waitForMediaReadyState(probe.element, STREAMED_SCOUT_READY_TIMEOUT_MS);
-          if (cancelled) break;
-
-          let played = false;
-          try {
-            await Promise.resolve(probe.element.play());
-            played = true;
-            await delay(STREAMED_SCOUT_SAMPLE_WINDOW_MS);
-          } catch {
-            await delay(performanceProfile.timeline.scoutActiveDelayMs);
-            continue;
-          }
-
-          probe.analyser.getFloatTimeDomainData(probe.timeDomain as Float32Array<ArrayBuffer>);
-          if (played) probe.element.pause();
-          let localPeak = 0;
-          let localRmsSum = 0;
-          for (let sample = 0; sample < probe.timeDomain.length; sample++) {
-            const value = probe.timeDomain[sample];
-            const abs = Math.abs(value);
-            if (abs > localPeak) localPeak = abs;
-            localRmsSum += value * value;
-          }
-
-          const localRms = probe.timeDomain.length > 0 ? Math.sqrt(localRmsSum / probe.timeDomain.length) : 0;
-          const segmentTimeStart = target.timeStart + ((target.timeEnd - target.timeStart) * sampleIndex) / sampleTimes.length;
-          const segmentTimeEnd = target.timeStart + ((target.timeEnd - target.timeStart) * (sampleIndex + 1)) / sampleTimes.length;
-          mergeStreamedEnvelopeShape(segmentTimeStart, Math.max(segmentTimeStart, segmentTimeEnd), probe.timeDomain, 1);
-          if (localPeak > sampledPeak) sampledPeak = localPeak;
-          sampledRmsSum += localRms;
-          sampledCount++;
-          sampledAny = true;
-        }
-
-        return {
-          sampledAny,
-          sampledPeak,
-          sampledRms: sampledCount > 0 ? sampledRmsSum / sampledCount : 0,
-        };
-      };
-
-      const sampleTargets = async (
-        targets: readonly StreamedScoutTarget[],
-        needsSample: (target: StreamedScoutTarget) => boolean,
-        markEmptyRange: boolean,
-      ) => {
-        for (const target of targets) {
-          if (cancelled) break;
-          if (!needsSample(target)) continue;
-
-          if (shouldThrottleStreamedScout(transportRef.current)) {
-            await delay(performanceProfile.timeline.scoutStressDelayMs);
-            continue;
-          }
-
-          const sample = await sampleTarget(target);
-          if (cancelled) break;
-
-          if (sample.sampledAny) {
-            mergeStreamedEnvelopeRange(target.timeStart, target.timeEnd, sample.sampledPeak, sample.sampledRms);
-          } else if (markEmptyRange) {
-            mergeStreamedEnvelopeRange(target.timeStart, target.timeEnd, 0, 0);
-          }
-
-          await delay(transportRef.current.isPlaying ? performanceProfile.timeline.scoutActiveDelayMs : STREAMED_SCOUT_IDLE_DELAY_MS);
-        }
-      };
-
-      try {
-        await waitForMediaReadyState(probe.element, STREAMED_SCOUT_READY_TIMEOUT_MS);
-        if (cancelled) return;
-
-        const detailTargets = buildDetailScoutTargets(
-          streamedDetailPeakEnvRef.current?.length ?? pickStreamedDetailEnvelopeCols(duration, performanceProfile.timeline),
-          duration,
-          detailViewRange,
-          performanceProfile.timeline,
-        );
-        await sampleTargets(
-          detailTargets,
-          (target) => targetNeedsSample(streamedDetailCoverageRef.current, target),
-          false,
-        );
-        if (cancelled) return;
-
-        const sessionTargets = buildStreamedScoutTargets(
-          streamedPeakEnvRef.current?.length ?? pickStreamedEnvelopeCols(duration, performanceProfile.timeline),
-          duration,
-          performanceProfile.timeline,
-        );
-        await sampleTargets(
-          sessionTargets,
-          (target) => targetNeedsSample(streamedCoverageRef.current, target),
-          false,
-        );
-      } catch (error) {
-        if (!cancelled) {
-          console.warn('streamed overview scout failed, retained live learning', error);
-        }
-      } finally {
-        cancel();
-      }
-    };
-
-    void run();
-  }, [
-    audioEngine,
-    cancelStreamedScout,
-    initializeStreamedEnvelope,
-    mergeStreamedEnvelopeRange,
-    mergeStreamedEnvelopeShape,
-    performanceProfile.activeProfile,
-    performanceProfile.timeline,
-  ]);
 
   const setCanvasCursor = useCallback((cursor: string) => {
     if (canvasRef.current) {
@@ -1108,17 +343,8 @@ export function WaveformOverviewPanel({
     } else if (options?.manual) {
       viewFollowRef.current = false;
     }
-
-    const transport = transportRef.current;
-    if (
-      transport.playbackBackend === 'streamed'
-      && transport.filename
-      && transport.duration > 0
-      && hasDetailCoverageGap(streamedDetailCoverageRef.current, normalized, transport.duration)
-    ) {
-      startStreamedScout(transport.filename, transport.duration, normalized);
-    }
-  }, [audioEngine, startStreamedScout]);
+    waveformPyramid.setViewRange(normalized);
+  }, [audioEngine, waveformPyramid]);
 
   const resetViewRange = useCallback((durationOverride?: number) => {
     const duration = Math.max(0, durationOverride ?? transportRef.current.duration ?? audioEngine.duration);
@@ -1136,74 +362,17 @@ export function WaveformOverviewPanel({
   useEffect(() => frameBus.subscribe((frame) => {
     centroidRef.current = frame.spectralCentroid;
     liveCurrentTimeRef.current = frame.currentTime;
-
-    const transport = transportRef.current;
-    if (transport.playbackBackend !== 'streamed' || !transport.filename || transport.duration <= 0) {
-      return;
-    }
-
-    if (!initializeStreamedEnvelope(transport.filename, transport.duration)) return;
-    if (
-      streamedFileIdRef.current !== null
-      && streamedFileIdRef.current !== frame.fileId
-      && !initializeStreamedEnvelope(transport.filename, transport.duration, true)
-    ) {
-      return;
-    }
-
-    streamedFileIdRef.current = frame.fileId;
-
-    const duration = Math.max(0.001, transport.duration);
-    const sessionCols = streamedPeakEnvRef.current?.length ?? 0;
-    const detailCols = streamedDetailPeakEnvRef.current?.length ?? 0;
-    if (sessionCols <= 0 || detailCols <= 0) return;
-
-    const currentIndex = Math.max(
-      0,
-      Math.min(sessionCols - 1, Math.round((Math.max(0, Math.min(duration, frame.currentTime)) / duration) * (sessionCols - 1))),
-    );
-    const currentDetailIndex = Math.max(
-      0,
-      Math.min(detailCols - 1, Math.round((Math.max(0, Math.min(duration, frame.currentTime)) / duration) * (detailCols - 1))),
-    );
-    const framePeak = Math.max(frame.peakLeft, frame.peakRight);
-    const frameRms = Math.max(frame.rmsLeft, frame.rmsRight);
-    const previousIndex = streamedLastBinRef.current;
-    const previousDetailIndex = streamedDetailLastBinRef.current;
-    let startIndex = currentIndex;
-    let endIndex = currentIndex;
-    let startDetailIndex = currentDetailIndex;
-    let endDetailIndex = currentDetailIndex;
-
-    if (previousIndex !== null && Math.abs(currentIndex - previousIndex) <= STREAMED_ENVELOPE_BRIDGE_MAX_BINS) {
-      startIndex = Math.min(previousIndex, currentIndex);
-      endIndex = Math.max(previousIndex, currentIndex);
-    }
-    if (previousDetailIndex !== null && Math.abs(currentDetailIndex - previousDetailIndex) <= STREAMED_DETAIL_BRIDGE_MAX_BINS) {
-      startDetailIndex = Math.min(previousDetailIndex, currentDetailIndex);
-      endDetailIndex = Math.max(previousDetailIndex, currentDetailIndex);
-    }
-
-    const startTime = (startIndex / Math.max(1, sessionCols - 1)) * duration;
-    const endTime = ((endIndex + 1) / sessionCols) * duration;
-    mergeStreamedEnvelopeRange(startTime, endTime, framePeak, frameRms);
-    mergeStreamedEnvelopeShape(
-      (startDetailIndex / Math.max(1, detailCols - 1)) * duration,
-      ((endDetailIndex + 1) / detailCols) * duration,
-      frame.timeDomain,
-    );
-    streamedLastBinRef.current = currentIndex;
-    streamedDetailLastBinRef.current = currentDetailIndex;
-  }), [frameBus, initializeStreamedEnvelope, mergeStreamedEnvelopeRange, mergeStreamedEnvelopeShape]);
+  }), [frameBus]);
 
   useEffect(() => audioEngine.onTransport((transport) => {
     transportRef.current = transport;
     liveCurrentTimeRef.current = transport.currentTime;
-    const nextKey = buildMediaKey(transport.filename, transport.duration);
+    const nextKey = transport.filename && transport.duration > 0
+      ? `${transport.playbackBackend}:${transport.filename}:${transport.duration.toFixed(3)}`
+      : null;
     const nextLoopKey = transport.loopStart !== null && transport.loopEnd !== null
       ? `${transport.loopStart.toFixed(3)}:${transport.loopEnd.toFixed(3)}`
       : null;
-    const modeChanged = transport.playbackBackend !== transportModeRef.current;
     const keyChanged = nextKey !== transportKeyRef.current;
     const loopChanged = nextLoopKey !== loopKeyRef.current;
 
@@ -1258,99 +427,27 @@ export function WaveformOverviewPanel({
     }
 
     loopKeyRef.current = nextLoopKey;
-    if (!modeChanged && !keyChanged) return;
-
-    transportModeRef.current = transport.playbackBackend;
     transportKeyRef.current = nextKey;
-
-    if (transport.playbackBackend === 'streamed' && transport.filename && transport.duration > 0) {
-      cancelEnvelopeCompute();
-      peakEnvRef.current = null;
-      rmsEnvRef.current = null;
-      clipMapRef.current = null;
-      analysisRef.current = null;
-      envelopeColsRef.current = 0;
-      envelopeFileIdRef.current = -1;
-      initializeStreamedEnvelope(transport.filename, transport.duration);
-      if (
-        hasStreamedCoverageGap(streamedCoverageRef.current)
-        || hasDetailCoverageGap(streamedDetailCoverageRef.current, viewRangeRef.current, transport.duration)
-      ) {
-        startStreamedScout(transport.filename, transport.duration, viewRangeRef.current);
-      }
-      return;
-    }
-
-    cancelStreamedScout();
-    resetStreamedEnvelope();
-  }), [audioEngine, cancelEnvelopeCompute, cancelStreamedScout, initializeStreamedEnvelope, resetStreamedEnvelope, resetViewRange, startStreamedScout]);
-
-  useEffect(() => audioEngine.onTransport((transport) => {
-    if (
-      transport.playbackBackend === 'streamed'
-      && transport.isPlaying
-      && transport.filename
-      && transport.duration > 0
-      && !streamedScoutCancelRef.current
-      && (
-        hasStreamedCoverageGap(streamedCoverageRef.current)
-        || hasDetailCoverageGap(streamedDetailCoverageRef.current, viewRangeRef.current, transport.duration)
-      )
-    ) {
-      startStreamedScout(transport.filename, transport.duration, viewRangeRef.current);
-    }
-  }), [audioEngine, startStreamedScout]);
+    waveformPyramid.setViewRange(viewRangeRef.current);
+  }), [audioEngine, resetViewRange, waveformPyramid]);
 
   useEffect(() => {
-    const transport = transportRef.current;
-    if (transport.playbackBackend !== 'streamed' || !transport.filename || transport.duration <= 0) {
-      return;
-    }
-
-    cancelStreamedScout();
-    initializeStreamedEnvelope(transport.filename, transport.duration);
-    startStreamedScout(transport.filename, transport.duration, viewRangeRef.current);
-  }, [
-    cancelStreamedScout,
-    initializeStreamedEnvelope,
-    performanceProfile.activeProfile,
-    performanceProfile.timeline,
-    startStreamedScout,
-  ]);
-
-  const applyFileAnalysis = useCallback((analysis: FileAnalysis) => {
-    cancelStreamedScout();
-    resetStreamedEnvelope();
-    analysisRef.current = analysis;
-    const canvas = canvasRef.current;
-    const cols = canvas && canvas.width > 0 ? canvas.width : DEFAULT_ENVELOPE_COLS;
-    scheduleEnvelopeCompute(cols, true);
-  }, [cancelStreamedScout, resetStreamedEnvelope, scheduleEnvelopeCompute]);
-
-  useEffect(() => {
-    if (audioEngine.fileAnalysis) {
-      applyFileAnalysis(audioEngine.fileAnalysis);
-    }
-    return audioEngine.onFileReady((analysis) => {
-      applyFileAnalysis(analysis);
-    });
-  }, [audioEngine, applyFileAnalysis]);
+    const selectedRange = rangeMarks.find((rangeMark) => rangeMark.id === selectedRangeId) ?? null;
+    waveformPyramid.setSelectedRange(
+      selectedRange
+        ? { start: selectedRange.startS, end: selectedRange.endS }
+        : null,
+    );
+  }, [rangeMarks, selectedRangeId, waveformPyramid]);
 
   useEffect(() => audioEngine.onReset(() => {
-    cancelEnvelopeCompute();
-    cancelStreamedScout();
-    peakEnvRef.current = null;
-    rmsEnvRef.current = null;
-    clipMapRef.current = null;
-    resetStreamedEnvelope();
-    analysisRef.current = null;
     centroidRef.current = 0;
-    envelopeColsRef.current = 0;
-    envelopeFileIdRef.current = -1;
     viewRangeRef.current = { start: 0, end: 0 };
     viewKeyRef.current = null;
     viewFollowRef.current = true;
-  }), [audioEngine, cancelEnvelopeCompute, cancelStreamedScout, resetStreamedEnvelope]);
+    waveformPyramid.setSelectedRange(null);
+    waveformPyramid.setViewRange({ start: 0, end: 0 });
+  }), [audioEngine, waveformPyramid]);
 
   const hitTestRange = useCallback((
     x: number,
@@ -1676,35 +773,16 @@ export function WaveformOverviewPanel({
       for (const entry of entries) {
         const { width, height } = entry.contentRect;
         const dpr = Math.min(devicePixelRatio, PANEL_DPR_MAX);
-        const nextWidth = Math.round(width * dpr);
-        const nextHeight = Math.round(height * dpr);
-        const prevWidth = canvas.width;
-        canvas.width = nextWidth;
-        canvas.height = nextHeight;
-
-        if (nextWidth > 0 && (nextWidth !== prevWidth || !peakEnvRef.current)) {
-          scheduleEnvelopeCompute(nextWidth);
-        }
-
-        const transport = transportRef.current;
-        if (
-          nextWidth > 0
-          && transport.playbackBackend === 'streamed'
-          && transport.filename
-          && transport.duration > 0
-          && hasDetailCoverageGap(streamedDetailCoverageRef.current, viewRangeRef.current, transport.duration)
-        ) {
-          startStreamedScout(transport.filename, transport.duration, viewRangeRef.current);
-        }
+        canvas.width = Math.round(width * dpr);
+        canvas.height = Math.round(height * dpr);
       }
     });
 
     ro.observe(canvas);
     return () => {
       ro.disconnect();
-      cancelEnvelopeCompute();
     };
-  }, [cancelEnvelopeCompute, scheduleEnvelopeCompute, startStreamedScout]);
+  }, []);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -1726,31 +804,32 @@ export function WaveformOverviewPanel({
       const laneLabelTopInset = (expandedTimeline ? 5 : 4) * dpr;
       const detailTimeInset = (expandedTimeline ? 20 : 18) * dpr;
       const nge = displayMode.mode === 'nge';
+      const amber = displayMode.mode === 'amber';
       const hyper = displayMode.mode === 'hyper';
       const optic = displayMode.mode === 'optic';
       const red = displayMode.mode === 'red';
       const eva = displayMode.mode === 'eva';
-      const backgroundFill = nge ? CANVAS.nge.bg2 : hyper ? CANVAS.hyper.bg2 : optic ? CANVAS.optic.bg2 : red ? CANVAS.red.bg2 : eva ? CANVAS.eva.bg2 : COLORS.bg2;
-      const gridColor = nge ? 'rgba(22,54,18,1)' : hyper ? 'rgba(28,42,88,0.92)' : optic ? 'rgba(169,186,197,0.96)' : red ? 'rgba(74,22,24,0.96)' : eva ? 'rgba(74,26,144,0.35)' : COLORS.bg3;
-      const textColor = nge ? CANVAS.nge.label : hyper ? CANVAS.hyper.label : optic ? CANVAS.optic.label : red ? CANVAS.red.label : eva ? CANVAS.eva.label : COLORS.textDim;
-      const waveformFill = nge ? 'rgba(160,216,64,0.18)' : hyper ? 'rgba(98,232,255,0.22)' : optic ? 'rgba(18,118,164,0.14)' : red ? 'rgba(255,90,74,0.16)' : eva ? 'rgba(255,123,0,0.22)' : 'rgba(200, 146, 42, 0.22)';
-      const waveformStroke = nge ? CANVAS.nge.trace : hyper ? CANVAS.hyper.trace : optic ? CANVAS.optic.trace : red ? CANVAS.red.trace : eva ? CANVAS.eva.trace : COLORS.waveform;
-      const waveformShadow = nge ? 'rgba(160,216,64,0.35)' : hyper ? 'rgba(255,92,188,0.32)' : optic ? 'rgba(18,124,173,0.18)' : red ? 'rgba(255,90,74,0.26)' : eva ? 'rgba(255,123,0,0.35)' : 'rgba(200, 146, 42, 0.35)';
-      const playFillWave = nge ? 'rgba(80, 160, 50, 0.07)' : hyper ? 'rgba(98,232,255,0.07)' : optic ? 'rgba(18,118,164,0.05)' : red ? 'rgba(156,40,32,0.10)' : eva ? 'rgba(255,123,0,0.07)' : 'rgba(80, 96, 192, 0.07)';
-      const playCursor = hyper ? 'rgba(255,92,188,0.92)' : optic ? 'rgba(29,169,199,0.90)' : red ? 'rgba(255,110,92,0.92)' : eva ? 'rgba(255,123,0,0.92)' : COLORS.accent;
-      const learnedWaveHint = nge ? 'rgba(160,216,64,0.12)' : hyper ? 'rgba(98,232,255,0.10)' : optic ? 'rgba(89,129,153,0.06)' : red ? 'rgba(255,90,74,0.08)' : eva ? 'rgba(255,123,0,0.10)' : 'rgba(160, 170, 240, 0.10)';
-      const learnedWaveLine = nge ? 'rgba(160,216,64,0.32)' : hyper ? 'rgba(255,92,188,0.32)' : optic ? 'rgba(89,129,153,0.16)' : red ? 'rgba(255,90,74,0.22)' : eva ? 'rgba(255,123,0,0.32)' : 'rgba(200, 210, 255, 0.26)';
-      const controlFill = nge ? 'rgba(12,20,12,0.96)' : hyper ? 'rgba(10,14,28,0.96)' : optic ? 'rgba(242,247,250,0.98)' : red ? 'rgba(20,8,9,0.98)' : eva ? 'rgba(8,4,26,0.96)' : 'rgba(14,16,25,0.98)';
-      const controlTrack = nge ? 'rgba(40,72,28,0.86)' : hyper ? 'rgba(36,46,90,0.85)' : optic ? 'rgba(201,214,223,0.96)' : red ? 'rgba(74,22,24,0.84)' : eva ? 'rgba(74,26,144,0.55)' : 'rgba(48,56,86,0.82)';
-      const viewWindowFill = hyper ? 'rgba(96,150,255,0.26)' : optic ? 'rgba(71,126,158,0.20)' : red ? 'rgba(198,70,60,0.26)' : eva ? 'rgba(255,123,0,0.26)' : 'rgba(126, 130, 240, 0.24)';
-      const viewWindowStroke = hyper ? 'rgba(120,210,255,0.9)' : optic ? 'rgba(47,105,136,0.84)' : red ? 'rgba(255,132,116,0.84)' : eva ? 'rgba(255,160,40,0.9)' : COLORS.borderHighlight;
+      const backgroundFill = nge ? CANVAS.nge.bg2 : amber ? CANVAS.amber.bg2 : hyper ? CANVAS.hyper.bg2 : optic ? CANVAS.optic.bg2 : red ? CANVAS.red.bg2 : eva ? CANVAS.eva.bg2 : COLORS.bg2;
+      const gridColor = nge ? 'rgba(22,54,18,1)' : amber ? 'rgba(86,56,14,0.96)' : hyper ? 'rgba(28,42,88,0.92)' : optic ? 'rgba(169,186,197,0.96)' : red ? 'rgba(74,22,24,0.96)' : eva ? 'rgba(74,26,144,0.35)' : COLORS.bg3;
+      const textColor = nge ? CANVAS.nge.label : amber ? CANVAS.amber.label : hyper ? CANVAS.hyper.label : optic ? CANVAS.optic.label : red ? CANVAS.red.label : eva ? CANVAS.eva.label : COLORS.textDim;
+      const waveformFill = nge ? 'rgba(160,216,64,0.18)' : amber ? 'rgba(255,176,48,0.20)' : hyper ? 'rgba(98,232,255,0.22)' : optic ? 'rgba(18,118,164,0.14)' : red ? 'rgba(255,90,74,0.16)' : eva ? 'rgba(255,123,0,0.22)' : 'rgba(200, 146, 42, 0.22)';
+      const waveformStroke = nge ? CANVAS.nge.trace : amber ? CANVAS.amber.trace : hyper ? CANVAS.hyper.trace : optic ? CANVAS.optic.trace : red ? CANVAS.red.trace : eva ? CANVAS.eva.trace : COLORS.waveform;
+      const waveformShadow = nge ? 'rgba(160,216,64,0.35)' : amber ? 'rgba(255,176,48,0.30)' : hyper ? 'rgba(255,92,188,0.32)' : optic ? 'rgba(18,124,173,0.18)' : red ? 'rgba(255,90,74,0.26)' : eva ? 'rgba(255,123,0,0.35)' : 'rgba(200, 146, 42, 0.35)';
+      const playFillWave = nge ? 'rgba(80, 160, 50, 0.07)' : amber ? 'rgba(255,176,48,0.07)' : hyper ? 'rgba(98,232,255,0.07)' : optic ? 'rgba(18,118,164,0.05)' : red ? 'rgba(156,40,32,0.10)' : eva ? 'rgba(255,123,0,0.07)' : 'rgba(80, 96, 192, 0.07)';
+      const playCursor = amber ? 'rgba(255,196,92,0.92)' : hyper ? 'rgba(255,92,188,0.92)' : optic ? 'rgba(29,169,199,0.90)' : red ? 'rgba(255,110,92,0.92)' : eva ? 'rgba(255,123,0,0.92)' : COLORS.accent;
+      const learnedWaveHint = nge ? 'rgba(160,216,64,0.12)' : amber ? 'rgba(255,176,48,0.10)' : hyper ? 'rgba(98,232,255,0.10)' : optic ? 'rgba(89,129,153,0.06)' : red ? 'rgba(255,90,74,0.08)' : eva ? 'rgba(255,123,0,0.10)' : 'rgba(160, 170, 240, 0.10)';
+      const learnedWaveLine = nge ? 'rgba(160,216,64,0.32)' : amber ? 'rgba(255,196,92,0.24)' : hyper ? 'rgba(255,92,188,0.32)' : optic ? 'rgba(89,129,153,0.16)' : red ? 'rgba(255,90,74,0.22)' : eva ? 'rgba(255,123,0,0.32)' : 'rgba(200, 210, 255, 0.26)';
+      const controlFill = nge ? 'rgba(12,20,12,0.96)' : amber ? 'rgba(18,12,4,0.98)' : hyper ? 'rgba(10,14,28,0.96)' : optic ? 'rgba(242,247,250,0.98)' : red ? 'rgba(20,8,9,0.98)' : eva ? 'rgba(8,4,26,0.96)' : 'rgba(14,16,25,0.98)';
+      const controlTrack = nge ? 'rgba(40,72,28,0.86)' : amber ? 'rgba(94,62,18,0.84)' : hyper ? 'rgba(36,46,90,0.85)' : optic ? 'rgba(201,214,223,0.96)' : red ? 'rgba(74,22,24,0.84)' : eva ? 'rgba(74,26,144,0.55)' : 'rgba(48,56,86,0.82)';
+      const viewWindowFill = amber ? 'rgba(255,176,48,0.18)' : hyper ? 'rgba(96,150,255,0.26)' : optic ? 'rgba(71,126,158,0.20)' : red ? 'rgba(198,70,60,0.26)' : eva ? 'rgba(255,123,0,0.26)' : 'rgba(126, 130, 240, 0.24)';
+      const viewWindowStroke = amber ? 'rgba(255,214,138,0.86)' : hyper ? 'rgba(120,210,255,0.9)' : optic ? 'rgba(47,105,136,0.84)' : red ? 'rgba(255,132,116,0.84)' : eva ? 'rgba(255,160,40,0.9)' : COLORS.borderHighlight;
       const loopFill = 'rgba(80, 200, 120, 0.16)';
       const loopStroke = 'rgba(80, 200, 120, 0.74)';
-      const handleBackFill = hyper ? 'rgba(8,12,20,0.96)' : optic ? 'rgba(232,240,245,0.98)' : red ? 'rgba(14,4,5,0.96)' : eva ? 'rgba(8,4,26,0.96)' : 'rgba(8, 10, 16, 0.94)';
-      const handleGripFill = hyper ? 'rgba(186,222,255,0.92)' : optic ? 'rgba(62,118,149,0.92)' : red ? 'rgba(255,188,176,0.92)' : eva ? 'rgba(255,180,80,0.92)' : 'rgba(214, 220, 255, 0.92)';
-      const unknownFill = nge ? 'rgba(160,216,64,0.04)' : hyper ? 'rgba(98,232,255,0.04)' : optic ? 'rgba(147,170,184,0.08)' : red ? 'rgba(124,40,39,0.08)' : eva ? 'rgba(255,123,0,0.04)' : 'rgba(120, 134, 200, 0.05)';
-      const unknownLine = nge ? 'rgba(160,216,64,0.12)' : hyper ? 'rgba(98,232,255,0.14)' : optic ? 'rgba(122,150,166,0.18)' : red ? 'rgba(124,40,39,0.18)' : eva ? 'rgba(255,123,0,0.14)' : 'rgba(130, 142, 212, 0.14)';
-      const badgeBackground = optic ? 'rgba(243,248,251,0.96)' : red ? 'rgba(20,6,7,0.90)' : 'rgba(8,8,11,0.78)';
+      const handleBackFill = amber ? 'rgba(10,7,2,0.96)' : hyper ? 'rgba(8,12,20,0.96)' : optic ? 'rgba(232,240,245,0.98)' : red ? 'rgba(14,4,5,0.96)' : eva ? 'rgba(8,4,26,0.96)' : 'rgba(8, 10, 16, 0.94)';
+      const handleGripFill = amber ? 'rgba(255,220,154,0.92)' : hyper ? 'rgba(186,222,255,0.92)' : optic ? 'rgba(62,118,149,0.92)' : red ? 'rgba(255,188,176,0.92)' : eva ? 'rgba(255,180,80,0.92)' : 'rgba(214, 220, 255, 0.92)';
+      const unknownFill = nge ? 'rgba(160,216,64,0.04)' : amber ? 'rgba(255,176,48,0.05)' : hyper ? 'rgba(98,232,255,0.04)' : optic ? 'rgba(147,170,184,0.08)' : red ? 'rgba(124,40,39,0.08)' : eva ? 'rgba(255,123,0,0.04)' : 'rgba(120, 134, 200, 0.05)';
+      const unknownLine = nge ? 'rgba(160,216,64,0.12)' : amber ? 'rgba(255,176,48,0.14)' : hyper ? 'rgba(98,232,255,0.14)' : optic ? 'rgba(122,150,166,0.18)' : red ? 'rgba(124,40,39,0.18)' : eva ? 'rgba(255,123,0,0.14)' : 'rgba(130, 142, 212, 0.14)';
+      const badgeBackground = amber ? 'rgba(18,12,4,0.92)' : optic ? 'rgba(243,248,251,0.96)' : red ? 'rgba(20,6,7,0.90)' : 'rgba(8,8,11,0.78)';
       const badgeX = width - SPACING.sm * dpr;
       const transport = transportRef.current;
       const duration = Math.max(0, transport.duration);
@@ -1765,32 +844,8 @@ export function WaveformOverviewPanel({
       ctx.fillStyle = backgroundFill;
       ctx.fillRect(0, 0, width, height);
 
-      const decodedPeakEnv = peakEnvRef.current;
-      const decodedRmsEnv = rmsEnvRef.current;
-      const decodedClipMap = clipMapRef.current;
-      const analysis = analysisRef.current;
+      const analysis = audioEngine.fileAnalysis;
       const isStreamedOverview = transport.playbackBackend === 'streamed';
-      const sessionPeakEnv = isStreamedOverview ? streamedPeakEnvRef.current : decodedPeakEnv;
-      const sessionRmsEnv = isStreamedOverview ? streamedRmsEnvRef.current : decodedRmsEnv;
-      const sessionClipMap = isStreamedOverview ? null : decodedClipMap;
-      const sessionCoverageMap = isStreamedOverview ? streamedCoverageRef.current : null;
-      const detailPeakEnv = isStreamedOverview ? streamedDetailPeakEnvRef.current : decodedPeakEnv;
-      const detailRmsEnv = isStreamedOverview ? streamedDetailRmsEnvRef.current : decodedRmsEnv;
-      const detailCoverageMap = isStreamedOverview ? streamedDetailCoverageRef.current : null;
-      const cachedStreamedEnvelope = isStreamedOverview && streamedEnvelopeKeyRef.current
-        ? streamedEnvelopeCache.get(streamedEnvelopeKeyRef.current) ?? null
-        : null;
-      const learnedRatio = sessionCoverageMap && sessionCoverageMap.length > 0
-        ? (cachedStreamedEnvelope?.sessionLearnedCount ?? streamedLearnedCountRef.current) / sessionCoverageMap.length
-        : 0;
-      const sessionPeakMax = cachedStreamedEnvelope?.sessionPeakMax ?? streamedPeakMaxRef.current;
-      const detailPeakMax = cachedStreamedEnvelope?.detailPeakMax ?? streamedDetailPeakMaxRef.current;
-      const sessionPeakNormalizer = isStreamedOverview && sessionPeakMax > 0
-        ? 1 / sessionPeakMax
-        : 1;
-      const detailPeakNormalizer = isStreamedOverview && detailPeakMax > 0
-        ? 1 / detailPeakMax
-        : sessionPeakNormalizer;
 
       if (duration <= 0) {
         ctx.strokeStyle = gridColor;
@@ -1813,12 +868,36 @@ export function WaveformOverviewPanel({
         duration,
         Math.min(MIN_VIEWPORT_SECONDS, duration),
       );
-      const detailCoverageRatio = coverageRatioInRange(detailCoverageMap, viewRange.start, viewRange.end, duration);
-      const sessionCoverageRatio = coverageRatioInRange(sessionCoverageMap, viewRange.start, viewRange.end, duration);
-      const detailRenderMode = isStreamedOverview
-        ? chooseDetailRenderMode(detailCoverageRatio, sessionCoverageRatio)
-        : 'detail';
       viewRangeRef.current = viewRange;
+      const overviewLevel = waveformPyramid.pickOverviewLevel();
+      const visibleSpan = viewRange.end - viewRange.start;
+      const useSampleView = waveformPyramid.shouldUseSampleView(viewRange.start, viewRange.end, layout.detail.w);
+      const eventBlend = useSampleView ? 0 : computeEventModeBlend(visibleSpan);
+      const detailRenderMode: WaveformDetailRenderMode = pickWaveformDetailRenderMode(visibleSpan, useSampleView);
+      const detailLevel = waveformPyramid.pickDetailLevel(
+        viewRange.start,
+        viewRange.end,
+        layout.detail.w,
+        detailRenderMode === 'event',
+      );
+      const scaffoldLevel = waveformPyramid.pickScaffoldLevel(viewRange.start, viewRange.end, layout.detail.w, detailLevel);
+      const detailCoverageRatio = waveformPyramid.coverageRatio(
+        detailLevel,
+        viewRange.start,
+        viewRange.end,
+        detailRenderMode === 'event' ? 2 : 1,
+      );
+      const scaffoldCoverageRatio = waveformPyramid.coverageRatio(
+        scaffoldLevel,
+        viewRange.start,
+        viewRange.end,
+        detailRenderMode === 'event' ? 2 : 1,
+      );
+      const eventSourceLevel = detailRenderMode === 'event' && scaffoldLevel && shouldUseEventScaffold(detailCoverageRatio, scaffoldCoverageRatio)
+        ? scaffoldLevel
+        : detailLevel;
+      const learnedRatio = waveformPyramid.learnedRatio;
+      const peakNormalizer = waveformPyramid.displayPeakNormalizer;
       const loopStart = transport.loopStart;
       const loopEnd = transport.loopEnd;
 
@@ -1928,12 +1007,12 @@ export function WaveformOverviewPanel({
         const activeRangeId = selectedRangeIdRef.current;
         if (ranges.length === 0 && pendingStart === null) return;
 
-        const rangeStroke = nge ? 'rgba(160,230,60,0.56)' : hyper ? 'rgba(98,200,255,0.86)' : optic ? 'rgba(17,122,165,0.88)' : red ? 'rgba(130,176,255,0.90)' : eva ? 'rgba(255,150,80,0.84)' : 'rgba(124,182,255,0.84)';
-        const rangeFill = nge ? 'rgba(80,140,38,0.14)' : hyper ? 'rgba(32,118,167,0.16)' : optic ? 'rgba(17,122,165,0.12)' : red ? 'rgba(64,90,170,0.18)' : eva ? 'rgba(160,90,255,0.12)' : 'rgba(92,126,214,0.14)';
-        const selectedRangeStroke = nge ? 'rgba(210,255,148,0.90)' : hyper ? 'rgba(170,230,255,0.98)' : optic ? 'rgba(11,96,130,0.98)' : red ? 'rgba(206,224,255,0.98)' : eva ? 'rgba(255,192,118,0.98)' : 'rgba(196,220,255,0.98)';
-        const selectedRangeFill = nge ? 'rgba(120,176,56,0.24)' : hyper ? 'rgba(48,138,188,0.26)' : optic ? 'rgba(17,122,165,0.20)' : red ? 'rgba(86,112,200,0.28)' : eva ? 'rgba(182,104,255,0.20)' : 'rgba(112,146,232,0.24)';
-        const rangeLabelBg = optic ? 'rgba(243,248,251,0.96)' : red ? 'rgba(20,6,7,0.92)' : 'rgba(8,10,18,0.74)';
-        const rangeLabelColor = nge ? 'rgba(180,240,100,0.92)' : hyper ? 'rgba(152,220,255,0.94)' : optic ? 'rgba(17,122,165,0.96)' : red ? 'rgba(186,208,255,0.92)' : eva ? 'rgba(255,170,88,0.9)' : 'rgba(152,196,255,0.94)';
+        const rangeStroke = nge ? 'rgba(160,230,60,0.56)' : amber ? 'rgba(255,184,72,0.82)' : hyper ? 'rgba(98,200,255,0.86)' : optic ? 'rgba(17,122,165,0.88)' : red ? 'rgba(130,176,255,0.90)' : eva ? 'rgba(255,150,80,0.84)' : 'rgba(124,182,255,0.84)';
+        const rangeFill = nge ? 'rgba(80,140,38,0.14)' : amber ? 'rgba(120,72,12,0.16)' : hyper ? 'rgba(32,118,167,0.16)' : optic ? 'rgba(17,122,165,0.12)' : red ? 'rgba(64,90,170,0.18)' : eva ? 'rgba(160,90,255,0.12)' : 'rgba(92,126,214,0.14)';
+        const selectedRangeStroke = nge ? 'rgba(210,255,148,0.90)' : amber ? 'rgba(255,220,154,0.98)' : hyper ? 'rgba(170,230,255,0.98)' : optic ? 'rgba(11,96,130,0.98)' : red ? 'rgba(206,224,255,0.98)' : eva ? 'rgba(255,192,118,0.98)' : 'rgba(196,220,255,0.98)';
+        const selectedRangeFill = nge ? 'rgba(120,176,56,0.24)' : amber ? 'rgba(148,92,16,0.24)' : hyper ? 'rgba(48,138,188,0.26)' : optic ? 'rgba(17,122,165,0.20)' : red ? 'rgba(86,112,200,0.28)' : eva ? 'rgba(182,104,255,0.20)' : 'rgba(112,146,232,0.24)';
+        const rangeLabelBg = amber ? 'rgba(18,12,4,0.92)' : optic ? 'rgba(243,248,251,0.96)' : red ? 'rgba(20,6,7,0.92)' : 'rgba(8,10,18,0.74)';
+        const rangeLabelColor = nge ? 'rgba(180,240,100,0.92)' : amber ? 'rgba(255,214,132,0.94)' : hyper ? 'rgba(152,220,255,0.94)' : optic ? 'rgba(17,122,165,0.96)' : red ? 'rgba(186,208,255,0.92)' : eva ? 'rgba(255,170,88,0.9)' : 'rgba(152,196,255,0.94)';
 
         ctx.save();
         ctx.beginPath();
@@ -2041,8 +1120,8 @@ export function WaveformOverviewPanel({
       const drawMarkers = (rect: TimelineRect, start: number, end: number): void => {
         const mks = markersRef.current;
         if (!mks.length) return;
-        const markerColor = nge ? 'rgba(200,240,80,0.82)' : hyper ? 'rgba(255,200,80,0.88)' : optic ? 'rgba(19,109,154,0.94)' : red ? 'rgba(255,132,116,0.90)' : eva ? 'rgba(255,160,40,0.88)' : 'rgba(220,190,80,0.88)';
-        const markerBg = optic ? 'rgba(243,248,251,0.96)' : red ? 'rgba(20,6,7,0.90)' : 'rgba(6,6,10,0.72)';
+        const markerColor = nge ? 'rgba(200,240,80,0.82)' : amber ? 'rgba(255,196,92,0.90)' : hyper ? 'rgba(255,200,80,0.88)' : optic ? 'rgba(19,109,154,0.94)' : red ? 'rgba(255,132,116,0.90)' : eva ? 'rgba(255,160,40,0.88)' : 'rgba(220,190,80,0.88)';
+        const markerBg = amber ? 'rgba(12,8,3,0.84)' : optic ? 'rgba(243,248,251,0.96)' : red ? 'rgba(20,6,7,0.90)' : 'rgba(6,6,10,0.72)';
         ctx.save();
         ctx.beginPath();
         ctx.rect(rect.x, rect.y, rect.w, rect.h);
@@ -2076,14 +1155,24 @@ export function WaveformOverviewPanel({
         ctx.restore();
       };
 
+      const drawDetailDecorations = (
+        rect: TimelineRect,
+        start: number,
+        end: number,
+        fillPlayback: boolean,
+      ): void => {
+        drawRangeOverlays(rect, start, end);
+        drawLoopOverlay(rect, start, end);
+        drawMarkers(rect, start, end);
+        drawPlayCursor(rect, start, end, fillPlayback);
+      };
+
       const drawStreamedSessionMap = (
         rect: TimelineRect,
         start: number,
         end: number,
         source: {
-          readonly peakEnv: Float32Array | null;
-          readonly rmsEnv: Float32Array | null;
-          readonly coverageMap: Uint8Array | null;
+          readonly level: WaveformLevel | null;
           readonly peakNormalizer: number;
         },
       ): number => {
@@ -2103,9 +1192,9 @@ export function WaveformOverviewPanel({
         ctx.fillRect(rect.x, midY - Math.max(1, dpr / 2), rect.w, Math.max(1, dpr));
 
         let coveredColumns = 0;
-        const { peakEnv, rmsEnv, coverageMap, peakNormalizer } = source;
-        if (peakEnv && rmsEnv) {
-          const envLen = peakEnv.length;
+        const { level, peakNormalizer } = source;
+        if (level) {
+          const envLen = level.binCount;
           const columnCount = Math.max(72, Math.min(320, Math.round(rect.w / Math.max(1.75, 1.9 * dpr))));
           const peakColumns = new Float32Array(columnCount);
           const rmsColumns = new Float32Array(columnCount);
@@ -2130,15 +1219,16 @@ export function WaveformOverviewPanel({
             let maxConfidence = 0;
 
             for (let index = binStart; index <= binEnd; index++) {
-              const covered = !coverageMap || coverageMap[index] !== 0;
+              const confidence = level.confidence[index];
+              const covered = confidence !== 0;
               if (!covered) continue;
               coveredBins++;
-              const peak = peakEnv[index];
-              const rms = rmsEnv[index];
+              const peak = peakAt(level, index);
+              const rms = level.rms[index];
               if (peak > maxPeak) maxPeak = peak;
               sumPeak += peak;
               sumRms += rms;
-              maxConfidence = Math.max(maxConfidence, coverageMap ? coverageMap[index] : 2);
+              maxConfidence = Math.max(maxConfidence, confidence);
             }
 
             if (coveredBins <= 0) continue;
@@ -2159,7 +1249,7 @@ export function WaveformOverviewPanel({
             coveredColumns++;
           }
 
-          if (coverageMap) {
+          if (isStreamedOverview) {
             // Allow bridging across large gaps so bisection-order scouts give a
             // plausible full-timeline waveform even before every region is sampled.
             // Linear interpolation between known endpoints; rendered at reduced
@@ -2408,12 +1498,12 @@ export function WaveformOverviewPanel({
           readonly showClipMap?: boolean;
           readonly fillPlayback?: boolean;
           readonly confidenceProfile?: 'session' | 'detail';
+          readonly clearBackground?: boolean;
+          readonly overlayDecorations?: boolean;
+          readonly layerAlpha?: number;
         },
         source: {
-          readonly peakEnv: Float32Array | null;
-          readonly rmsEnv: Float32Array | null;
-          readonly clipMap: Uint8Array | null;
-          readonly coverageMap: Uint8Array | null;
+          readonly level: WaveformLevel | null;
           readonly peakNormalizer: number;
         },
       ): number => {
@@ -2422,20 +1512,25 @@ export function WaveformOverviewPanel({
         ctx.rect(rect.x, rect.y, rect.w, rect.h);
         ctx.clip();
 
-        ctx.fillStyle = backgroundFill;
-        ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
-        ctx.fillStyle = unknownFill;
-        ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
-
         const midY = rect.y + rect.h / 2;
         const ampH = Math.max(4 * dpr, rect.h * 0.42);
-        ctx.fillStyle = unknownLine;
-        ctx.fillRect(rect.x, midY - Math.max(1, dpr / 2), rect.w, Math.max(1, dpr));
+        if (options.clearBackground ?? true) {
+          ctx.fillStyle = backgroundFill;
+          ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+          ctx.fillStyle = unknownFill;
+          ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+          ctx.fillStyle = unknownLine;
+          ctx.fillRect(rect.x, midY - Math.max(1, dpr / 2), rect.w, Math.max(1, dpr));
+        }
+
+        const layerAlpha = options.layerAlpha ?? 1;
+        ctx.save();
+        ctx.globalAlpha *= layerAlpha;
 
         let coveredColumns = 0;
-        const { peakEnv, rmsEnv, clipMap, coverageMap, peakNormalizer } = source;
-        if (peakEnv && rmsEnv) {
-          const envLen = peakEnv.length;
+        const { level, peakNormalizer } = source;
+        if (level) {
+          const envLen = level.binCount;
           const columnCount = Math.max(48, Math.min(720, Math.round(rect.w / Math.max(1.25, 1.15 * dpr))));
           const peakColumns = new Float32Array(columnCount);
           const rmsColumns = new Float32Array(columnCount);
@@ -2445,7 +1540,7 @@ export function WaveformOverviewPanel({
           const rangeStart = (start / duration) * envLen;
           const rangeEnd = (end / duration) * envLen;
           const rangeSpan = Math.max(0.001, rangeEnd - rangeStart);
-          const bridgeGapColumns = coverageMap
+          const bridgeGapColumns = isStreamedOverview
             ? Math.max(1, Math.min(8, Math.round(columnCount / 120)))
             : 0;
 
@@ -2561,16 +1656,17 @@ export function WaveformOverviewPanel({
             let maxPeak = 0;
             let maxRms = 0;
             let maxConfidence = 0;
-            let clippedBins = 0;
+            let maxClipDensity = 0;
 
             for (let index = binStart; index <= binEnd; index++) {
-              const covered = !coverageMap || coverageMap[index] !== 0;
+              const confidence = level.confidence[index];
+              const covered = confidence !== 0;
               if (!covered) continue;
               coveredBins++;
-              maxPeak = Math.max(maxPeak, peakEnv[index]);
-              maxRms = Math.max(maxRms, rmsEnv[index]);
-              maxConfidence = Math.max(maxConfidence, coverageMap ? coverageMap[index] : 2);
-              if (options.showClipMap && clipMap && clipMap[index]) clippedBins++;
+              maxPeak = Math.max(maxPeak, peakAt(level, index));
+              maxRms = Math.max(maxRms, level.rms[index]);
+              maxConfidence = Math.max(maxConfidence, confidence);
+              maxClipDensity = Math.max(maxClipDensity, level.clipDensity[index]);
             }
 
             if (coveredBins > 0) {
@@ -2578,12 +1674,12 @@ export function WaveformOverviewPanel({
               rmsColumns[column] = clampNumber(maxRms * peakNormalizer, 0, peakColumns[column]);
               coverageColumns[column] = coveredBins / totalBins;
               confidenceColumns[column] = maxConfidence > 0 ? maxConfidence : 2;
-              clipColumns[column] = clippedBins / totalBins;
+              clipColumns[column] = maxClipDensity;
               coveredColumns++;
             }
           }
 
-          if (coverageMap) {
+          if (isStreamedOverview) {
             for (let column = 0; column < columnCount; column++) {
               if (coverageColumns[column] > 0) continue;
 
@@ -2602,7 +1698,7 @@ export function WaveformOverviewPanel({
             }
           }
 
-          if (coverageMap) {
+          if (isStreamedOverview) {
             const scoutSmoothRadius = options.confidenceProfile === 'detail' ? 2 : 4;
             const smoothColumns = (sourceValues: Float32Array): Float32Array => {
               const next = new Float32Array(columnCount);
@@ -2746,12 +1842,518 @@ export function WaveformOverviewPanel({
           }
         }
 
+        ctx.restore();
+        if (options.overlayDecorations ?? true) {
+          drawDetailDecorations(rect, start, end, options.fillPlayback ?? false);
+        }
+        ctx.restore();
+        return coveredColumns;
+      };
+
+      const drawEventWindow = (
+        rect: TimelineRect,
+        start: number,
+        end: number,
+        options: {
+          readonly clearBackground?: boolean;
+          readonly overlayDecorations?: boolean;
+          readonly layerAlpha?: number;
+          readonly forceScaffoldPresentation?: boolean;
+          readonly fillPlayback?: boolean;
+        },
+        source: {
+          readonly level: WaveformLevel | null;
+        },
+      ): number => {
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(rect.x, rect.y, rect.w, rect.h);
+        ctx.clip();
+
+        const midY = rect.y + rect.h * 0.48;
+        const ampH = Math.max(4 * dpr, rect.h * 0.32);
+        const ribbonHeight = Math.max(3 * dpr, rect.h * 0.13);
+        const ribbonY = rect.y + rect.h - ribbonHeight - 2 * dpr;
+        if (options.clearBackground ?? true) {
+          ctx.fillStyle = backgroundFill;
+          ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+          ctx.fillStyle = unknownFill;
+          ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+          ctx.fillStyle = unknownLine;
+          ctx.fillRect(rect.x, midY - Math.max(1, dpr / 2), rect.w, Math.max(1, dpr));
+        }
+
+        const layerAlpha = options.layerAlpha ?? 1;
+        const forceScaffoldPresentation = options.forceScaffoldPresentation ?? false;
+        ctx.save();
+        ctx.globalAlpha *= layerAlpha;
+
+        let coveredColumns = 0;
+        const { level } = source;
+        if (level) {
+          const envLen = level.binCount;
+          const columnCount = Math.max(56, Math.min(768, Math.round(rect.w / Math.max(1.1, dpr * 1.05))));
+          const peakColumns = new Float32Array(columnCount);
+          const rmsColumns = new Float32Array(columnCount);
+          const activityColumns = new Float32Array(columnCount);
+          const coverageColumns = new Float32Array(columnCount);
+          const confidenceColumns = new Float32Array(columnCount);
+          const clipColumns = new Float32Array(columnCount);
+          const contrastColumns = new Float32Array(columnCount);
+          const rangeStart = (start / duration) * envLen;
+          const rangeEnd = (end / duration) * envLen;
+          const rangeSpan = Math.max(0.001, rangeEnd - rangeStart);
+          const bridgeGapColumns = isStreamedOverview
+            ? Math.max(1, Math.min(10, Math.round(columnCount / 90)))
+            : 0;
+
+          const findCoveredIndex = (from: number, step: -1 | 1, limit: number): number => {
+            let travelled = 0;
+            for (let index = from; index >= 0 && index < columnCount; index += step) {
+              if (coverageColumns[index] > 0) return index;
+              travelled++;
+              if (travelled > limit) break;
+            }
+            return -1;
+          };
+
+          const traceEnvelopeHalf = (
+            from: number,
+            to: number,
+            values: Float32Array,
+            direction: 1 | -1,
+          ): void => {
+            let first = true;
+            if (direction > 0) {
+              for (let index = from; index <= to; index++) {
+                const x = rect.x + ((index + 0.5) / columnCount) * rect.w;
+                const y = midY - values[index];
+                if (first) {
+                  ctx.moveTo(x, y);
+                  first = false;
+                  continue;
+                }
+                const prevX = rect.x + (((index - 1) + 0.5) / columnCount) * rect.w;
+                const prevY = midY - values[index - 1];
+                const midX = (prevX + x) / 2;
+                const midYLocal = (prevY + y) / 2;
+                ctx.quadraticCurveTo(prevX, prevY, midX, midYLocal);
+              }
+              const endX = rect.x + ((to + 0.5) / columnCount) * rect.w;
+              ctx.lineTo(endX, midY - values[to]);
+              return;
+            }
+
+            for (let index = to; index >= from; index--) {
+              const x = rect.x + ((index + 0.5) / columnCount) * rect.w;
+              const y = midY + values[index];
+              if (first) {
+                ctx.lineTo(x, y);
+                first = false;
+                continue;
+              }
+              const prevX = rect.x + (((index + 1) + 0.5) / columnCount) * rect.w;
+              const prevY = midY + values[index + 1];
+              const midX = (prevX + x) / 2;
+              const midYLocal = (prevY + y) / 2;
+              ctx.quadraticCurveTo(prevX, prevY, midX, midYLocal);
+            }
+            const endX = rect.x + ((from + 0.5) / columnCount) * rect.w;
+            ctx.lineTo(endX, midY + values[from]);
+          };
+
+          const strokeEnvelopeHalf = (
+            from: number,
+            to: number,
+            values: Float32Array,
+            direction: 1 | -1,
+          ): void => {
+            let first = true;
+            if (direction > 0) {
+              for (let index = from; index <= to; index++) {
+                const x = rect.x + ((index + 0.5) / columnCount) * rect.w;
+                const y = midY - values[index];
+                if (first) {
+                  ctx.moveTo(x, y);
+                  first = false;
+                  continue;
+                }
+                const prevX = rect.x + (((index - 1) + 0.5) / columnCount) * rect.w;
+                const prevY = midY - values[index - 1];
+                const midX = (prevX + x) / 2;
+                const midYLocal = (prevY + y) / 2;
+                ctx.quadraticCurveTo(prevX, prevY, midX, midYLocal);
+              }
+              const endX = rect.x + ((to + 0.5) / columnCount) * rect.w;
+              ctx.lineTo(endX, midY - values[to]);
+              return;
+            }
+
+            for (let index = from; index <= to; index++) {
+              const x = rect.x + ((index + 0.5) / columnCount) * rect.w;
+              const y = midY + values[index];
+              if (first) {
+                ctx.moveTo(x, y);
+                first = false;
+                continue;
+              }
+              const prevX = rect.x + (((index - 1) + 0.5) / columnCount) * rect.w;
+              const prevY = midY + values[index - 1];
+              const midX = (prevX + x) / 2;
+              const midYLocal = (prevY + y) / 2;
+              ctx.quadraticCurveTo(prevX, prevY, midX, midYLocal);
+            }
+            const endX = rect.x + ((to + 0.5) / columnCount) * rect.w;
+            ctx.lineTo(endX, midY + values[to]);
+          };
+
+          for (let column = 0; column < columnCount; column++) {
+            const t0 = column / columnCount;
+            const t1 = (column + 1) / columnCount;
+            const envStart = rangeStart + rangeSpan * t0;
+            const envEnd = rangeStart + rangeSpan * t1;
+            const binStart = Math.max(0, Math.floor(envStart));
+            const binEnd = Math.min(envLen - 1, Math.max(binStart, Math.ceil(envEnd)));
+            const totalBins = Math.max(1, binEnd - binStart + 1);
+            let coveredBins = 0;
+            let maxPeak = 0;
+            let maxRms = 0;
+            let sumPeak = 0;
+            let sumRms = 0;
+            let activeBins = 0;
+            let maxConfidence = 0;
+            let maxClipDensity = 0;
+
+            for (let index = binStart; index <= binEnd; index++) {
+              const confidence = level.confidence[index];
+              if (confidence === 0) continue;
+              coveredBins++;
+              const peak = peakAt(level, index);
+              const rms = level.rms[index];
+              maxPeak = Math.max(maxPeak, peak);
+              maxRms = Math.max(maxRms, rms);
+              sumPeak += peak;
+              sumRms += rms;
+              if (peak >= 0.014 || rms >= 0.008) activeBins++;
+              maxConfidence = Math.max(maxConfidence, confidence);
+              maxClipDensity = Math.max(maxClipDensity, level.clipDensity[index]);
+            }
+
+            if (coveredBins <= 0) continue;
+            const avgPeak = sumPeak / coveredBins;
+            const avgRms = sumRms / coveredBins;
+            const activityRatio = activeBins / coveredBins;
+            const shapedPeak = avgPeak * 0.62 + maxPeak * 0.38;
+            const shapedRms = Math.min(
+              shapedPeak,
+              avgRms * (0.86 + activityRatio * 0.14) + maxRms * 0.14,
+            );
+            peakColumns[column] = amplitudeToEventHeight(shapedPeak);
+            rmsColumns[column] = Math.min(peakColumns[column], amplitudeToEventHeight(shapedRms));
+            activityColumns[column] = activityRatio;
+            coverageColumns[column] = coveredBins / totalBins;
+            const baseConfidence = maxConfidence > 0 ? maxConfidence : 2;
+            confidenceColumns[column] = forceScaffoldPresentation ? Math.min(baseConfidence, 1.25) : baseConfidence;
+            clipColumns[column] = maxClipDensity;
+            coveredColumns++;
+          }
+
+          if (isStreamedOverview) {
+            for (let column = 0; column < columnCount; column++) {
+              if (coverageColumns[column] > 0) continue;
+
+              const left = findCoveredIndex(column - 1, -1, bridgeGapColumns);
+              const right = findCoveredIndex(column + 1, 1, bridgeGapColumns);
+              if (left < 0 || right < 0) continue;
+
+              const span = right - left;
+              if (span <= 1 || span - 1 > bridgeGapColumns) continue;
+
+              const ratio = (column - left) / span;
+              peakColumns[column] = peakColumns[left] + (peakColumns[right] - peakColumns[left]) * ratio;
+              rmsColumns[column] = rmsColumns[left] + (rmsColumns[right] - rmsColumns[left]) * ratio;
+              activityColumns[column] = activityColumns[left] + (activityColumns[right] - activityColumns[left]) * ratio;
+              coverageColumns[column] = Math.min(coverageColumns[left], coverageColumns[right]) * 0.32;
+              const bridgedConfidence = Math.min(confidenceColumns[left], confidenceColumns[right]) * 0.5;
+              confidenceColumns[column] = forceScaffoldPresentation ? Math.min(bridgedConfidence, 1.1) : bridgedConfidence;
+              clipColumns[column] = Math.max(clipColumns[left], clipColumns[right]) * 0.55;
+            }
+          }
+
+          const smoothColumns = (sourceValues: Float32Array, radius: number, preserveFloor: number): Float32Array => {
+            const next = new Float32Array(columnCount);
+            for (let column = 0; column < columnCount; column++) {
+              if (coverageColumns[column] <= 0) continue;
+              let weightedSum = 0;
+              let weightTotal = 0;
+              for (let offset = -radius; offset <= radius; offset++) {
+                const index = column + offset;
+                if (index < 0 || index >= columnCount || coverageColumns[index] <= 0) continue;
+                const distance = Math.abs(offset);
+                const closeness = 1 / (1 + distance);
+                const confidenceWeight = Math.max(0.2, Math.min(1, confidenceColumns[index] / 2));
+                const coverageWeight = Math.max(0.15, coverageColumns[index]);
+                const weight = closeness * confidenceWeight * coverageWeight;
+                weightedSum += sourceValues[index] * weight;
+                weightTotal += weight;
+              }
+              if (weightTotal <= 0) {
+                next[column] = sourceValues[column];
+                continue;
+              }
+              const smoothed = weightedSum / weightTotal;
+              next[column] = Math.max(sourceValues[column] * preserveFloor, smoothed);
+            }
+            return next;
+          };
+
+          peakColumns.set(smoothColumns(peakColumns, 2, 0.72));
+          rmsColumns.set(smoothColumns(rmsColumns, 4, 0.78));
+          activityColumns.set(smoothColumns(activityColumns, 3, 0.7));
+
+          for (let column = 0; column < columnCount; column++) {
+            if (coverageColumns[column] <= 0) continue;
+            const prev = column > 0 ? rmsColumns[column - 1] : rmsColumns[column];
+            const next = column < columnCount - 1 ? rmsColumns[column + 1] : rmsColumns[column];
+            const peakPrev = column > 0 ? peakColumns[column - 1] : peakColumns[column];
+            const peakNext = column < columnCount - 1 ? peakColumns[column + 1] : peakColumns[column];
+            contrastColumns[column] = Math.min(
+              1,
+              (Math.abs(rmsColumns[column] - prev) + Math.abs(rmsColumns[column] - next)) * 0.95
+                + (Math.abs(peakColumns[column] - peakPrev) + Math.abs(peakColumns[column] - peakNext)) * 0.4,
+            );
+          }
+
+          const bodyHalfColumns = new Float32Array(columnCount);
+          const peakHalfColumns = new Float32Array(columnCount);
+          const ribbonColumns = new Float32Array(columnCount);
+          for (let column = 0; column < columnCount; column++) {
+            if (coverageColumns[column] <= 0) continue;
+            const confidence = confidenceColumns[column];
+            const scaffoldColumn = confidence < 1.5;
+            const peak = peakColumns[column];
+            const rms = Math.min(peak, rmsColumns[column]);
+            const activity = activityColumns[column];
+            const bodyFloor = scaffoldColumn ? 0.035 : 0.025;
+            bodyHalfColumns[column] = Math.max(ampH * bodyFloor, rms * ampH * (0.82 + activity * 0.18));
+            peakHalfColumns[column] = Math.max(bodyHalfColumns[column] + 0.5 * dpr, peak * ampH * (0.9 + activity * 0.1));
+            ribbonColumns[column] = computeTransientIntensity(
+              peakColumns[column],
+              rmsColumns[column],
+              clipColumns[column],
+              contrastColumns[column],
+            ) * ribbonHeight * (0.65 + activity * 0.35) * (scaffoldColumn ? 0.88 : 1);
+          }
+
+          for (let column = 0; column < columnCount; column++) {
+            const x1 = rect.x + (column / columnCount) * rect.w;
+            const x2 = rect.x + ((column + 1) / columnCount) * rect.w;
+            const colW = Math.max(1, x2 - x1);
+            const confidence = confidenceColumns[column];
+            if (coverageColumns[column] <= 0) {
+              ctx.fillStyle = learnedWaveHint;
+              ctx.fillRect(x1, midY - Math.max(1, dpr / 2), colW, Math.max(1, dpr));
+              continue;
+            }
+
+            ctx.save();
+            ctx.globalAlpha *= confidence >= 1.5 ? 0.06 + coverageColumns[column] * 0.05 : 0.03 + coverageColumns[column] * 0.03;
+            ctx.fillStyle = confidence >= 1.5 ? waveformFill : learnedWaveHint;
+            ctx.fillRect(x1, rect.y, colW, rect.h);
+            ctx.restore();
+          }
+
+          let segmentStart = -1;
+          for (let column = 0; column <= columnCount; column++) {
+            const active = column < columnCount && coverageColumns[column] > 0;
+            if (active && segmentStart < 0) {
+              segmentStart = column;
+              continue;
+            }
+            if (active || segmentStart < 0) continue;
+
+            const segmentEnd = column - 1;
+            let coverageSum = 0;
+            let confidenceSum = 0;
+            for (let index = segmentStart; index <= segmentEnd; index++) {
+              coverageSum += coverageColumns[index];
+              confidenceSum += confidenceColumns[index];
+            }
+
+            const averageCoverage = coverageSum / Math.max(1, segmentEnd - segmentStart + 1);
+            const averageConfidence = confidenceSum / Math.max(1, segmentEnd - segmentStart + 1);
+            const scaffoldSegment = averageConfidence < 1.5;
+
+            ctx.save();
+            ctx.globalAlpha *= scaffoldSegment
+              ? 0.36 + averageCoverage * 0.16
+              : 0.52 + averageCoverage * 0.24;
+            ctx.fillStyle = scaffoldSegment ? learnedWaveHint : waveformFill;
+            ctx.beginPath();
+            traceEnvelopeHalf(segmentStart, segmentEnd, bodyHalfColumns, 1);
+            traceEnvelopeHalf(segmentStart, segmentEnd, bodyHalfColumns, -1);
+            ctx.closePath();
+            ctx.fill();
+
+            ctx.globalAlpha *= scaffoldSegment ? 0.85 : 1;
+            ctx.strokeStyle = waveformStroke;
+            ctx.lineWidth = scaffoldSegment ? Math.max(0.9, dpr * 0.9) : Math.max(1.05, dpr);
+            ctx.lineJoin = 'round';
+            ctx.lineCap = 'round';
+            ctx.beginPath();
+            strokeEnvelopeHalf(segmentStart, segmentEnd, peakHalfColumns, 1);
+            ctx.stroke();
+            ctx.beginPath();
+            strokeEnvelopeHalf(segmentStart, segmentEnd, peakHalfColumns, -1);
+            ctx.stroke();
+            ctx.restore();
+
+            segmentStart = -1;
+          }
+
+          for (let column = 0; column < columnCount; column++) {
+            if (coverageColumns[column] <= 0) continue;
+            const x1 = rect.x + (column / columnCount) * rect.w;
+            const x2 = rect.x + ((column + 1) / columnCount) * rect.w;
+            const colW = Math.max(1, x2 - x1);
+            const ribbonSignal = ribbonColumns[column];
+            if (ribbonSignal > 0) {
+              ctx.save();
+              ctx.globalAlpha *= 0.22 + (ribbonSignal / Math.max(ribbonHeight, 1)) * 0.5;
+              ctx.fillStyle = waveformStroke;
+              ctx.fillRect(x1, ribbonY + (ribbonHeight - ribbonSignal), colW, ribbonSignal);
+              ctx.restore();
+            }
+
+            if (clipColumns[column] > 0) {
+              const clipSignal = Math.max(1.5 * dpr, ribbonHeight * clipColumns[column]);
+              ctx.save();
+              ctx.globalAlpha *= 0.18 + clipColumns[column] * 0.42;
+              ctx.fillStyle = 'rgba(214, 70, 70, 0.9)';
+              ctx.fillRect(x1, ribbonY + ribbonHeight - clipSignal, colW, clipSignal);
+              ctx.restore();
+            }
+          }
+        }
+
+        ctx.restore();
+        if (options.overlayDecorations ?? true) {
+          drawDetailDecorations(rect, start, end, options.fillPlayback ?? true);
+        }
+        ctx.restore();
+        return coveredColumns;
+      };
+
+      const drawSampleWindow = (
+        rect: TimelineRect,
+        start: number,
+        end: number,
+      ): number => {
+        const buffer = audioEngine.audioBuffer;
+        if (!buffer || end <= start) {
+          return 0;
+        }
+
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(rect.x, rect.y, rect.w, rect.h);
+        ctx.clip();
+
+        ctx.fillStyle = backgroundFill;
+        ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+        ctx.fillStyle = unknownFill;
+        ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+
+        const midY = rect.y + rect.h / 2;
+        const ampH = Math.max(4 * dpr, rect.h * 0.42);
+        ctx.fillStyle = unknownLine;
+        ctx.fillRect(rect.x, midY - Math.max(1, dpr / 2), rect.w, Math.max(1, dpr));
+
+        const channelCount = buffer.numberOfChannels;
+        const sampleRate = buffer.sampleRate;
+        const startSample = Math.max(0, Math.floor(start * sampleRate));
+        const endSample = Math.min(buffer.length, Math.ceil(end * sampleRate));
+        const sampleSpan = Math.max(1, endSample - startSample);
+        const maxPoints = Math.max(32, Math.floor(rect.w / Math.max(1, dpr * 0.75)));
+        const step = Math.max(1, Math.floor(sampleSpan / maxPoints));
+
+        ctx.save();
+        ctx.globalAlpha *= 0.55;
+        ctx.fillStyle = waveformFill;
+        ctx.beginPath();
+        for (let sample = startSample; sample <= endSample; sample += step) {
+          const ratio = (sample - startSample) / sampleSpan;
+          const x = rect.x + ratio * rect.w;
+          let min = 1;
+          let max = -1;
+          for (let channel = 0; channel < channelCount; channel++) {
+            const value = buffer.getChannelData(channel)[Math.min(buffer.length - 1, sample)];
+            if (value < min) min = value;
+            if (value > max) max = value;
+          }
+          const peak = Math.max(Math.abs(min), Math.abs(max));
+          const topY = midY - peak * peakNormalizer * ampH;
+          if (sample === startSample) {
+            ctx.moveTo(x, topY);
+          } else {
+            ctx.lineTo(x, topY);
+          }
+        }
+        for (let sample = endSample; sample >= startSample; sample -= step) {
+          const ratio = (sample - startSample) / sampleSpan;
+          const x = rect.x + ratio * rect.w;
+          let min = 1;
+          let max = -1;
+          for (let channel = 0; channel < channelCount; channel++) {
+            const value = buffer.getChannelData(channel)[Math.min(buffer.length - 1, sample)];
+            if (value < min) min = value;
+            if (value > max) max = value;
+          }
+          const peak = Math.max(Math.abs(min), Math.abs(max));
+          const bottomY = midY + peak * peakNormalizer * ampH;
+          ctx.lineTo(x, bottomY);
+        }
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+
+        const traceWaveform = (channelIndex: number, alpha: number) => {
+          const samples = buffer.getChannelData(Math.min(channelIndex, channelCount - 1));
+          ctx.save();
+          ctx.globalAlpha *= alpha;
+          ctx.strokeStyle = waveformStroke;
+          ctx.lineWidth = Math.max(dpr * 0.95, 1);
+          ctx.lineJoin = 'round';
+          ctx.lineCap = 'round';
+          ctx.beginPath();
+          let first = true;
+          for (let sample = startSample; sample <= endSample; sample += step) {
+            const ratio = (sample - startSample) / sampleSpan;
+            const x = rect.x + ratio * rect.w;
+            const value = samples[Math.min(buffer.length - 1, sample)];
+            const y = midY - value * peakNormalizer * ampH;
+            if (first) {
+              ctx.moveTo(x, y);
+              first = false;
+            } else {
+              ctx.lineTo(x, y);
+            }
+          }
+          ctx.stroke();
+          ctx.restore();
+        };
+
+        traceWaveform(0, 1);
+        if (channelCount > 1) {
+          traceWaveform(1, 0.42);
+        }
+
         drawRangeOverlays(rect, start, end);
         drawLoopOverlay(rect, start, end);
         drawMarkers(rect, start, end);
-        drawPlayCursor(rect, start, end, options.fillPlayback ?? false);
+        drawPlayCursor(rect, start, end, true);
         ctx.restore();
-        return coveredColumns;
+        return Math.max(1, Math.floor(rect.w));
       };
 
       ctx.strokeStyle = hyper ? 'rgba(32,52,110,0.92)' : eva ? 'rgba(74,26,144,0.92)' : COLORS.border;
@@ -2780,10 +2382,8 @@ export function WaveformOverviewPanel({
           0,
           duration,
           {
-            peakEnv: sessionPeakEnv,
-            rmsEnv: sessionRmsEnv,
-            coverageMap: sessionCoverageMap,
-            peakNormalizer: sessionPeakNormalizer,
+            level: overviewLevel,
+            peakNormalizer,
           },
         );
       } else {
@@ -2793,11 +2393,8 @@ export function WaveformOverviewPanel({
           duration,
           { emphasizeCoverage: true, fillPlayback: true, confidenceProfile: 'session' },
           {
-            peakEnv: sessionPeakEnv,
-            rmsEnv: sessionRmsEnv,
-            clipMap: sessionClipMap,
-            coverageMap: sessionCoverageMap,
-            peakNormalizer: sessionPeakNormalizer,
+            level: overviewLevel,
+            peakNormalizer,
           },
         );
         drawRangeOverlays(layout.session, 0, duration);
@@ -2849,36 +2446,62 @@ export function WaveformOverviewPanel({
       drawPlayCursor(layout.loop, 0, duration, false);
 
       drawTimeGrid(layout.detail, viewRange.start, viewRange.end, false);
-      const coveredDetailColumns = detailRenderMode === 'session-scaffold'
-        ? drawStreamedSessionMap(
+      const coveredDetailColumns = detailRenderMode === 'sample'
+        ? drawSampleWindow(
             layout.detail,
             viewRange.start,
             viewRange.end,
-            {
-              peakEnv: sessionPeakEnv,
-              rmsEnv: sessionRmsEnv,
-              coverageMap: sessionCoverageMap,
-              peakNormalizer: sessionPeakNormalizer,
-            },
           )
-        : drawEnvelopeWindow(
-            layout.detail,
-            viewRange.start,
-            viewRange.end,
-            {
-              emphasizeCoverage: true,
-              showClipMap: !isStreamedOverview,
-              fillPlayback: true,
-              confidenceProfile: 'detail',
-            },
-            {
-              peakEnv: detailPeakEnv,
-              rmsEnv: detailRmsEnv,
-              clipMap: decodedClipMap,
-              coverageMap: detailCoverageMap,
-              peakNormalizer: detailPeakNormalizer,
-            },
-          );
+        : (() => {
+            const envelopeBlend = Math.max(0, 1 - eventBlend);
+            const eventLayerBlend = eventBlend;
+            let covered = 0;
+
+            if (envelopeBlend > 0.001) {
+              covered = drawEnvelopeWindow(
+                layout.detail,
+                viewRange.start,
+                viewRange.end,
+                {
+                  emphasizeCoverage: true,
+                  showClipMap: !isStreamedOverview,
+                  fillPlayback: true,
+                  confidenceProfile: 'detail',
+                  clearBackground: true,
+                  overlayDecorations: false,
+                  layerAlpha: Math.max(0.3, envelopeBlend),
+                },
+                {
+                  level: detailLevel,
+                  peakNormalizer,
+                },
+              );
+            }
+
+            if (eventLayerBlend > 0.001) {
+              covered = Math.max(
+                covered,
+                drawEventWindow(
+                  layout.detail,
+                  viewRange.start,
+                  viewRange.end,
+                  {
+                    clearBackground: envelopeBlend <= 0.001,
+                    overlayDecorations: false,
+                    layerAlpha: eventLayerBlend,
+                    forceScaffoldPresentation: eventSourceLevel !== detailLevel,
+                    fillPlayback: true,
+                  },
+                  {
+                    level: eventSourceLevel,
+                  },
+                ),
+              );
+            }
+
+            drawDetailDecorations(layout.detail, viewRange.start, viewRange.end, true);
+            return covered;
+          })();
 
       ctx.font = `${laneLabelFontPx * dpr}px ${FONTS.mono}`;
       ctx.fillStyle = textColor;
@@ -2887,7 +2510,16 @@ export function WaveformOverviewPanel({
       ctx.fillText(isStreamedOverview ? 'SESSION MAP / COARSE' : 'SESSION MAP', SPACING.sm * dpr, layout.session.y + laneLabelTopInset);
       ctx.fillText('VIEW WINDOW', SPACING.sm * dpr, layout.view.y + Math.max(dpr, laneLabelTopInset - 3 * dpr));
       ctx.fillText(loopStart !== null && loopEnd !== null ? 'LOOP REGION' : 'LOOP DRAG TO SET', SPACING.sm * dpr, layout.loop.y + Math.max(dpr, laneLabelTopInset - 3 * dpr));
-      ctx.fillText(`DETAIL WAVEFORM ${formatSpan(viewRange.end - viewRange.start)}`, SPACING.sm * dpr, layout.detail.y + laneLabelTopInset);
+      const detailModeLabel = detailRenderMode === 'sample'
+        ? 'DETAIL SAMPLE'
+        : detailRenderMode === 'event'
+        ? 'DETAIL EVENT / DB'
+        : 'DETAIL ENVELOPE';
+      ctx.fillText(
+        `${detailModeLabel} ${formatSpan(viewRange.end - viewRange.start)}`,
+        SPACING.sm * dpr,
+        layout.detail.y + laneLabelTopInset,
+      );
 
       ctx.textAlign = 'left';
       ctx.fillText(fmtTime(viewRange.start), SPACING.sm * dpr, layout.detail.y + detailTimeInset);
@@ -2905,21 +2537,21 @@ export function WaveformOverviewPanel({
         drawBadge(ctx, `DR ${dr.toFixed(1)} dB`, drColor, badgeX, layout.session.y + 4 * dpr, dpr, badgeBackground);
         drawBadge(ctx, clipText, clipColor, badgeX, layout.session.y + 19 * dpr, dpr, badgeBackground);
       } else if (isStreamedOverview) {
-        const liveColor = hyper ? CANVAS.hyper.trace : optic ? CANVAS.optic.trace : red ? CANVAS.red.trace : eva ? CANVAS.eva.trace : COLORS.borderHighlight;
+        const liveColor = amber ? CANVAS.amber.trace : hyper ? CANVAS.hyper.trace : optic ? CANVAS.optic.trace : red ? CANVAS.red.trace : eva ? CANVAS.eva.trace : COLORS.borderHighlight;
         drawBadge(ctx, 'COARSE MAP', liveColor, badgeX, layout.session.y + 4 * dpr, dpr, badgeBackground);
-        drawBadge(ctx, `${Math.round(learnedRatio * 100)}% MAPPED`, optic ? CANVAS.optic.text : red ? CANVAS.red.text : COLORS.textTitle, badgeX, layout.session.y + 19 * dpr, dpr, badgeBackground);
+        drawBadge(ctx, `${Math.round(learnedRatio * 100)}% MAPPED`, amber ? CANVAS.amber.text : optic ? CANVAS.optic.text : red ? CANVAS.red.text : COLORS.textTitle, badgeX, layout.session.y + 19 * dpr, dpr, badgeBackground);
       }
 
-      drawBadge(ctx, `VIEW ${formatSpan(viewRange.end - viewRange.start)}`, optic ? CANVAS.optic.category : red ? CANVAS.red.category : COLORS.textSecondary, badgeX, layout.view.y + 1 * dpr, dpr, badgeBackground);
+      drawBadge(ctx, `VIEW ${formatSpan(viewRange.end - viewRange.start)}`, amber ? CANVAS.amber.category : optic ? CANVAS.optic.category : red ? CANVAS.red.category : COLORS.textSecondary, badgeX, layout.view.y + 1 * dpr, dpr, badgeBackground);
       if (loopStart !== null && loopEnd !== null) {
         drawBadge(ctx, `LOOP ${formatSpan(loopEnd - loopStart)}`, loopStroke, badgeX, layout.loop.y + 1 * dpr, dpr, badgeBackground);
       } else {
-        drawBadge(ctx, 'DBL-CLICK CLEAR / DRAG TO SET', optic ? CANVAS.optic.label : red ? CANVAS.red.label : COLORS.textDim, badgeX, layout.loop.y + 1 * dpr, dpr, badgeBackground);
+        drawBadge(ctx, 'DBL-CLICK CLEAR / DRAG TO SET', amber ? CANVAS.amber.label : optic ? CANVAS.optic.label : red ? CANVAS.red.label : COLORS.textDim, badgeX, layout.loop.y + 1 * dpr, dpr, badgeBackground);
       }
       if (rangeMarksRef.current.length > 0) {
-        drawBadge(ctx, `RANGES ${rangeMarksRef.current.length}`, optic ? CANVAS.optic.trace : red ? CANVAS.red.trace : COLORS.borderActive, badgeX, layout.detail.y + 4 * dpr, dpr, badgeBackground);
+        drawBadge(ctx, `RANGES ${rangeMarksRef.current.length}`, amber ? CANVAS.amber.trace : optic ? CANVAS.optic.trace : red ? CANVAS.red.trace : COLORS.borderActive, badgeX, layout.detail.y + 4 * dpr, dpr, badgeBackground);
       } else if (pendingRangeStartRef.current !== null) {
-        drawBadge(ctx, `IN ${formatTransportTime(pendingRangeStartRef.current)}`, optic ? CANVAS.optic.trace : red ? CANVAS.red.trace : COLORS.borderActive, badgeX, layout.detail.y + 4 * dpr, dpr, badgeBackground);
+        drawBadge(ctx, `IN ${formatTransportTime(pendingRangeStartRef.current)}`, amber ? CANVAS.amber.trace : optic ? CANVAS.optic.trace : red ? CANVAS.red.trace : COLORS.borderActive, badgeX, layout.detail.y + 4 * dpr, dpr, badgeBackground);
       }
 
       const centroid = centroidRef.current;
@@ -2936,7 +2568,7 @@ export function WaveformOverviewPanel({
         ctx.fillStyle = textColor;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText('DETAIL WAVEFORM BUILDS AROUND PLAYBACK AND SEEK TARGETS', width / 2, layout.detail.y + layout.detail.h / 2);
+        ctx.fillText('DETAIL MAP REFINES AROUND PLAYBACK AND SEEK TARGETS', width / 2, layout.detail.y + layout.detail.h / 2);
       }
     };
 
@@ -2944,20 +2576,20 @@ export function WaveformOverviewPanel({
     return () => {
       if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
     };
-  }, [audioEngine, displayMode, theaterMode]);
+  }, [audioEngine, displayMode, theaterMode, waveformPyramid]);
 
   return (
-    <div style={{ ...panelStyle, background: optic ? CANVAS.optic.bg2 : red ? CANVAS.red.bg2 : panelStyle.background }}>
+    <div style={{ ...panelStyle, background: amber ? CANVAS.amber.bg2 : optic ? CANVAS.optic.bg2 : red ? CANVAS.red.bg2 : panelStyle.background }}>
       <div
         style={{
           ...scrubToolbarStyle,
-          borderBottom: optic ? '1px solid rgba(109,146,165,0.68)' : red ? '1px solid rgba(124,40,39,0.68)' : scrubToolbarStyle.borderBottom,
-          background: optic ? 'linear-gradient(180deg, rgba(246,250,252,0.99), rgba(235,242,247,0.99))' : red ? 'linear-gradient(180deg, rgba(18,6,7,0.99), rgba(30,10,11,0.99))' : scrubToolbarStyle.background,
+          borderBottom: amber ? '1px solid rgba(102,70,20,0.68)' : optic ? '1px solid rgba(109,146,165,0.68)' : red ? '1px solid rgba(124,40,39,0.68)' : scrubToolbarStyle.borderBottom,
+          background: amber ? 'linear-gradient(180deg, rgba(18,12,4,0.99), rgba(30,20,6,0.99))' : optic ? 'linear-gradient(180deg, rgba(246,250,252,0.99), rgba(235,242,247,0.99))' : red ? 'linear-gradient(180deg, rgba(18,6,7,0.99), rgba(30,10,11,0.99))' : scrubToolbarStyle.background,
         }}
       >
         <div style={scrubToolbarHeaderStyle}>
-          <span style={{ ...scrubToolbarLabelStyle, color: optic ? CANVAS.optic.category : red ? CANVAS.red.category : scrubToolbarLabelStyle.color }}>SCRUB</span>
-          <span style={{ ...scrubToolbarValueStyle, color: optic ? 'rgba(63,95,114,0.84)' : red ? 'rgba(255,186,172,0.80)' : scrubToolbarValueStyle.color }}>
+          <span style={{ ...scrubToolbarLabelStyle, color: amber ? CANVAS.amber.category : optic ? CANVAS.optic.category : red ? CANVAS.red.category : scrubToolbarLabelStyle.color }}>SCRUB</span>
+          <span style={{ ...scrubToolbarValueStyle, color: amber ? 'rgba(255,194,108,0.80)' : optic ? 'rgba(63,95,114,0.84)' : red ? 'rgba(255,186,172,0.80)' : scrubToolbarValueStyle.color }}>
             {SCRUB_STYLE_OPTIONS.find((option) => option.value === scrubStyle)?.detail ?? 'smooth shuttle'}
           </span>
         </div>
@@ -2974,6 +2606,12 @@ export function WaveformOverviewPanel({
                       background: 'rgba(247,250,252,0.96)',
                       borderColor: 'rgba(109,146,165,0.70)',
                     }
+                  : amber
+                    ? {
+                        color: 'rgba(255,214,132,0.88)',
+                        background: 'rgba(18,12,4,0.96)',
+                        borderColor: 'rgba(102,70,20,0.70)',
+                      }
                   : red
                     ? {
                         color: 'rgba(255,186,172,0.88)',
@@ -2989,6 +2627,13 @@ export function WaveformOverviewPanel({
                           borderColor: CANVAS.optic.chromeBorderActive,
                           boxShadow: '0 0 0 1px rgba(79,134,163,0.12)',
                         }
+                      : amber
+                        ? {
+                            color: CANVAS.amber.text,
+                            background: 'linear-gradient(135deg, rgba(42,24,6,0.99), rgba(68,36,8,0.99))',
+                            borderColor: CANVAS.amber.chromeBorderActive,
+                            boxShadow: '0 0 0 1px rgba(255,176,48,0.14)',
+                          }
                       : red
                         ? {
                             color: CANVAS.red.text,
@@ -3011,7 +2656,7 @@ export function WaveformOverviewPanel({
             type="button"
             style={{
               ...clearMarkersButtonStyle,
-              color: optic ? 'rgba(50,84,102,0.84)' : red ? 'rgba(255,186,172,0.84)' : clearMarkersButtonStyle.color,
+              color: amber ? 'rgba(255,194,108,0.84)' : optic ? 'rgba(50,84,102,0.84)' : red ? 'rgba(255,186,172,0.84)' : clearMarkersButtonStyle.color,
             }}
             onClick={() => onClearMarkersRef.current?.()}
             data-shell-interactive="true"
@@ -3025,7 +2670,7 @@ export function WaveformOverviewPanel({
             type="button"
             style={{
               ...clearMarkersButtonStyle,
-              color: optic ? 'rgba(50,84,102,0.84)' : red ? 'rgba(186,208,255,0.84)' : clearMarkersButtonStyle.color,
+              color: amber ? 'rgba(255,214,132,0.84)' : optic ? 'rgba(50,84,102,0.84)' : red ? 'rgba(186,208,255,0.84)' : clearMarkersButtonStyle.color,
             }}
             onClick={() => onClearRangesRef.current?.()}
             data-shell-interactive="true"

@@ -15,6 +15,7 @@ type Listener = () => void;
 const MAX_ENTRIES = 2048;
 
 let consoleCaptureInstalled = false;
+let activeConsoleOwnerId: symbol | null = null;
 let activeConsolePush: ((text: string, tone: DiagnosticsTone, source: DiagnosticsSource) => void) | null = null;
 
 function formatClock(date: Date): string {
@@ -79,6 +80,7 @@ export class DiagnosticsLogStore {
   private entries: readonly DiagnosticsEntry[] = [];
   private listeners = new Set<Listener>();
   private nextId = 1;
+  private readonly captureOwnerId = Symbol('diagnostics-log-store');
 
   subscribe = (listener: Listener): (() => void) => {
     this.listeners.add(listener);
@@ -92,8 +94,19 @@ export class DiagnosticsLogStore {
   };
 
   attachGlobalCapture(): void {
-    activeConsolePush = this.push.bind(this);
+    activeConsoleOwnerId = this.captureOwnerId;
+    activeConsolePush = (text, tone, source) => {
+      this.push(text, tone, source);
+    };
     installConsoleCapture();
+  }
+
+  detachGlobalCapture(): void {
+    if (activeConsoleOwnerId !== this.captureOwnerId) {
+      return;
+    }
+    activeConsoleOwnerId = null;
+    activeConsolePush = null;
   }
 
   push(text: string, tone: DiagnosticsTone, source: DiagnosticsSource): void {

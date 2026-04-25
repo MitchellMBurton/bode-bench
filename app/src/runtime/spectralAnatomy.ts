@@ -270,11 +270,9 @@ export class SpectralAnatomyStore {
       momentarySum += this.kMsBuf[index];
     }
 
-    const nextAllIndex = this.allMsCount;
-    if (nextAllIndex < MAX_STORED_FRAMES) {
-      this.allMs[nextAllIndex] = frameMs;
-      this.allMsCount = nextAllIndex + 1;
-    }
+    this.ensureIntegratedCapacity(this.allMsCount + 1);
+    this.allMs[this.allMsCount] = frameMs;
+    this.allMsCount += 1;
 
     this.recomputeCounter++;
     if (this.recomputeCounter >= INT_RECOMPUTE_EVERY) {
@@ -336,6 +334,21 @@ export class SpectralAnatomyStore {
 
     this.integratedLufs = msToLufs(relativeSum / relativeCount);
     this.hasIntegratedLufs = true;
+  }
+
+  private ensureIntegratedCapacity(nextCount: number): void {
+    if (nextCount <= this.allMs.length) {
+      return;
+    }
+
+    let nextCapacity = this.allMs.length;
+    while (nextCapacity < nextCount) {
+      nextCapacity *= 2;
+    }
+
+    const next = new Float32Array(nextCapacity);
+    next.set(this.allMs);
+    this.allMs = next;
   }
 
   private reset(emit: boolean): void {

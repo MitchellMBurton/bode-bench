@@ -13,6 +13,7 @@ interface Props {
 
 const BTN_COLORS: Record<VisualMode, { idle: string; hover: string }> = {
   default: { idle: 'rgba(160,140,80,0.30)',  hover: 'rgba(200,175,100,0.70)' },
+  amber:   { idle: 'rgba(255,176,48,0.34)',  hover: 'rgba(255,198,102,0.78)' },
   nge:     { idle: 'rgba(140,210,40,0.32)',   hover: 'rgba(140,210,40,0.70)' },
   optic:   { idle: 'rgba(73,109,129,0.60)',   hover: 'rgba(22,71,98,0.92)' },
   red:     { idle: 'rgba(214,92,82,0.40)',    hover: 'rgba(255,160,148,0.82)' },
@@ -27,6 +28,7 @@ export function PanelHelp({ text, visualMode }: Props): React.ReactElement {
   const m = MODES[visualMode];
   const optic = visualMode === 'optic';
   const red = visualMode === 'red';
+  const amber = visualMode === 'amber';
 
   const { idle: btnColor, hover: btnHoverColor } = BTN_COLORS[visualMode];
 
@@ -74,9 +76,9 @@ export function PanelHelp({ text, visualMode }: Props): React.ReactElement {
             ...popoverStyle,
             borderColor: m.chromeBorderActive,
             background: optic ? 'rgba(247,250,252,0.98)' : popoverStyle.background,
-            color: optic ? 'rgba(30,63,81,0.90)' : red ? 'rgba(255,208,200,0.88)' : popoverStyle.color,
-            boxShadow: optic ? '0 8px 22px rgba(79, 134, 163, 0.16)' : red ? '0 8px 22px rgba(120, 16, 10, 0.28)' : popoverStyle.boxShadow,
-            ...(red ? { background: 'rgba(18,5,6,0.98)' } : {}),
+            color: optic ? 'rgba(30,63,81,0.90)' : red ? 'rgba(255,208,200,0.88)' : amber ? 'rgba(255,220,136,0.92)' : popoverStyle.color,
+            boxShadow: optic ? '0 8px 22px rgba(79, 134, 163, 0.16)' : red ? '0 8px 22px rgba(120, 16, 10, 0.28)' : amber ? '0 8px 24px rgba(255, 160, 26, 0.18)' : popoverStyle.boxShadow,
+            ...(red ? { background: 'rgba(18,5,6,0.98)' } : amber ? { background: 'rgba(14,9,3,0.98)' } : {}),
           }}
         >
           {text}

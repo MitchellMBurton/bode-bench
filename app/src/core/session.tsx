@@ -1,6 +1,6 @@
 /* eslint-disable react-refresh/only-export-components */
 
-import { createContext, useContext, useSyncExternalStore } from 'react';
+import { createContext, useContext, useEffect, useSyncExternalStore } from 'react';
 import { AudioEngine } from '../audio/engine';
 import { DisplayModeStore, type VisualMode } from '../audio/displayMode';
 import { FrameBus } from '../audio/frameBus';
@@ -10,6 +10,7 @@ import { DiagnosticsLogStore, PerformanceDiagnosticsStore } from '../diagnostics
 import { DerivedMediaStore, type DerivedMediaSnapshot } from '../runtime/derivedMedia';
 import { PerformanceProfileStore, type PerformanceProfileSnapshot } from '../runtime/performanceProfile';
 import { SpectralAnatomyStore } from '../runtime/spectralAnatomy';
+import { WaveformPyramidStore } from '../runtime/waveformPyramid';
 import { VideoSyncController } from '../runtime/videoSyncController';
 import { TheaterModeStore } from '../video/theaterMode';
 import type { AnalysisConfig, Marker, MediaJobRecord, RangeMark } from '../types';
@@ -24,6 +25,7 @@ export interface AppSession {
   performanceDiagnostics: PerformanceDiagnosticsStore;
   performanceProfile: PerformanceProfileStore;
   spectralAnatomy: SpectralAnatomyStore;
+  waveformPyramid: WaveformPyramidStore;
   videoSyncController: VideoSyncController;
   theaterMode: TheaterModeStore;
   analysisConfig: AnalysisConfigStore;
@@ -35,6 +37,51 @@ interface AppSessionProviderProps {
 }
 
 const AppSessionContext = createContext<AppSession | null>(null);
+const APP_SESSION_INTERNAL = Symbol('app-session-internal');
+
+type AppSessionInternal = AppSession & {
+  [APP_SESSION_INTERNAL]: {
+    destroy: () => void;
+    destroyed: boolean;
+    retainCount: number;
+    destroyTimer: ReturnType<typeof setTimeout> | null;
+  };
+};
+
+function getAppSessionInternal(session: AppSession): AppSessionInternal[typeof APP_SESSION_INTERNAL] {
+  return (session as AppSessionInternal)[APP_SESSION_INTERNAL];
+}
+
+function retainAppSession(session: AppSession): void {
+  const internal = getAppSessionInternal(session);
+  if (internal.destroyed) {
+    return;
+  }
+  if (internal.destroyTimer !== null) {
+    clearTimeout(internal.destroyTimer);
+    internal.destroyTimer = null;
+  }
+  internal.retainCount += 1;
+}
+
+function releaseAppSession(session: AppSession): void {
+  const internal = getAppSessionInternal(session);
+  if (internal.destroyed) {
+    return;
+  }
+
+  internal.retainCount = Math.max(0, internal.retainCount - 1);
+  if (internal.retainCount > 0 || internal.destroyTimer !== null) {
+    return;
+  }
+
+  internal.destroyTimer = setTimeout(() => {
+    internal.destroyTimer = null;
+    if (internal.retainCount === 0) {
+      destroyAppSession(session);
+    }
+  }, 0);
+}
 
 export function createAppSession(): AppSession {
   const frameBus = new FrameBus();
@@ -48,13 +95,14 @@ export function createAppSession(): AppSession {
 
   const audioEngine = new AudioEngine(frameBus, performanceDiagnostics, analysisConfig.getSnapshot());
   const spectralAnatomy = new SpectralAnatomyStore(frameBus, audioEngine, scrollSpeed);
+  const waveformPyramid = new WaveformPyramidStore(frameBus, audioEngine, performanceProfile);
 
   // Propagate analysis config changes to the engine's analyser nodes.
-  analysisConfig.subscribe(() => {
+  const unsubscribeAnalysisConfig = analysisConfig.subscribe(() => {
     audioEngine.applyAnalysisConfig(analysisConfig.getSnapshot());
   });
 
-  return {
+  const session: AppSessionInternal = {
     frameBus,
     audioEngine,
     displayMode: new DisplayModeStore(),
@@ -64,16 +112,52 @@ export function createAppSession(): AppSession {
     performanceDiagnostics,
     performanceProfile,
     spectralAnatomy,
+    waveformPyramid,
     videoSyncController: new VideoSyncController(),
     theaterMode,
     analysisConfig,
+    [APP_SESSION_INTERNAL]: {
+      destroy: () => {
+        unsubscribeAnalysisConfig();
+        waveformPyramid.destroy();
+        spectralAnatomy.destroy();
+        audioEngine.dispose();
+        diagnosticsLog.detachGlobalCapture();
+      },
+      destroyed: false,
+      retainCount: 0,
+      destroyTimer: null,
+    },
   };
+
+  return session;
+}
+
+export function destroyAppSession(session: AppSession): void {
+  const internal = getAppSessionInternal(session);
+  if (internal.destroyTimer !== null) {
+    clearTimeout(internal.destroyTimer);
+    internal.destroyTimer = null;
+  }
+  if (internal.destroyed) {
+    return;
+  }
+  internal.destroyed = true;
+  internal.retainCount = 0;
+  internal.destroy();
 }
 
 export function AppSessionProvider({
   session,
   children,
 }: AppSessionProviderProps): React.ReactElement {
+  useEffect(() => {
+    retainAppSession(session);
+    return () => {
+      releaseAppSession(session);
+    };
+  }, [session]);
+
   return (
     <AppSessionContext.Provider value={session}>
       {children}
@@ -175,6 +259,19 @@ export function usePerformanceProfile(): PerformanceProfileSnapshot {
 
 export function useSpectralAnatomyStore(): SpectralAnatomyStore {
   return useAppSession().spectralAnatomy;
+}
+
+export function useWaveformPyramidStore(): WaveformPyramidStore {
+  return useAppSession().waveformPyramid;
+}
+
+export function useWaveformPyramidSnapshot(): number {
+  const waveformPyramid = useWaveformPyramidStore();
+  return useSyncExternalStore(
+    waveformPyramid.subscribe,
+    waveformPyramid.getSnapshot,
+    waveformPyramid.getSnapshot,
+  );
 }
 
 export function useVideoSyncController(): VideoSyncController {

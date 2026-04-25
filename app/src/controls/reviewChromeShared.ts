@@ -45,6 +45,14 @@ const RANGE_CHIP_THEMES: Record<VisualMode, RangeChipPalette> = {
     selectedBorder: 'rgba(196,220,255,0.98)',
     selectedText: 'rgba(246,249,255,0.98)',
   },
+  amber: {
+    background: 'rgba(120,72,12,0.20)',
+    border: 'rgba(255,184,72,0.74)',
+    text: 'rgba(255,214,132,0.94)',
+    selectedBackground: 'rgba(148,92,16,0.30)',
+    selectedBorder: 'rgba(255,220,154,0.98)',
+    selectedText: 'rgba(255,244,214,0.98)',
+  },
   optic: {
     background: 'rgba(17,122,165,0.12)',
     border: 'rgba(17,122,165,0.50)',
@@ -101,6 +109,8 @@ function rgba(hex: string, alpha: number): string {
 
 function accentForMode(visualMode: VisualMode): string {
   switch (visualMode) {
+    case 'amber':
+      return CANVAS.amber.trace;
     case 'optic':
       return CANVAS.optic.trace;
     case 'red':

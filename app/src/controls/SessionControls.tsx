@@ -58,6 +58,16 @@ const SESSION_THEMES = {
     pitchFill: COLORS.accent,
     buttonBg: COLORS.bg3,
   },
+  amber: {
+    clusterBg: 'rgba(12,8,3,0.98)',
+    border: 'rgba(102,70,20,0.64)',
+    label: CANVAS.amber.category,
+    text: CANVAS.amber.text,
+    track: 'rgba(24,16,5,0.94)',
+    fill: 'rgba(255,176,48,0.88)',
+    pitchFill: 'rgba(255,196,92,0.86)',
+    buttonBg: 'rgba(18,12,4,0.94)',
+  },
   optic: {
     clusterBg: 'rgba(246,250,252,0.94)',
     border: 'rgba(109,146,165,0.72)',

@@ -9,7 +9,7 @@ interface Props {
   readonly onGrayscale: (nextValue: boolean) => void;
 }
 
-const MODE_OPTIONS: readonly VisualMode[] = ['default', 'optic', 'red', 'nge', 'hyper', 'eva'];
+const MODE_OPTIONS: readonly VisualMode[] = ['default', 'amber', 'optic', 'red', 'nge', 'hyper', 'eva'];
 
 function formatModeLabel(mode: VisualMode): string {
   if (mode === 'default') return 'DEFAULT';

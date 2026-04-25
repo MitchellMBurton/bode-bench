@@ -73,6 +73,26 @@ const TRANSPORT_THEMES: Record<VisualMode, TransportTheme> = {
     seekTrackBg: COLORS.bg3,
     seekFillColor: COLORS.accent,
   },
+  amber: {
+    btnBg: 'rgba(18,12,4,0.94)',
+    btnBorder: 'rgba(102,70,20,0.62)',
+    btnColor: CANVAS.amber.text,
+    btnActiveBg: 'rgba(46,26,6,0.96)',
+    btnActiveBorder: CANVAS.amber.chromeBorderActive,
+    btnResetBorder: CANVAS.amber.chromeBorder,
+    btnResetBg: 'rgba(18,12,4,0.94)',
+    panelBg: CANVAS.amber.bg2,
+    panelLabel: CANVAS.amber.category,
+    mutedText: CANVAS.amber.label,
+    secondaryText: 'rgba(255,194,108,0.76)',
+    loopBg: 'rgba(88,54,10,0.26)',
+    loopBorder: 'rgba(255,176,48,0.34)',
+    loopLabel: CANVAS.amber.trace,
+    loopTime: 'rgba(255,194,108,0.76)',
+    loopClear: 'rgba(255,176,48,0.70)',
+    seekTrackBg: '#1c1204',
+    seekFillColor: '#ffb020',
+  },
   optic: {
     btnBg: 'rgba(247,250,252,0.94)',
     btnBorder: 'rgba(109,146,165,0.76)',
@@ -177,6 +197,7 @@ const TRANSPORT_THEMES: Record<VisualMode, TransportTheme> = {
 
 const INGEST_DRAG_BACKGROUNDS: Record<VisualMode, string> = {
   default: COLORS.accentGlow,
+  amber: 'rgba(255,176,48,0.16)',
   nge: COLORS.accentGlow,
   hyper: COLORS.accentGlow,
   eva: COLORS.accentGlow,
@@ -2385,6 +2406,7 @@ const loadNoticeInfoStyle: React.CSSProperties = {
 const LOAD_NOTICE_THEMES: Record<LoadNotice['tone'], Record<VisualMode, React.CSSProperties>> = {
   warn: {
     default: loadNoticeWarnStyle,
+    amber: { borderColor: 'rgba(224,156,42,0.58)', background: 'rgba(42,24,4,0.68)' },
     nge: { borderColor: 'rgba(160,200,40,0.55)', background: 'rgba(10,24,4,0.55)' },
     hyper: { borderColor: 'rgba(98,200,255,0.45)', background: 'rgba(4,10,32,0.55)' },
     eva: loadNoticeWarnStyle,
@@ -2393,6 +2415,7 @@ const LOAD_NOTICE_THEMES: Record<LoadNotice['tone'], Record<VisualMode, React.CS
   },
   info: {
     default: loadNoticeInfoStyle,
+    amber: { borderColor: 'rgba(138,98,25,0.52)', background: 'rgba(20,14,4,0.62)' },
     nge: { borderColor: 'rgba(80,160,30,0.35)', background: 'rgba(6,16,4,0.50)' },
     hyper: { borderColor: 'rgba(60,100,220,0.35)', background: 'rgba(4,8,28,0.50)' },
     eva: loadNoticeInfoStyle,

@@ -98,6 +98,7 @@ export function LoudnessMeterPanel(): React.ReactElement {
       const H = canvas.height;
       const dpr = Math.min(devicePixelRatio, PANEL_DPR_MAX);
       const nge = displayMode.mode === 'nge';
+      const amber = displayMode.mode === 'amber';
       const hyper = displayMode.mode === 'hyper';
       const optic = displayMode.mode === 'optic';
       const red = displayMode.mode === 'red';
@@ -105,15 +106,15 @@ export function LoudnessMeterPanel(): React.ReactElement {
       const padV = 6 * dpr;
       drawDimRef.current = { H, padV };
 
-      const traceColor = nge ? '#a0d840' : hyper ? CANVAS.hyper.trace : optic ? CANVAS.optic.trace : red ? CANVAS.red.trace : eva ? CANVAS.eva.trace : COLORS.waveform;
-      const labelColor = nge ? 'rgba(140,210,40,0.5)' : hyper ? CANVAS.hyper.label : optic ? CANVAS.optic.label : red ? CANVAS.red.label : eva ? CANVAS.eva.label : COLORS.textDim;
-      const textColor = nge ? 'rgba(140,210,40,0.72)' : hyper ? CANVAS.hyper.text : optic ? CANVAS.optic.text : red ? CANVAS.red.text : eva ? CANVAS.eva.text : COLORS.textSecondary;
+      const traceColor = nge ? '#a0d840' : amber ? CANVAS.amber.trace : hyper ? CANVAS.hyper.trace : optic ? CANVAS.optic.trace : red ? CANVAS.red.trace : eva ? CANVAS.eva.trace : COLORS.waveform;
+      const labelColor = nge ? 'rgba(140,210,40,0.5)' : amber ? CANVAS.amber.label : hyper ? CANVAS.hyper.label : optic ? CANVAS.optic.label : red ? CANVAS.red.label : eva ? CANVAS.eva.label : COLORS.textDim;
+      const textColor = nge ? 'rgba(140,210,40,0.72)' : amber ? CANVAS.amber.text : hyper ? CANVAS.hyper.text : optic ? CANVAS.optic.text : red ? CANVAS.red.text : eva ? CANVAS.eva.text : COLORS.textSecondary;
       const targetLine = TARGET_LINE_BY_PRESET[analysisConfig.loudness.targetPreset];
       const referenceLines = analysisConfig.loudness.referenceMode === 'target-only' ? [targetLine] : REF_LINES;
 
-      ctx.fillStyle = hyper ? CANVAS.hyper.bg2 : optic ? CANVAS.optic.bg2 : red ? CANVAS.red.bg2 : eva ? CANVAS.eva.bg : COLORS.bg1;
+      ctx.fillStyle = amber ? CANVAS.amber.bg2 : hyper ? CANVAS.hyper.bg2 : optic ? CANVAS.optic.bg2 : red ? CANVAS.red.bg2 : eva ? CANVAS.eva.bg : COLORS.bg1;
       ctx.fillRect(0, 0, W, H);
-      ctx.fillStyle = hyper ? 'rgba(32,52,110,0.92)' : optic ? 'rgba(159,199,223,0.84)' : red ? 'rgba(124,40,39,0.84)' : eva ? 'rgba(74,26,144,0.92)' : COLORS.border;
+      ctx.fillStyle = amber ? 'rgba(160,112,26,0.84)' : hyper ? 'rgba(32,52,110,0.92)' : optic ? 'rgba(159,199,223,0.84)' : red ? 'rgba(124,40,39,0.84)' : eva ? 'rgba(74,26,144,0.92)' : COLORS.border;
       ctx.fillRect(0, 0, W, 1);
 
       const yTop = padV;

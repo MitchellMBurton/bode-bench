@@ -54,6 +54,19 @@ const DEFAULT_GONIOMETER_THEME: GoniometerTheme = {
 
 const GONIOMETER_THEMES: Record<VisualMode, GoniometerTheme> = {
   default: DEFAULT_GONIOMETER_THEME,
+  amber: {
+    ...DEFAULT_GONIOMETER_THEME,
+    panelBackground: CANVAS.amber.bg2,
+    traceColor: CANVAS.amber.trace,
+    labelColor: CANVAS.amber.label,
+    textColor: CANVAS.amber.text,
+    gridColor: CANVAS.amber.grid,
+    topBorder: 'rgba(160,112,26,0.90)',
+    divider: 'rgba(38,24,6,0.98)',
+    corrStrong: 'rgba(255,184,64,0.84)',
+    corrMild: 'rgba(226,162,44,0.82)',
+    corrBarBackground: 'rgba(12,8,3,1)',
+  },
   nge: {
     ...DEFAULT_GONIOMETER_THEME,
     traceColor: '#a0d840',

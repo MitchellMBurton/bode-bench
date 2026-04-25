@@ -101,6 +101,7 @@ export function LoudnessHistoryPanel(): React.ReactElement {
       const H = canvas.height;
       const dpr = Math.min(devicePixelRatio, PANEL_DPR_MAX);
       const nge = displayMode.mode === 'nge';
+      const amber = displayMode.mode === 'amber';
       const hyper = displayMode.mode === 'hyper';
       const optic = displayMode.mode === 'optic';
       const red = displayMode.mode === 'red';
@@ -108,14 +109,14 @@ export function LoudnessHistoryPanel(): React.ReactElement {
       const padV = PAD_V_PX * dpr;
       drawDimRef.current = { H, padV };
       const baseY = H - padV;
-      const traceColor = nge ? NGE_TRACE : hyper ? HYPER_TRACE : optic ? OPTIC_TRACE : red ? RED_TRACE : eva ? EVA_TRACE : COLORS.waveform;
-      const labelColor = nge ? NGE_LABEL : hyper ? HYPER_LABEL : optic ? OPTIC_LABEL : red ? RED_LABEL : eva ? EVA_LABEL : COLORS.textDim;
-      const textColor = nge ? NGE_TEXT : hyper ? HYPER_TEXT : optic ? OPTIC_TEXT : red ? RED_TEXT : eva ? EVA_TEXT : COLORS.textSecondary;
+      const traceColor = nge ? NGE_TRACE : amber ? CANVAS.amber.trace : hyper ? HYPER_TRACE : optic ? OPTIC_TRACE : red ? RED_TRACE : eva ? EVA_TRACE : COLORS.waveform;
+      const labelColor = nge ? NGE_LABEL : amber ? CANVAS.amber.label : hyper ? HYPER_LABEL : optic ? OPTIC_LABEL : red ? RED_LABEL : eva ? EVA_LABEL : COLORS.textDim;
+      const textColor = nge ? NGE_TEXT : amber ? CANVAS.amber.text : hyper ? HYPER_TEXT : optic ? OPTIC_TEXT : red ? RED_TEXT : eva ? EVA_TEXT : COLORS.textSecondary;
 
-      ctx.fillStyle = hyper ? CANVAS.hyper.bg2 : optic ? CANVAS.optic.bg2 : red ? CANVAS.red.bg2 : eva ? CANVAS.eva.bg : COLORS.bg1;
+      ctx.fillStyle = amber ? CANVAS.amber.bg2 : hyper ? CANVAS.hyper.bg2 : optic ? CANVAS.optic.bg2 : red ? CANVAS.red.bg2 : eva ? CANVAS.eva.bg : COLORS.bg1;
       ctx.fillRect(0, 0, W, H);
 
-      ctx.fillStyle = hyper ? 'rgba(32,52,110,0.92)' : optic ? 'rgba(159,199,223,0.84)' : red ? 'rgba(124,40,39,0.84)' : eva ? 'rgba(74,26,144,0.92)' : COLORS.border;
+      ctx.fillStyle = amber ? 'rgba(160,112,26,0.84)' : hyper ? 'rgba(32,52,110,0.92)' : optic ? 'rgba(159,199,223,0.84)' : red ? 'rgba(124,40,39,0.84)' : eva ? 'rgba(74,26,144,0.92)' : COLORS.border;
       ctx.fillRect(0, 0, W, 1);
 
       if (analysisConfig.loudness.showRmsGuides) {

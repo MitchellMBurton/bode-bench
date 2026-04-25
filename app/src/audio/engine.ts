@@ -1386,6 +1386,64 @@ export class AudioEngine {
     }
   }
 
+  dispose(): void {
+    this.loadVersion++;
+    this.playId++;
+    this.clearSeekResume();
+    this.clearScrubTimers();
+    this.cancelDeferredAnalysis();
+    this.scrubActive = false;
+    this.scrubResumeAfter = false;
+    this.scrubPreviewRate = 1;
+    this.scrubLastTarget = 0;
+    this.scrubLastMoveAt = 0;
+    this.stopPlayback(true, 'dispose');
+    this.disposeStreamedMedia();
+
+    const ctx = this.ctx;
+    const masterGain = this.masterGain;
+    const playGainNode = this.playGainNode;
+    const streamedPitchInputNode = this.streamedPitchInputNode;
+    const splitterNode = this.splitterNode;
+    const analyserL = this.analyserL;
+    const analyserR = this.analyserR;
+
+    this.transportListeners.clear();
+    this.resetListeners.clear();
+    this.fileReadyListeners.clear();
+    this.buffer = null;
+    this._filename = null;
+    this._fileAnalysis = null;
+    this._waveformPeaks = null;
+    this._loopStart = null;
+    this._loopEnd = null;
+    this.playbackBackend = 'decoded';
+    this.masterGain = null;
+    this.playGainNode = null;
+    this.streamedPitchInputNode = null;
+    this.splitterNode = null;
+    this.analyserL = null;
+    this.analyserR = null;
+    this.sourceNode = null;
+    this.ctx = null;
+
+    for (const node of [splitterNode, streamedPitchInputNode, playGainNode, masterGain, analyserL, analyserR]) {
+      if (!node) continue;
+      try {
+        node.disconnect();
+      } catch {
+        // Already disconnected.
+      }
+    }
+
+    void this.runSerializedStretchMutation(async () => {
+      await this.disposeStretchNode();
+      if (ctx && ctx.state !== 'closed') {
+        await ctx.close().catch(() => {});
+      }
+    });
+  }
+
   setLoop(start: number, end: number): void {
     const dur = this.duration;
     this._loopStart = Math.max(0, Math.min(start, dur));

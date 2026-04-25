@@ -14,6 +14,10 @@ const NGE_BG = '#030a03';
 const NGE_LABEL = 'rgba(140,210,40,0.5)';
 const NGE_AXIS = '#1a4a10';
 const NGE_SPECTRO_PALETTE = ['#030a03', '#0a2a0a', '#1a6010', '#60c020', '#c8f040'] as const;
+const AMBER_BG = CANVAS.amber.bg;
+const AMBER_LABEL = CANVAS.amber.label;
+const AMBER_AXIS = CANVAS.amber.spectroAxis;
+const AMBER_SPECTRO_PALETTE = CANVAS.amber.spectroPalette;
 const HYPER_BG = CANVAS.hyper.bg;
 const HYPER_LABEL = CANVAS.hyper.label;
 const HYPER_AXIS = CANVAS.hyper.spectroAxis;
@@ -34,6 +38,7 @@ const HISTORY_EMPTY = -1;
 const HISTORY_LEVELS = 256;
 const SPECTRO_BG_RGB = hexToRgb(SPECTRO_BG);
 const NGE_BG_RGB = hexToRgb(NGE_BG);
+const AMBER_BG_RGB = hexToRgb(AMBER_BG);
 const HYPER_BG_RGB = hexToRgb(HYPER_BG);
 const RED_BG_RGB = hexToRgb(RED_BG);
 const OPTIC_BG_RGB = hexToRgb(OPTIC_BG);
@@ -77,6 +82,18 @@ const DEFAULT_SPECTROGRAM_THEME: SpectrogramTheme = {
 
 const SPECTROGRAM_THEMES: Record<VisualMode, SpectrogramTheme> = {
   default: DEFAULT_SPECTROGRAM_THEME,
+  amber: {
+    ...DEFAULT_SPECTROGRAM_THEME,
+    background: AMBER_BG,
+    panelBackground: AMBER_BG,
+    label: AMBER_LABEL,
+    axis: AMBER_AXIS,
+    palette: AMBER_SPECTRO_PALETTE,
+    bgRgb: AMBER_BG_RGB,
+    cellGrid: 'rgba(70,42,8,0.18)',
+    minorGrid: 'rgba(100,62,12,0.24)',
+    majorGrid: 'rgba(160,108,24,0.34)',
+  },
   nge: {
     ...DEFAULT_SPECTROGRAM_THEME,
     background: NGE_BG,
@@ -186,6 +203,7 @@ function createPalette(mode: VisualMode): readonly Rgb[] {
 const NORMAL_PALETTE = createPalette('default');
 const SPECTROGRAM_PALETTES: Record<VisualMode, readonly Rgb[]> = {
   default: NORMAL_PALETTE,
+  amber: createPalette('amber'),
   nge: createPalette('nge'),
   hyper: createPalette('hyper'),
   red: createPalette('red'),

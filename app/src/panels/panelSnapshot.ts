@@ -33,6 +33,7 @@ function timestampString(): string {
 function modeDisplayName(mode: VisualMode): string {
   const names: Record<VisualMode, string> = {
     default: 'DEFAULT',
+    amber: 'AMBER',
     nge: 'NGE',
     hyper: 'HYPER',
     eva: 'EVA',

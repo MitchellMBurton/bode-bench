@@ -3,12 +3,13 @@
 // Read in RAF draw loops; React can subscribe when it needs chrome updates.
 // ============================================================
 
-export type VisualMode = 'default' | 'nge' | 'hyper' | 'eva' | 'optic' | 'red';
+export type VisualMode = 'default' | 'amber' | 'nge' | 'hyper' | 'eva' | 'optic' | 'red';
 
 export type VisualDecoration = 'none' | 'scan-lines' | 'optic-bloom' | 'red-lighting';
 
 export const VISUAL_DECORATIONS: Record<VisualMode, VisualDecoration> = {
   default: 'none',
+  amber: 'scan-lines',
   nge: 'scan-lines',
   hyper: 'scan-lines',
   eva: 'scan-lines',

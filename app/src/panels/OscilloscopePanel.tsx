@@ -115,18 +115,19 @@ export function OscilloscopePanel(): React.ReactElement {
       const H = canvas.height;
       const dpr = Math.min(devicePixelRatio, PANEL_DPR_MAX);
       const nge = displayMode.mode === 'nge';
+      const amber = displayMode.mode === 'amber';
       const hyper = displayMode.mode === 'hyper';
       const optic = displayMode.mode === 'optic';
       const red = displayMode.mode === 'red';
       const eva = displayMode.mode === 'eva';
-      const backgroundFill = nge ? NGE_BG : hyper ? HYPER_BG : optic ? OPTIC_BG : red ? RED_BG : eva ? EVA_BG : COLORS.bg2;
-      const persistenceFill = nge ? NGE_PERSISTENCE_FILL : hyper ? CANVAS.hyper.persistenceFill : optic ? OPTIC_PERSISTENCE_FILL : red ? RED_PERSISTENCE_FILL : eva ? EVA_PERSISTENCE_FILL : COLORS.bg2;
-      const gridColor = nge ? NGE_GRID : hyper ? HYPER_GRID : optic ? OPTIC_GRID : red ? RED_GRID : eva ? EVA_GRID : COLORS.waveformGrid;
-      const amplitudeTextColor = hyper ? HYPER_TEXT : optic ? OPTIC_TEXT : red ? RED_TEXT : eva ? EVA_TEXT : COLORS.textDim;
-      const traceColor = nge ? NGE_TRACE : hyper ? HYPER_TRACE : optic ? OPTIC_TRACE : red ? RED_TRACE : eva ? EVA_TRACE : COLORS.waveform;
+      const backgroundFill = nge ? NGE_BG : amber ? CANVAS.amber.bg : hyper ? HYPER_BG : optic ? OPTIC_BG : red ? RED_BG : eva ? EVA_BG : COLORS.bg2;
+      const persistenceFill = nge ? NGE_PERSISTENCE_FILL : amber ? CANVAS.amber.persistenceFill : hyper ? CANVAS.hyper.persistenceFill : optic ? OPTIC_PERSISTENCE_FILL : red ? RED_PERSISTENCE_FILL : eva ? EVA_PERSISTENCE_FILL : COLORS.bg2;
+      const gridColor = nge ? NGE_GRID : amber ? CANVAS.amber.grid : hyper ? HYPER_GRID : optic ? OPTIC_GRID : red ? RED_GRID : eva ? EVA_GRID : COLORS.waveformGrid;
+      const amplitudeTextColor = amber ? CANVAS.amber.text : hyper ? HYPER_TEXT : optic ? OPTIC_TEXT : red ? RED_TEXT : eva ? EVA_TEXT : COLORS.textDim;
+      const traceColor = nge ? NGE_TRACE : amber ? CANVAS.amber.trace : hyper ? HYPER_TRACE : optic ? OPTIC_TRACE : red ? RED_TRACE : eva ? EVA_TRACE : COLORS.waveform;
 
       // Background — hard clear in normal mode, phosphor persistence in NGE/EVA
-      if (nge || hyper || optic || red || eva) {
+      if (nge || amber || hyper || optic || red || eva) {
         // Fade previous trace: partially transparent fill lets old traces glow
         ctx.fillStyle = persistenceFill;
       } else {
@@ -185,6 +186,8 @@ export function OscilloscopePanel(): React.ReactElement {
         // Idle: flat line
         ctx.strokeStyle = nge
           ? 'rgba(144,200,64,0.25)'
+          : amber
+            ? 'rgba(255,176,48,0.24)'
           : hyper
             ? 'rgba(98,232,255,0.25)'
             : optic
@@ -199,7 +202,7 @@ export function OscilloscopePanel(): React.ReactElement {
         ctx.moveTo(padX, midY);
         ctx.lineTo(padX + drawW, midY);
         ctx.stroke();
-        drawLabel(ctx, W, dpr, nge ? 'nge' : hyper ? 'hyper' : optic ? 'optic' : red ? 'red' : eva ? 'eva' : 'default');
+        drawLabel(ctx, W, dpr, nge ? 'nge' : amber ? 'amber' : hyper ? 'hyper' : optic ? 'optic' : red ? 'red' : eva ? 'eva' : 'default');
         return;
       }
 
@@ -228,13 +231,13 @@ export function OscilloscopePanel(): React.ReactElement {
 
       // NGE: bright phosphor green-amber; normal: instrument amber
       ctx.strokeStyle = traceColor;
-      ctx.lineWidth = nge || hyper || optic || red || eva ? 1.2 * dpr : CANVAS.oscLineWidth * dpr;
+      ctx.lineWidth = nge || amber || hyper || optic || red || eva ? 1.2 * dpr : CANVAS.oscLineWidth * dpr;
       ctx.lineJoin = 'round';
 
-      if (nge || hyper || optic || red || eva) {
+      if (nge || amber || hyper || optic || red || eva) {
         // Glow pass — wide soft stroke underneath
         ctx.save();
-        ctx.strokeStyle = nge ? 'rgba(140,210,40,0.18)' : hyper ? HYPER_GLOW : optic ? OPTIC_GLOW : red ? RED_GLOW : EVA_GLOW;
+        ctx.strokeStyle = nge ? 'rgba(140,210,40,0.18)' : amber ? CANVAS.amber.glow : hyper ? HYPER_GLOW : optic ? OPTIC_GLOW : red ? RED_GLOW : EVA_GLOW;
         ctx.lineWidth = 5 * dpr;
         ctx.beginPath();
         for (let i = 0; i < samples; i++) {
@@ -254,7 +257,7 @@ export function OscilloscopePanel(): React.ReactElement {
       }
       ctx.stroke();
 
-      drawLabel(ctx, W, dpr, nge ? 'nge' : hyper ? 'hyper' : optic ? 'optic' : red ? 'red' : eva ? 'eva' : 'default');
+      drawLabel(ctx, W, dpr, nge ? 'nge' : amber ? 'amber' : hyper ? 'hyper' : optic ? 'optic' : red ? 'red' : eva ? 'eva' : 'default');
     };
 
     rafRef.current = requestAnimationFrame(draw);
@@ -284,10 +287,10 @@ function drawLabel(
   ctx: CanvasRenderingContext2D,
   W: number,
   dpr: number,
-  mode: 'default' | 'nge' | 'hyper' | 'optic' | 'red' | 'eva' = 'default',
+  mode: 'default' | 'amber' | 'nge' | 'hyper' | 'optic' | 'red' | 'eva' = 'default',
 ): void {
   ctx.font = `${9 * dpr}px ${FONTS.mono}`;
-  ctx.fillStyle = mode === 'nge' ? NGE_LABEL : mode === 'hyper' ? HYPER_LABEL : mode === 'optic' ? OPTIC_LABEL : mode === 'red' ? RED_LABEL : mode === 'eva' ? EVA_LABEL : COLORS.textDim;
+  ctx.fillStyle = mode === 'nge' ? NGE_LABEL : mode === 'amber' ? CANVAS.amber.label : mode === 'hyper' ? HYPER_LABEL : mode === 'optic' ? OPTIC_LABEL : mode === 'red' ? RED_LABEL : mode === 'eva' ? EVA_LABEL : COLORS.textDim;
   ctx.textAlign = 'right';
   ctx.textBaseline = 'top';
   ctx.fillText('OSCILLOSCOPE', W - 8 * dpr, 6 * dpr);
@@ -315,6 +318,3 @@ const overlayStyle: React.CSSProperties = {
   height: '100%',
   pointerEvents: 'none',
 };
-
-
-

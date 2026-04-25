@@ -11,10 +11,21 @@ export interface TimelineProfile {
   readonly sessionMapMaxCols: number;
   readonly sessionMapSecondsPerCol: number;
   readonly detailMapMaxCols: number;
-  readonly scoutTargetSamples: number;
-  readonly scoutSamplesPerTarget: number;
-  readonly scoutActiveDelayMs: number;
-  readonly scoutStressDelayMs: number;
+}
+
+export interface WaveformProfile {
+  readonly sessionMapTargetBins: number;
+  readonly detailTargetBins: number;
+  readonly visibleRefineSliceMs: number;
+  readonly backgroundRefineSliceMs: number;
+  readonly sampleViewMaxVisibleSpanS: number;
+  readonly streamedOverviewTargetBins: number;
+  readonly streamedVisibleTargetSeconds: number;
+  readonly streamedPlayheadWindowS: number;
+  readonly streamedSamplesPerTarget: number;
+  readonly streamedActiveDelayMs: number;
+  readonly streamedStressDelayMs: number;
+  readonly persistentCacheEnabled: boolean;
 }
 
 export interface PerformanceProfileSnapshot {
@@ -24,6 +35,7 @@ export interface PerformanceProfileSnapshot {
   readonly label: string;
   readonly summary: string;
   readonly timeline: TimelineProfile;
+  readonly waveform: WaveformProfile;
 }
 
 const PROFILE_TIMELINES: Record<PerformanceProfileId, TimelineProfile> = {
@@ -32,20 +44,43 @@ const PROFILE_TIMELINES: Record<PerformanceProfileId, TimelineProfile> = {
     sessionMapMaxCols: 768,
     sessionMapSecondsPerCol: 12,
     detailMapMaxCols: 32_768,
-    scoutTargetSamples: 768,
-    scoutSamplesPerTarget: 1,
-    scoutActiveDelayMs: 120,
-    scoutStressDelayMs: 900,
   },
   'desktop-high': {
     sessionMapMinCols: 512,
     sessionMapMaxCols: 1_536,
     sessionMapSecondsPerCol: 8,
     detailMapMaxCols: 65_536,
-    scoutTargetSamples: 1_536,
-    scoutSamplesPerTarget: 2,
-    scoutActiveDelayMs: 72,
-    scoutStressDelayMs: 420,
+  },
+};
+
+const PROFILE_WAVEFORMS: Record<PerformanceProfileId, WaveformProfile> = {
+  'web-safe': {
+    sessionMapTargetBins: 512,
+    detailTargetBins: 16_384,
+    visibleRefineSliceMs: 6,
+    backgroundRefineSliceMs: 4,
+    sampleViewMaxVisibleSpanS: 0.18,
+    streamedOverviewTargetBins: 2_048,
+    streamedVisibleTargetSeconds: 0.25,
+    streamedPlayheadWindowS: 8,
+    streamedSamplesPerTarget: 2,
+    streamedActiveDelayMs: 72,
+    streamedStressDelayMs: 600,
+    persistentCacheEnabled: false,
+  },
+  'desktop-high': {
+    sessionMapTargetBins: 1_024,
+    detailTargetBins: 32_768,
+    visibleRefineSliceMs: 10,
+    backgroundRefineSliceMs: 6,
+    sampleViewMaxVisibleSpanS: 0.32,
+    streamedOverviewTargetBins: 4_096,
+    streamedVisibleTargetSeconds: 0.18,
+    streamedPlayheadWindowS: 12,
+    streamedSamplesPerTarget: 3,
+    streamedActiveDelayMs: 48,
+    streamedStressDelayMs: 300,
+    persistentCacheEnabled: true,
   },
 };
 
@@ -88,6 +123,7 @@ function buildSnapshot(
         ? 'Desktop installs can index and refine large media more aggressively.'
         : 'Browser-safe profile keeps large media lighter and more conservative.',
     timeline: PROFILE_TIMELINES[activeProfile],
+    waveform: PROFILE_WAVEFORMS[activeProfile],
   };
 }
 

@@ -25,6 +25,12 @@ import {
   getQuickClipExportModeDescriptor,
   type SourceKind,
 } from '../runtime/exportPresets';
+import {
+  getRememberedExportFolder,
+  getRememberedSourcePath,
+  rememberExportFolder,
+  rememberSourcePath,
+} from '../runtime/exportStorage';
 import { CANVAS, COLORS, FONTS, SPACING } from '../theme';
 import type { ClipExportTuning, MediaQualityMode, RangeMark } from '../types';
 import { formatTransportTime } from '../utils/format';
@@ -102,9 +108,6 @@ type Gate =
   | { kind: 'needs-source' }
   | { kind: 'ready'; saveDirectory: SaveDirectory };
 
-const EXPORT_FOLDER_STORAGE_KEY = 'console:last-export-folder';
-const SOURCE_PATH_STORAGE_KEY = 'console:source-paths';
-
 const DOCK_THEMES: Record<VisualMode, DockTheme> = {
   default: {
     panelBg: COLORS.bg1,
@@ -117,6 +120,18 @@ const DOCK_THEMES: Record<VisualMode, DockTheme> = {
     dim: COLORS.textDim,
     accent: COLORS.accent,
     ok: COLORS.statusOk,
+  },
+  amber: {
+    panelBg: 'linear-gradient(180deg, rgba(12,8,3,0.99), rgba(20,13,4,0.99))',
+    buttonBg: 'rgba(18,12,4,0.94)',
+    buttonActiveBg: 'linear-gradient(135deg, rgba(42,24,6,0.98), rgba(68,36,8,0.96))',
+    border: 'rgba(102,70,20,0.76)',
+    accentBorder: CANVAS.amber.chromeBorderActive,
+    text: CANVAS.amber.text,
+    label: CANVAS.amber.category,
+    dim: 'rgba(212,170,86,0.64)',
+    accent: 'rgba(255,176,48,0.96)',
+    ok: 'rgba(194,242,154,0.94)',
   },
   optic: {
     panelBg: 'linear-gradient(180deg, rgba(248,251,253,0.99), rgba(238,245,249,0.99))',
@@ -208,43 +223,10 @@ function getSelectedRange(rangeMarks: readonly RangeMark[], selectedRangeId: num
   return selectedRange;
 }
 
-function getRememberedExportFolder(): string | null {
-  return localStorage.getItem(EXPORT_FOLDER_STORAGE_KEY);
-}
-
-function getRememberedSourcePaths(): Record<string, string> {
-  const raw = localStorage.getItem(SOURCE_PATH_STORAGE_KEY);
-  if (!raw) {
-    return {};
-  }
-  const parsed = JSON.parse(raw) as unknown;
-  assert(typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed), 'source path storage must be an object');
-  return parsed as Record<string, string>;
-}
-
 function getParentFolder(path: string): string {
   const slashIndex = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
   assert(slashIndex > 0, 'path must include a parent folder');
   return path.slice(0, slashIndex);
-}
-
-function getRememberedSourceKey(filename: string, durationS: number): string {
-  assert(durationS > 0, 'source duration must be positive');
-  return `${filename}::${Math.round(durationS * 10)}`;
-}
-
-function rememberExportFolder(path: string): void {
-  localStorage.setItem(EXPORT_FOLDER_STORAGE_KEY, getParentFolder(path));
-}
-
-function rememberSourcePath(filename: string, durationS: number, path: string): void {
-  const sourcePaths = getRememberedSourcePaths();
-  sourcePaths[getRememberedSourceKey(filename, durationS)] = path;
-  localStorage.setItem(SOURCE_PATH_STORAGE_KEY, JSON.stringify(sourcePaths));
-}
-
-function getRememberedSourcePath(filename: string, durationS: number): string | null {
-  return getRememberedSourcePaths()[getRememberedSourceKey(filename, durationS)] ?? null;
 }
 
 function getPreferredSaveDirectory(sourcePath: string): SaveDirectory {

@@ -72,6 +72,21 @@ const DEFAULT_PIANO_ROLL_THEME: PianoRollTheme = {
 
 const PIANO_ROLL_THEMES: Record<VisualMode, PianoRollTheme> = {
   default: DEFAULT_PIANO_ROLL_THEME,
+  amber: {
+    panelBackground: CANVAS.amber.bg2,
+    blackKeyFill: 'rgba(14,10,3,0.96)',
+    whiteKeyFill: 'rgba(26,18,5,0.94)',
+    octaveLine: 'rgba(134,90,20,0.48)',
+    octaveLabel: CANVAS.amber.label,
+    activeNoteFill: 'rgba(255,176,48,0.46)',
+    pastNoteFill: 'rgba(110,64,10,0.36)',
+    futureNoteFill: 'rgba(176,108,18,0.48)',
+    activeNoteBorder: 'rgba(255,220,138,0.88)',
+    noteBorder: 'rgba(208,140,40,0.34)',
+    cursorColor: CANVAS.amber.trace,
+    tickLineColor: 'rgba(44,28,8,0.94)',
+    tickTextColor: CANVAS.amber.label,
+  },
   nge: DEFAULT_PIANO_ROLL_THEME,
   hyper: DEFAULT_PIANO_ROLL_THEME,
   eva: DEFAULT_PIANO_ROLL_THEME,

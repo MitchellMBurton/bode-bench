@@ -96,6 +96,7 @@ interface ChromePanelProps extends PanelDef {
 
 const CHROME_BG: Record<VisualMode, string> = {
   default: COLORS.bg1,
+  amber:   'linear-gradient(180deg, rgba(11,8,3,0.99), rgba(19,13,4,0.99))',
   nge:     COLORS.bg1,
   hyper:   COLORS.bg1,
   eva:     COLORS.bg1,
@@ -103,7 +104,7 @@ const CHROME_BG: Record<VisualMode, string> = {
   red:     'linear-gradient(180deg, rgba(16,5,6,0.99), rgba(24,8,9,0.99))',
 };
 const CHROME_HEADER_BG: Record<VisualMode, string | undefined> = {
-  default: undefined, nge: undefined, hyper: undefined, eva: undefined,
+  default: undefined, amber: 'linear-gradient(90deg, rgba(28,18,4,0.98), rgba(74,42,8,0.94) 18%, rgba(24,16,4,0.98) 56%, rgba(20,14,4,0.98))', nge: undefined, hyper: undefined, eva: undefined,
   optic:   'linear-gradient(90deg, rgba(251,253,255,0.99), rgba(234,241,246,0.99))',
   red:     'linear-gradient(90deg, rgba(20,8,9,0.98), rgba(34,10,11,0.98))',
 };
@@ -266,6 +267,20 @@ const LAYOUT_THEME: Record<VisualMode, LayoutTheme> = {
     runtimeTrayBg:        COLORS.bg0,
     runtimeResizeBg:      'linear-gradient(180deg, rgba(12,14,20,0.98), rgba(9,10,16,1))',
     runtimeResizeGrip:    'linear-gradient(90deg, rgba(102,114,168,0.18), rgba(148,154,206,0.82), rgba(102,114,168,0.18))',
+  },
+  amber: {
+    shellBg:              'linear-gradient(180deg, #060401 0%, #0c0802 48%, #130d03 100%)',
+    headerBg:             'linear-gradient(90deg, rgba(18,12,3,0.99), rgba(38,22,4,0.98))',
+    toolbarBg:            'rgba(14,9,3,0.95)',
+    toolbarText:          CANVAS.amber.category,
+    toolbarButtonText:    CANVAS.amber.text,
+    toolbarButtonBorder:  CANVAS.amber.chromeBorderActive,
+    toolbarButtonBg:      'rgba(20,13,4,0.94)',
+    dividerBg:            'rgba(138,98,25,0.44)',
+    runtimeHint:          'rgba(255,192,92,0.72)',
+    runtimeTrayBg:        'rgba(10,7,2,0.99)',
+    runtimeResizeBg:      'linear-gradient(180deg, rgba(18,12,4,0.99), rgba(10,7,2,1))',
+    runtimeResizeGrip:    'linear-gradient(90deg, rgba(138,98,25,0.16), rgba(255,176,32,0.82), rgba(138,98,25,0.16))',
   },
   nge: {
     shellBg:              CANVAS.nge.bg,

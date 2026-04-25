@@ -22,6 +22,15 @@ interface LevelsColors {
 }
 
 function buildLevelsColors(mode: VisualMode): LevelsColors {
+  if (mode === 'amber') return {
+    bg: CANVAS.amber.bg2,
+    track: '#140d03',
+    levelGreen: '#ffb020',
+    levelYellow: '#ffd064',
+    levelRed: '#ff8a3d',
+    peakHold: 'rgba(255,194,108,0.55)',
+    label: CANVAS.amber.label,
+  };
   if (mode === 'nge') return {
     bg: CANVAS.nge.bg2,
     track: '#030a03',
