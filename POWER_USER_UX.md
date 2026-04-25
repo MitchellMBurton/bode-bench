@@ -8,23 +8,9 @@ The target user is fast, technically literate, and willing to learn a dense inst
 
 ## Current Accepted Direction
 
-### Left side
+The Session Console (left) is a compact workbench; the Live Diagnostic quadrant (right) is the main command-and-measurement surface.
 
-The Session Console is becoming a compact workbench:
-
-- routing
-- preview
-- local transport awareness
-- clip export
-- diagnostics access
-
-### Right side
-
-The Live Diagnostic quadrant is the main command-and-measurement surface:
-
-- transport and review actions in chrome
-- overview and detail waveform as the core visual anchor
-- tuning nearby but compact
+For the canonical statement of which controls live where, see `UX_PRINCIPLES.md` → *Command Strata* and *Session Console Rule*.
 
 ## Control Doctrine
 
