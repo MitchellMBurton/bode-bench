@@ -96,7 +96,7 @@ Prefer fixes in the shared frontend. Keep the Tauri wrapper thin unless there is
 
 ## Current Milestone
 
-**Active v0.2 Integration.** The current milestone is a coherent, demonstration-ready review-and-export console with stronger Session Console density, more trustworthy export behavior, and honest large-media waveform handling. See `TASKS.md` and `HANDOFF.md` for the live work order.
+**v0.3 Direction Begins.** Forked from `bach-cello-console` at tag `v0.2-final`. The instrument is moving from single-source review to two-source comparison with reproducible session state. Five tracks in dependency order: notes + report, session artifact, worker-based analysis core, A-B workspace, differential null test. See `ROADMAP.md` for phases, `TASKS.md` for the live work order, `HANDOFF.md` for continuation context.
 
 ## Style Notes
 

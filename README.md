@@ -1,8 +1,10 @@
-# Scientific Listening Instrument
+# bode-bench — Scientific Listening Instrument
 
 Local-first, desktop-grade media analysis console for close listening, technical review, clip export, and presentation-safe diagnostics.
 
-This repo is active. It is no longer an archived alpha handoff. Legacy Bach naming still appears in sample data, repository history, and compatibility hooks, but the working product is now a general-purpose scientific media instrument for arbitrary local audio and video.
+This repo is the active continuation of the Scientific Listening Instrument. It opens at the v0.2-final state (forked from `bach-cello-console`, tagged for reference) and turns toward v0.3 — the comparative measurement bench. See `ROADMAP.md` for phase boundaries, `TASKS.md` for the live work order, and `FUTURE_PLANS_AND_IDEAS.md` for the broader idea pool.
+
+Legacy Bach naming still appears in sample data and some packaged artifacts; the product itself is general-purpose.
 
 ## Current Product Shape
 
