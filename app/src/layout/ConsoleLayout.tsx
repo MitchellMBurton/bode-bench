@@ -569,7 +569,7 @@ export function ConsoleLayout({
           )}
         </div>
         <div style={{ flex: 1 }} />
-        <span style={{ ...toolbarLabelStyle, color: lt.toolbarText }}>DRAG DIVIDERS TO RESIZE</span>
+        <span style={{ ...toolbarLabelStyle, color: lt.toolbarText }}>DRAG DIVIDERS / DBL-CLICK RESET</span>
       </div>
 
       {/* Main panel area - all four dividers are draggable */}
@@ -642,10 +642,10 @@ export function ConsoleLayout({
                         <FullscreenSnap onSnapshot={def.onSnapshot} color={m.category} />
                       )}
                       {def.help && <PanelHelp text={def.help} visualMode={visualMode} />}
-                      <button style={{ ...fullscreenCloseBtnStyle, color: m.text }} onClick={() => setFullscreenQuadrant(null)} title="Exit fullscreen (Escape)" aria-label="Exit fullscreen">X</button>
+                      <button style={{ ...fullscreenCloseBtnStyle, color: m.text }} onClick={() => setFullscreenQuadrant(null)} title="Exit fullscreen (Escape)" aria-label="Exit fullscreen">EXIT</button>
                     </div>
                   </div>
-                  <div style={chromeHeaderAccessoryRowStyle}>{def.headerAccessory}</div>
+                  <div style={fullscreenHeaderAccessoryRowStyle}>{def.headerAccessory}</div>
                 </>
               ) : (
                 <>
@@ -656,7 +656,7 @@ export function ConsoleLayout({
                       <FullscreenSnap onSnapshot={def.onSnapshot} color={m.category} />
                     )}
                     {def.help && <PanelHelp text={def.help} visualMode={visualMode} />}
-                    <button style={{ ...fullscreenCloseBtnStyle, color: m.text }} onClick={() => setFullscreenQuadrant(null)} title="Exit fullscreen (Escape)" aria-label="Exit fullscreen">X</button>
+                    <button style={{ ...fullscreenCloseBtnStyle, color: m.text }} onClick={() => setFullscreenQuadrant(null)} title="Exit fullscreen (Escape)" aria-label="Exit fullscreen">EXIT</button>
                   </div>
                 </>
               )}
@@ -936,7 +936,7 @@ const fullscreenHeaderWithAccessoryStyle: React.CSSProperties = {
   alignItems: 'stretch',
   gap: 4,
   paddingTop: 3,
-  paddingBottom: 9,
+  paddingBottom: 6,
 };
 
 const fullscreenHeaderTopRowStyle: React.CSSProperties = {
@@ -945,6 +945,18 @@ const fullscreenHeaderTopRowStyle: React.CSSProperties = {
   gap: SPACING.sm,
   minWidth: 0,
   width: '100%',
+};
+
+const fullscreenHeaderAccessoryRowStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'flex-start',
+  justifyContent: 'flex-start',
+  width: '100%',
+  minWidth: 0,
+  maxHeight: 'min(42vh, 360px)',
+  overflowY: 'auto',
+  overflowX: 'visible',
+  paddingRight: 2,
 };
 
 const fullscreenHeaderCategoryStyle: React.CSSProperties = {
@@ -972,15 +984,18 @@ const fullscreenHeaderActionsStyle: React.CSSProperties = {
 };
 
 const fullscreenCloseBtnStyle: React.CSSProperties = {
-  background: 'none',
-  border: 'none',
+  background: 'transparent',
+  border: '1px solid currentColor',
   cursor: 'pointer',
   fontFamily: FONTS.mono,
-  fontSize: FONTS.sizeMd,
+  fontSize: 10,
+  letterSpacing: '0.10em',
+  textTransform: 'uppercase',
   color: COLORS.textSecondary,
-  padding: '0 4px',
+  padding: '2px 6px',
   lineHeight: 1,
   flexShrink: 0,
+  opacity: 0.86,
 };
 
 const fullscreenContentStyle: React.CSSProperties = {

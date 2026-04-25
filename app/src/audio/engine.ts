@@ -14,6 +14,12 @@
 // ============================================================
 
 import type { FrameBus } from './frameBus';
+import { computeAudioFrameFeatures } from './frameAnalysis';
+import {
+  canPrepareStretchBuffers,
+  shouldPreferStreamingLoad,
+  shouldPreflightStreaming,
+} from './loadPolicy';
 import { createStretchNode, type StretchNode, type StretchSchedule } from './stretchNode';
 import { CANVAS } from '../theme';
 import type { AnalysisConfig, AudioFrame, FileAnalysis, ScrubStyle, TransportState } from '../types';
@@ -39,12 +45,8 @@ const DECLICK_IN_S = 0.008;
 const SEEK_RESUME_DELAY_MS = 140;
 const STRETCH_WATCHDOG_GRACE_S = 0.75;
 const STRETCH_WATCHDOG_TIMEOUT_S = 0.6;
-const MAX_STRETCH_PREP_BYTES = 512 * 1024 * 1024;
-const MAX_IN_MEMORY_FILE_BYTES = 384 * 1024 * 1024;
-const MAX_DECODE_AUDIO_BYTES = 768 * 1024 * 1024;
 const DEFERRED_ANALYSIS_SLICE_MS = 6;
 const DEFERRED_ANALYSIS_SAMPLE_BATCH = 16_384;
-const STREAMED_MEDIA_SAMPLE_RATE = 48_000;
 const STREAMED_MEDIA_CHANNELS = 2;
 const STREAMED_OVERVIEW_PROBE_FFT_SIZE = 2048;
 
@@ -181,19 +183,6 @@ export class AudioEngine {
         ? error
         : '';
     return /play\(\) request was interrupted by a call to pause\(\)/i.test(message);
-  }
-
-  private shouldPreflightStreaming(file: File): boolean {
-    return file.type.startsWith('video/') || file.size >= MAX_IN_MEMORY_FILE_BYTES;
-  }
-
-  private shouldPreferStreamingLoad(file: File, durationSeconds: number | null): boolean {
-    if (file.size >= MAX_IN_MEMORY_FILE_BYTES) return true;
-    if (durationSeconds !== null && Number.isFinite(durationSeconds) && durationSeconds > 0) {
-      const estimatedDecodedBytes = durationSeconds * STREAMED_MEDIA_SAMPLE_RATE * STREAMED_MEDIA_CHANNELS * Float32Array.BYTES_PER_ELEMENT;
-      if (estimatedDecodedBytes >= MAX_DECODE_AUDIO_BYTES) return true;
-    }
-    return false;
   }
 
   private ensureContext(): AudioContext {
@@ -572,10 +561,6 @@ export class AudioEngine {
     }
   }
 
-  private estimateStretchPrepBytes(buffer: AudioBuffer): number {
-    return buffer.length * buffer.numberOfChannels * Float32Array.BYTES_PER_ELEMENT;
-  }
-
   private async createPreflightMediaElement(file: File): Promise<{
     readonly element: HTMLMediaElement;
     readonly url: string;
@@ -889,14 +874,14 @@ export class AudioEngine {
       readonly duration: number | null;
     } | null = null;
 
-    if (this.shouldPreflightStreaming(file)) {
+    if (shouldPreflightStreaming(file)) {
       try {
         preflightMedia = await this.createPreflightMediaElement(file);
         if (loadVersion !== this.loadVersion) {
           this.disposePreflightMediaElement(preflightMedia.element, preflightMedia.url);
           return;
         }
-        if (this.shouldPreferStreamingLoad(file, preflightMedia.duration)) {
+        if (shouldPreferStreamingLoad(file, preflightMedia.duration)) {
           await this.activateStreamedMediaLoad(
             displayFilename,
             preflightMedia,
@@ -971,8 +956,7 @@ export class AudioEngine {
 
     const stretchStartedAt = performance.now();
     let stretchEnabledForBuffer = false;
-    const stretchPrepBytes = this.estimateStretchPrepBytes(decodedBuffer);
-    if (stretchPrepBytes > MAX_STRETCH_PREP_BYTES) {
+    if (!canPrepareStretchBuffers(decodedBuffer)) {
       await this.runSerializedStretchMutation(async () => {
         if (loadVersion !== this.loadVersion) return;
         if (this.stretchNode || this.stretchNodeReady) {
@@ -1753,46 +1737,6 @@ export class AudioEngine {
     this.lastAnalysisAt = 0;
   }
 
-  private detectF0(td: Float32Array, sampleRate: number): { f0: number | null; confidence: number } {
-    const size = Math.min(2048, td.length);
-    const minLag = Math.floor(sampleRate / 1000);
-    const maxLag = Math.min(Math.floor(sampleRate / 60), size - 1);
-
-    let rms = 0;
-    for (let i = 0; i < size; i++) {
-      rms += td[i] * td[i];
-    }
-    if (Math.sqrt(rms / size) < 0.005) {
-      return { f0: null, confidence: 0 };
-    }
-
-    let bestLag = -1;
-    let bestCorr = 0;
-
-    for (let lag = minLag; lag <= maxLag; lag++) {
-      let sum = 0;
-      let norm1 = 0;
-      let norm2 = 0;
-      const limit = size - lag;
-      for (let i = 0; i < limit; i++) {
-        const a = td[i];
-        const b = td[i + lag];
-        sum += a * b;
-        norm1 += a * a;
-        norm2 += b * b;
-      }
-      const denom = Math.sqrt(norm1 * norm2);
-      const corr = denom > 0 ? sum / denom : 0;
-      if (corr > bestCorr) {
-        bestCorr = corr;
-        bestLag = lag;
-      }
-    }
-
-    const f0 = bestLag > 0 && bestCorr > 0.4 ? sampleRate / bestLag : null;
-    return { f0, confidence: Math.max(0, bestCorr) };
-  }
-
   private extractFrame(): void {
     if (!this.analyserL || !this.analyserR || !this.ctx) return;
 
@@ -1805,46 +1749,7 @@ export class AudioEngine {
     const tdR = this.timeDomainDataR;
     const fftBinCount = this.frequencyData.length;
 
-    let peakL = 0;
-    let rmsL = 0;
-    for (let i = 0; i < tdL.length; i++) {
-      const value = Math.abs(tdL[i]);
-      if (value > peakL) peakL = value;
-      rmsL += tdL[i] * tdL[i];
-    }
-    rmsL = Math.sqrt(rmsL / tdL.length);
-
-    let peakR = 0;
-    let rmsR = 0;
-    for (let i = 0; i < tdR.length; i++) {
-      const value = Math.abs(tdR[i]);
-      if (value > peakR) peakR = value;
-      rmsR += tdR[i] * tdR[i];
-    }
-    rmsR = Math.sqrt(rmsR / tdR.length);
-
-    const binHz = this.ctx.sampleRate / (fftBinCount * 2);
-    let centroidNum = 0;
-    let centroidDen = 0;
-    for (let i = 1; i < fftBinCount; i++) {
-      const power = Math.pow(10, this.frequencyData[i] / 10);
-      centroidNum += i * binHz * power;
-      centroidDen += power;
-    }
-    const spectralCentroid = centroidDen > 0 ? centroidNum / centroidDen : 0;
-
-    const { f0, confidence } = this.detectF0(tdL, this.ctx.sampleRate);
-
-    // Phase correlation: r = Σ(L·R) / √(Σ(L²)·Σ(R²))
-    // Reuses peak/rms loop accumulators for L²/R² sums
-    let sumLR = 0;
-    const sumL2 = rmsL * rmsL * tdL.length; // rmsL² × N = Σ(L²)
-    const sumR2 = rmsR * rmsR * tdR.length;
-    for (let i = 0; i < tdL.length; i++) {
-      sumLR += tdL[i] * tdR[i];
-    }
-    const corrDenom = Math.sqrt(sumL2 * sumR2);
-    const phaseCorrelation = corrDenom > 0 ? sumLR / corrDenom : 0;
+    const features = computeAudioFrameFeatures(tdL, tdR, this.frequencyData, this.ctx.sampleRate);
 
     // Zero-copy: pass pre-allocated analyser buffers directly.
     // Safe because frameBus.publish() is synchronous — all subscribers
@@ -1856,19 +1761,19 @@ export class AudioEngine {
       timeDomainRight: tdR,
       frequencyDb: this.frequencyData,
       frequencyDbRight: this.frequencyDataR,
-      peakLeft: Math.min(peakL, 1),
-      peakRight: Math.min(peakR, 1),
-      rmsLeft: Math.min(rmsL, 1),
-      rmsRight: Math.min(rmsR, 1),
+      peakLeft: features.peakLeft,
+      peakRight: features.peakRight,
+      rmsLeft: features.rmsLeft,
+      rmsRight: features.rmsRight,
       sampleRate: this.ctx.sampleRate,
       fftBinCount,
       playId: this.playId,
       fileId: this.fileId,
       displayGain: this._displayGain,
-      spectralCentroid,
-      f0Hz: f0,
-      f0Confidence: confidence,
-      phaseCorrelation,
+      spectralCentroid: features.spectralCentroid,
+      f0Hz: features.f0Hz,
+      f0Confidence: features.f0Confidence,
+      phaseCorrelation: features.phaseCorrelation,
     };
 
     this.frameBus.publish(frame);

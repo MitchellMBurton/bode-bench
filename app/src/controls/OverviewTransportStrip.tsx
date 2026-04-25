@@ -12,6 +12,7 @@ import { useReviewControlModel } from './useReviewControlModel';
 const SEEK_STEP_S = 5;
 const CONTROL_HEIGHT_PX = 20;
 const SINGLE_RAIL_SPLIT_PX = 1500;
+const INLINE_TUNING_MIN_PX = 1180;
 const TUNING_POPOVER_RIGHT_SPLIT_PX = 980;
 const TUNING_POPOVER_WIDE_PX = 1480;
 const TUNING_POPOVER_NORMAL_WIDTH = 360;
@@ -54,6 +55,8 @@ export function OverviewTransportStrip(): React.ReactElement {
     ? TUNING_POPOVER_WIDE_WIDTH
     : TUNING_POPOVER_NORMAL_WIDTH;
   const savedRangesMaxHeight = SAVED_RANGE_VISIBLE_ROWS * SAVED_RANGE_ROW_HEIGHT_PX + (SAVED_RANGE_VISIBLE_ROWS - 1) * SAVED_RANGE_ROW_GAP_PX;
+  const showInlineTuning = stripWidth >= INLINE_TUNING_MIN_PX;
+  const compactTuningTrigger = stripWidth < INLINE_TUNING_MIN_PX;
 
   useEffect(() => {
     const node = stripRef.current;
@@ -350,15 +353,17 @@ export function OverviewTransportStrip(): React.ReactElement {
             </div>
           </div>
 
-          <div
-            style={{
-              ...inlineTuningRailStyle,
-              borderColor: m.chromeBorder,
-              background: m.bg,
-            }}
-          >
-            <InlineSessionControls />
-          </div>
+          {showInlineTuning ? (
+            <div
+              style={{
+                ...inlineTuningRailStyle,
+                borderColor: m.chromeBorder,
+                background: m.bg,
+              }}
+            >
+              <InlineSessionControls />
+            </div>
+          ) : null}
 
           <div ref={tuningOverlayRef} style={tuningTriggerWrapStyle}>
             <button
@@ -375,7 +380,7 @@ export function OverviewTransportStrip(): React.ReactElement {
               onClick={() => setTuningOpen((open) => !open)}
               title="Open playback tuning overlay"
             >
-              <span style={tuningTriggerLabelStyle}>PLAYBACK TUNING</span>
+              <span style={tuningTriggerLabelStyle}>{compactTuningTrigger ? 'TUNING' : 'PLAYBACK TUNING'}</span>
               <span
                 style={{
                   ...tuningTriggerChevronStyle,
@@ -479,7 +484,7 @@ const wrapStyle: React.CSSProperties = {
 const dualRailWrapStyle: React.CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
-  gap: 8,
+  gap: 6,
   minWidth: 0,
 };
 
@@ -491,7 +496,7 @@ const singleRailWrapStyle: React.CSSProperties = {
 const primaryRailStyle: React.CSSProperties = {
   display: 'flex',
   alignItems: 'center',
-  gap: 8,
+  gap: 6,
   flexWrap: 'wrap',
   minWidth: 0,
 };
@@ -504,7 +509,7 @@ const singleRailStyle: React.CSSProperties = {
 const secondaryRailStyle: React.CSSProperties = {
   display: 'flex',
   alignItems: 'center',
-  gap: 8,
+  gap: 6,
   flexWrap: 'wrap',
   minWidth: 0,
 };
@@ -581,8 +586,8 @@ const savedRangesSectionStyle: React.CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
   gap: 6,
-  marginTop: 8,
-  paddingTop: 8,
+  marginTop: 6,
+  paddingTop: 6,
   borderTopWidth: 1,
   borderTopStyle: 'solid',
   minWidth: 0,
@@ -717,11 +722,11 @@ const reviewActionClusterStyle: React.CSSProperties = {
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'flex-start',
-  gap: 5,
+  gap: 4,
   flexWrap: 'wrap',
   minWidth: 0,
-  flex: '1 1 auto',
-  padding: '4px',
+  flex: '1 1 500px',
+  padding: '3px',
   borderWidth: 1,
   borderStyle: 'solid',
   borderRadius: 3,
@@ -773,15 +778,15 @@ const activeReadoutStyle: React.CSSProperties = {
   display: 'inline-flex',
   alignItems: 'center',
   gap: 8,
-  minWidth: 160,
-  maxWidth: 300,
+  minWidth: 132,
+  maxWidth: 260,
   height: CONTROL_HEIGHT_PX + 8,
   padding: '0 10px',
   borderWidth: 1,
   borderStyle: 'solid',
   borderRadius: 3,
   boxSizing: 'border-box',
-  flex: '0 1 300px',
+  flex: '1 1 220px',
 };
 
 const metricLabelStyle: React.CSSProperties = {
@@ -804,10 +809,10 @@ const metricValueStyle: React.CSSProperties = {
 const controlGroupStyle: React.CSSProperties = {
   display: 'flex',
   alignItems: 'center',
-  gap: 5,
+  gap: 4,
   flexWrap: 'wrap',
   minWidth: 0,
-  padding: '4px',
+  padding: '3px',
   borderWidth: 1,
   borderStyle: 'solid',
   borderRadius: 3,

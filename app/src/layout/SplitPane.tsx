@@ -106,18 +106,24 @@ interface HandleProps {
   isColumn: boolean;
   isActive: boolean;
   onPointerDown: (e: React.PointerEvent<HTMLDivElement>) => void;
+  onDoubleClick: () => void;
 }
 
-function ResizeHandle({ isColumn, isActive, onPointerDown }: HandleProps): React.ReactElement {
+function ResizeHandle({ isColumn, isActive, onPointerDown, onDoubleClick }: HandleProps): React.ReactElement {
   const [hovered, setHovered] = useState(false);
   const active = hovered || isActive;
 
   return (
     <div
       onPointerDown={onPointerDown}
+      onDoubleClick={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        onDoubleClick();
+      }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
-      title="Drag to resize panels"
+      title="Drag to resize panels. Double click to reset this split."
       style={{
         flexShrink: 0,
         flexGrow: 0,
@@ -237,7 +243,6 @@ export function SplitPane({
   const { beginResize, endInteraction } = useLayoutInteraction();
   const isColumn = direction === 'column';
   const n = children.length;
-  const initialSizesKey = initialSizes.join('|');
   const lastResetTokenRef = useRef(resetToken);
   const latestInitialSizesRef = useRef(initialSizes);
   const requestedMinSizes = useMemo(() => getRequestedMinSizes(n, minSizePx), [minSizePx, n]);
@@ -296,6 +301,29 @@ export function SplitPane({
     if (!guide) return;
     guide.style.opacity = visible ? '1' : '0';
   }, []);
+
+  const clearDragState = useCallback((): void => {
+    if (dragFrameRef.current !== null) {
+      cancelAnimationFrame(dragFrameRef.current);
+      dragFrameRef.current = null;
+    }
+    dragRef.current = null;
+    pendingFracsRef.current = null;
+    setActiveHandleIdx(null);
+    setPreviewVisible(false);
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+    endInteraction();
+  }, [endInteraction, setPreviewVisible]);
+
+  const resetToInitialSizes = useCallback((): void => {
+    clearDragState();
+    const nextFracs = normalize(latestInitialSizesRef.current);
+    if (persistKey) {
+      persistedPaneFractions.set(persistKey, nextFracs);
+    }
+    dispatch({ type: 'reset', initialSizes: latestInitialSizesRef.current });
+  }, [clearDragState, persistKey]);
 
   const setPreviewPosition = useCallback((handleIdx: number, nextFracs: number[]): void => {
     const guide = previewGuideRef.current;
@@ -386,18 +414,8 @@ export function SplitPane({
       if (!drag || drag.pointerId !== pointerId) return;
 
       const finalFracs = pendingFracsRef.current ?? drag.previewFracs;
-      pendingFracsRef.current = null;
-      if (dragFrameRef.current !== null) {
-        cancelAnimationFrame(dragFrameRef.current);
-        dragFrameRef.current = null;
-      }
-      setActiveHandleIdx(null);
-      setPreviewVisible(false);
+      clearDragState();
       dispatch({ type: 'apply', fracs: finalFracs });
-      dragRef.current = null;
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-      endInteraction();
     };
 
     const onPointerUp = (e: PointerEvent) => {
@@ -412,21 +430,12 @@ export function SplitPane({
     window.addEventListener('pointerup', onPointerUp);
     window.addEventListener('pointercancel', onPointerCancel);
     return () => {
-      if (dragFrameRef.current !== null) {
-        cancelAnimationFrame(dragFrameRef.current);
-        dragFrameRef.current = null;
-      }
-      dragRef.current = null;
-      pendingFracsRef.current = null;
-      setPreviewVisible(false);
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-      endInteraction();
+      clearDragState();
       window.removeEventListener('pointermove', onPointerMove);
       window.removeEventListener('pointerup', onPointerUp);
       window.removeEventListener('pointercancel', onPointerCancel);
     };
-  }, [endInteraction, isColumn, maxSizePx, setPreviewPosition, setPreviewVisible]);
+  }, [clearDragState, isColumn, maxSizePx, setPreviewPosition]);
 
   useEffect(() => {
     if (resetToken === undefined) return;
@@ -447,7 +456,7 @@ export function SplitPane({
       persistedPaneFractions.set(persistKey, normalize(latestInitialSizesRef.current));
     }
     dispatch({ type: 'reset', initialSizes: latestInitialSizesRef.current });
-  }, [endInteraction, initialSizesKey, persistKey, resetToken, setPreviewVisible]);
+  }, [endInteraction, persistKey, resetToken, setPreviewVisible]);
 
   // Build interleaved [pane, handle, pane, handle, pane, …] children.
   const items: React.ReactElement[] = [];
@@ -476,6 +485,7 @@ export function SplitPane({
           isColumn={isColumn}
           isActive={activeHandleIdx === i}
           onPointerDown={(e) => onHandlePointerDown(e, i)}
+          onDoubleClick={resetToInitialSizes}
         />,
       );
     }
