@@ -2,7 +2,7 @@
 
 The desktop application is packaged with Tauri and distributed locally as a Windows NSIS installer.
 
-The runtime is now general-purpose, but the installer and executable still use legacy `Bach Cello Console` naming for continuity.
+The runtime and current installer identity are now general-purpose `Scientific Listening Instrument`. Older `Bach Cello Console` process names may still be handled during upgrades for compatibility with previously installed local builds.
 
 Release builds now write rotating runtime logs for desktop support and regression triage.
 
@@ -44,8 +44,8 @@ npm run release:share
 
 Primary share artifacts:
 
-- `desktop/share/BachCelloConsole-Setup.exe`
-- `desktop/share/BachCelloConsole-Setup.exe.sha256.txt`
+- `desktop/share/ScientificListeningInstrument-Setup.exe`
+- `desktop/share/ScientificListeningInstrument-Setup.exe.sha256.txt`
 - `desktop/share/latest.json`
 - `desktop/share/index.html`
 - `desktop/share/webapp.html`
@@ -65,17 +65,21 @@ Default URLs:
 
 ## Upgrade Notes
 
-The NSIS installer force-closes `bach-cello-console.exe` before install and uninstall steps run. This improves in-place upgrades when an older copy of the app is still open.
+The NSIS installer force-closes the current `scientific-listening-instrument.exe` process and the legacy `bach-cello-console.exe` process before install and uninstall steps run. This improves in-place upgrades when an older copy of the app is still open.
 
 If a machine already has stale local builds from older installer behavior:
 
-- close all Bach Cello Console windows
+- close all Scientific Listening Instrument and Bach Cello Console windows
 - run `%LOCALAPPDATA%\Bach Cello Console\uninstall.exe` manually if needed
 - rerun the latest installer
 
 ## Runtime Logs
 
 Installed desktop builds write rotating logs to:
+
+- `%LOCALAPPDATA%\com.mitchellmburton.scientific-listening-instrument\logs\runtime.log`
+
+Older local installs may also have logs under:
 
 - `%LOCALAPPDATA%\com.mitchellmburton.bachcelloconsole\logs\runtime.log`
 

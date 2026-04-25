@@ -2,7 +2,7 @@
 
 Local-first, desktop-grade media analysis console for close listening, technical review, clip export, and presentation-safe diagnostics.
 
-This repo is active. It is no longer an archived alpha handoff. The legacy Bach naming still appears in some assets and package identifiers, but the working product is now a general-purpose scientific media instrument for arbitrary local audio and video.
+This repo is active. It is no longer an archived alpha handoff. Legacy Bach naming still appears in sample data, repository history, and compatibility hooks, but the working product is now a general-purpose scientific media instrument for arbitrary local audio and video.
 
 ## Current Product Shape
 

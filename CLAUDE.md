@@ -4,7 +4,9 @@
 
 A local-first, desktop-grade scientific listening instrument and media analysis console. Real-time diagnostics, disciplined transport control, and optional structural overlays live together in a four-quadrant workspace.
 
-**This repo is the v0.1 Alpha artifact.** It is preserved at tag `v0.1-alpha`. Legacy Bach Cello naming has been retired from the live frontend and diagnostics exports, while repository and installer naming remain transitional in this preserved alpha artifact. Continued development happens in the successor repo (see `HANDOFF.md`).
+**This repo is active.** It is no longer a preserved v0.1 alpha artifact. The current work is v0.2 refinement toward a trustworthy desktop-first media instrument for arbitrary local audio and video.
+
+Legacy Bach-specific sample data and repository history still exist, but they do not define the product. Treat structural overlays as optional, not as the main runtime identity.
 
 Read the full project definition in `PROJECT.md`. Read UX doctrine in `UX_PRINCIPLES.md`. Read technical structure in `ARCHITECTURE.md`. Read decision logic in `DECISION_RULES.md`. Read current work in `TASKS.md`.
 
@@ -94,7 +96,7 @@ Prefer fixes in the shared frontend. Keep the Tauri wrapper thin unless there is
 
 ## Current Milestone
 
-**COMPLETE — v0.1 Alpha.** Single-session console for arbitrary local audio/video analysis is stable and feature-complete. See `HANDOFF.md` for what was built and what comes next.
+**Active v0.2 Integration.** The current milestone is a coherent, demonstration-ready review-and-export console with stronger Session Console density, more trustworthy export behavior, and honest large-media waveform handling. See `TASKS.md` and `HANDOFF.md` for the live work order.
 
 ## Style Notes
 

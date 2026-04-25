@@ -3,10 +3,10 @@
 //
 // Structure:
 //   globalHeader (fixed height)
-//   layoutToolbar (fixed height — profile controls, layout status)
+//   layoutToolbar (fixed height - profile controls, layout status)
 //   SplitPane[column] (flex 1)
-//     top row → SplitPane[row] → [topLeft, topRight]
-//     bottom row → SplitPane[row] → [bottomLeft, bottomRight]
+//     top row -> SplitPane[row] -> [topLeft, topRight]
+//     bottom row -> SplitPane[row] -> [bottomLeft, bottomRight]
 //
 // All four inter-quadrant dividers are now draggable:
 //   - The horizontal centre line (outer column SplitPane)
@@ -24,7 +24,7 @@ import { COLORS, FONTS, SPACING, CANVAS, MODES } from '../theme';
 const GAP = SPACING.panelGap;
 const CHROME_H = SPACING.chromeHeaderH;
 const GLOBAL_H = SPACING.globalHeaderH;
-const TOOLBAR_H = 26; // px — single-line layout toolbar
+const TOOLBAR_H = 26; // px - single-line layout toolbar
 const LEFT_COLUMN_DEFAULT = [24, 76] as const;
 const RUNTIME_TRAY_DEFAULT_H = 340;
 const RUNTIME_TRAY_MIN_H = 210;
@@ -86,7 +86,7 @@ function readRuntimeTrayHeight(): number {
   return clampValue(parsed, RUNTIME_TRAY_MIN_H, getRuntimeTrayMaxHeight());
 }
 
-// ── ChromePanel ───────────────────────────────────────────────────────────────
+// ChromePanel
 // Renders a single panel with category/title header chrome.
 
 interface ChromePanelProps extends PanelDef {
@@ -198,14 +198,6 @@ function ChromePanel({ category, title, titleMode = 'plain', headerAccessoryPlac
             {chromeActions}
           </>
         )}
-        <button
-          onClick={onFullscreen}
-          style={{ ...fullscreenBtnStyle, color: m.category, display: 'none' }}
-          title="Expand quadrant to fullscreen"
-          aria-label="Fullscreen"
-        >
-          ⛶
-        </button>
       </div>
       <div ref={contentRef} style={chromeContentStyle}>
         {content}
@@ -214,7 +206,7 @@ function ChromePanel({ category, title, titleMode = 'plain', headerAccessoryPlac
   );
 }
 
-/** SNAP button for fullscreen overlay — wraps content in a ref-bearing div to find canvases. */
+/** SNAP button for fullscreen overlay - wraps content in a ref-bearing div to find canvases. */
 function FullscreenSnap({ onSnapshot, color }: { onSnapshot: (c: HTMLDivElement | null) => void; color: string }): React.ReactElement {
   const btnRef = useRef<HTMLButtonElement>(null);
   return (
@@ -236,7 +228,7 @@ function FullscreenSnap({ onSnapshot, color }: { onSnapshot: (c: HTMLDivElement 
   );
 }
 
-// ── Layout theme — all mode-specific derived colors in one place ──────────────
+// Layout theme - all mode-specific derived colors in one place
 
 interface LayoutTheme {
   readonly shellBg: string;
@@ -354,7 +346,7 @@ const LAYOUT_THEME: Record<VisualMode, LayoutTheme> = {
   },
 };
 
-// ── ConsoleLayout ─────────────────────────────────────────────────────────────
+// ConsoleLayout
 
 export function ConsoleLayout({
   topLeft,
@@ -474,7 +466,7 @@ export function ConsoleLayout({
         <div style={headerRightStyle}>
           <span style={{ ...headerTagStyle, color: m.category }}>DESKTOP-FIRST / SESSION-BASED</span>
           <span style={{ ...headerDividerStyle, color: m.category }}>|</span>
-          <span style={{ ...headerTagStyle, color: m.category }}>v0.1 ALPHA</span>
+          <span style={{ ...headerTagStyle, color: m.category }}>v0.2 ACTIVE</span>
         </div>
       </div>
 
@@ -580,7 +572,7 @@ export function ConsoleLayout({
         <span style={{ ...toolbarLabelStyle, color: lt.toolbarText }}>DRAG DIVIDERS TO RESIZE</span>
       </div>
 
-      {/* Main panel area — all four dividers are draggable */}
+      {/* Main panel area - all four dividers are draggable */}
       <div style={{
         flex: 1,
         minHeight: 0,
@@ -650,7 +642,7 @@ export function ConsoleLayout({
                         <FullscreenSnap onSnapshot={def.onSnapshot} color={m.category} />
                       )}
                       {def.help && <PanelHelp text={def.help} visualMode={visualMode} />}
-                      <button style={{ ...fullscreenCloseBtnStyle, color: m.text }} onClick={() => setFullscreenQuadrant(null)} title="Exit fullscreen (Escape)" aria-label="Exit fullscreen">✕</button>
+                      <button style={{ ...fullscreenCloseBtnStyle, color: m.text }} onClick={() => setFullscreenQuadrant(null)} title="Exit fullscreen (Escape)" aria-label="Exit fullscreen">X</button>
                     </div>
                   </div>
                   <div style={chromeHeaderAccessoryRowStyle}>{def.headerAccessory}</div>
@@ -664,7 +656,7 @@ export function ConsoleLayout({
                       <FullscreenSnap onSnapshot={def.onSnapshot} color={m.category} />
                     )}
                     {def.help && <PanelHelp text={def.help} visualMode={visualMode} />}
-                    <button style={{ ...fullscreenCloseBtnStyle, color: m.text }} onClick={() => setFullscreenQuadrant(null)} title="Exit fullscreen (Escape)" aria-label="Exit fullscreen">✕</button>
+                    <button style={{ ...fullscreenCloseBtnStyle, color: m.text }} onClick={() => setFullscreenQuadrant(null)} title="Exit fullscreen (Escape)" aria-label="Exit fullscreen">X</button>
                   </div>
                 </>
               )}

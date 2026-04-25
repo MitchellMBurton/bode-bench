@@ -4,7 +4,7 @@
 
 Repo: `av_project_claude_2`
 Branch: `main`
-Accepted baseline at this handoff: `66a101b`
+Accepted baseline at this handoff: `c3112b9`
 
 This repo is active. It is not a preserved no-change alpha. The handoff below is for continuing refinement work, not for migrating away from a frozen artifact.
 
@@ -30,7 +30,8 @@ This repo is active. It is not a preserved no-change alpha. The handoff below is
 ### Technical seams already worth preserving
 
 - `app/src/audio/engine.ts` for transport/runtime truth
-- `app/src/core/session.ts` for shared session wiring
+- `app/src/core/session.tsx` for shared session wiring
+- `app/src/runtime/waveformPyramid.ts` for shared waveform confidence and refinement ownership
 - `app/src/layout/ConsoleLayout.tsx` for shell/chrome structure
 - `app/src/panels/WaveformOverviewPanel.tsx` for the overview timeline system
 - `desktop/src-tauri/src/lib.rs` for desktop export and file-system seams

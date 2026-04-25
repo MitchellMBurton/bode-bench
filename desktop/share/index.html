@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Bach Cello Console Desktop Download</title>
+  <title>Scientific Listening Instrument Desktop Download</title>
   <style>
     :root {
       --bg: #05060a;
@@ -292,7 +292,7 @@
   <main>
     <header>
       <div>
-        <div class="eyebrow">Bach Cello Console / Desktop Distribution</div>
+        <div class="eyebrow">Scientific Listening Instrument / Desktop Distribution</div>
       </div>
       <div class="header-meta" id="header-meta">Preparing manifest...</div>
     </header>
@@ -304,7 +304,7 @@
           <h1>Windows Desktop Download</h1>
           <p>
             A desktop scientific listening instrument for waveform study, spectral analysis,
-            loudness tracking, transport control, and session-based inspection of Bach's cello suites.
+            loudness tracking, transport control, and session-based inspection of arbitrary local audio and video.
           </p>
           <p>
             This build is intended for serious local use. Download the installer, verify the checksum
@@ -320,9 +320,9 @@
           </div>
 
           <div class="actions">
-            <a class="button" id="download-link" href="./BachCelloConsole-Setup.exe">Download Setup</a>
+            <a class="button" id="download-link" href="./ScientificListeningInstrument-Setup.exe">Download Setup</a>
             <a class="button secondary" id="webapp-link" href="./webapp.html">Open Browser App</a>
-            <a class="button secondary" id="checksum-link" href="./BachCelloConsole-Setup.exe.sha256.txt">SHA256 File</a>
+            <a class="button secondary" id="checksum-link" href="./ScientificListeningInstrument-Setup.exe.sha256.txt">SHA256 File</a>
             <a class="button secondary" id="manifest-link" href="./latest.json">Manifest</a>
             <a class="button secondary" id="homepage-link" href="https://github.com/MitchellMBurton/bach-cello-console">Project Page</a>
           </div>
@@ -341,7 +341,7 @@
           <div class="panel">
             <h2>Release Integrity</h2>
             <div class="facts">
-              <div><strong>Filename:</strong> <span id="installer-file-hero">BachCelloConsole-Setup.exe</span></div>
+              <div><strong>Filename:</strong> <span id="installer-file-hero">ScientificListeningInstrument-Setup.exe</span></div>
               <div><strong>Published:</strong> <span id="updated-at-hero">-</span></div>
               <div><strong>SHA256:</strong> <span id="checksum-short">Loading...</span></div>
             </div>
@@ -354,11 +354,11 @@
           <h2>Release Details</h2>
           <div class="meta">
             <div class="label">Product</div>
-            <div class="value" id="product-name">Bach Cello Console</div>
+            <div class="value" id="product-name">Scientific Listening Instrument</div>
             <div class="label">Installer</div>
             <div class="value" id="installer-type">NSIS Setup EXE</div>
             <div class="label">Filename</div>
-            <div class="value" id="installer-file">BachCelloConsole-Setup.exe</div>
+            <div class="value" id="installer-file">ScientificListeningInstrument-Setup.exe</div>
             <div class="label">Published</div>
             <div class="value" id="updated-at">-</div>
             <div class="label">Browser App</div>
@@ -381,9 +381,9 @@
           <h2>Install + Verify</h2>
           <ol>
             <li>Download the setup file and optional SHA256 sidecar file.</li>
-            <li>Run <code id="verify-command">certutil -hashfile BachCelloConsole-Setup.exe SHA256</code>.</li>
+            <li>Run <code id="verify-command">certutil -hashfile ScientificListeningInstrument-Setup.exe SHA256</code>.</li>
             <li>Confirm the output matches the checksum shown here or in the SHA256 file.</li>
-            <li>Run the installer and launch Bach Cello Console from the Start Menu.</li>
+            <li>Run the installer and launch Scientific Listening Instrument from the Start Menu.</li>
           </ol>
           <p id="manifest-status" class="muted" style="margin-top: 16px;">Manifest loaded from <code>latest.json</code>.</p>
         </div>
@@ -450,7 +450,7 @@
         return response.json();
       })
       .then((manifest) => {
-        const file = manifest.file || 'BachCelloConsole-Setup.exe';
+        const file = manifest.file || 'ScientificListeningInstrument-Setup.exe';
         const shaFile = manifest.sha256File || `${file}.sha256.txt`;
         const browserAppFile = manifest.browserAppAvailable === false ? null : (manifest.browserAppFile || 'webapp.html');
         const updated = manifest.updatedAtUtc ? new Date(manifest.updatedAtUtc) : null;
@@ -468,7 +468,7 @@
         setText('platform-pill', manifest.platform || 'Windows x64');
         setText('size-pill', `Size ${formatBytes(manifest.sizeBytes)}`);
         setText('channel-pill', `Channel ${manifest.channel || 'local'}`);
-        setText('product-name', manifest.productName || 'Bach Cello Console');
+        setText('product-name', manifest.productName || 'Scientific Listening Instrument');
         setText('installer-type', manifest.installerType || 'NSIS Setup EXE');
         setText('installer-type-hero', manifest.installerType || 'NSIS Setup EXE');
         setText('installer-file', file);

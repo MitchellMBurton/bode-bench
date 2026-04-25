@@ -155,7 +155,8 @@ For streamed media, coarse and detail coverage are distinct readiness tracks. Th
 Core files:
 
 - `app/src/panels/WaveformOverviewPanel.tsx`
-- `app/src/panels/waveformOverviewCoverage.ts`
+- `app/src/runtime/waveformPyramid.ts`
+- `app/src/panels/waveformDetailMode.ts`
 
 ## Desktop Boundary
 

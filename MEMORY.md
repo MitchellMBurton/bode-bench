@@ -1,10 +1,18 @@
 # Global Memory
 
+## 2026-04-25
+
+### Accepted Baseline
+
+- Current accepted baseline is commit `c3112b9` on `main`.
+- The baseline adds shared waveform pyramid ownership, recovered export/source-path storage, explicit app-session teardown, Amber theme coverage, and refreshed tests.
+- The product chrome should present the work as active v0.2 refinement, not a v0.1 alpha artifact.
+
 ## 2026-03-21
 
 ### Accepted Baseline
 
-- Current accepted baseline is commit `da8511e` on `main`.
+- Previous accepted baseline was commit `da8511e` on `main`.
 - The repo is active and no longer described as a frozen alpha handoff.
 - The product is now clearly a scientific media instrument for arbitrary local audio and video.
 
