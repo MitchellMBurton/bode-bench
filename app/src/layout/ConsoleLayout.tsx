@@ -466,7 +466,7 @@ export function ConsoleLayout({
         <div style={headerRightStyle}>
           <span style={{ ...headerTagStyle, color: m.category }}>DESKTOP-FIRST / SESSION-BASED</span>
           <span style={{ ...headerDividerStyle, color: m.category }}>|</span>
-          <span style={{ ...headerTagStyle, color: m.category }}>v0.2 ACTIVE</span>
+          <span style={{ ...headerTagStyle, color: m.category }}>v0.3 PLANNING</span>
         </div>
       </div>
 
