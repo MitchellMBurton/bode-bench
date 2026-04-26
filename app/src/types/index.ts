@@ -138,7 +138,12 @@ export interface RangeMark {
   readonly endS: number;
   /** Short label, e.g. "R1", "R2" */
   readonly label: string;
+  /** Optional one-line review note. Trimmed; absent when empty. ~120 char cap. */
+  readonly note?: string;
 }
+
+/** Maximum length of a range note, in characters. */
+export const RANGE_NOTE_MAX_LENGTH = 120;
 
 export type ProcessorKind = 'ffmpeg' | 'external-cli' | 'python-worker' | 'ai-service';
 export type MediaJobKind = 'clip-export' | 'audio-repair' | 'video-repair';

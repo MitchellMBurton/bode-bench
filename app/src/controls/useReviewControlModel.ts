@@ -47,6 +47,7 @@ export interface ReviewControlModel {
   readonly selectRange: (rangeId: number) => void;
   readonly auditionRange: (rangeMark: RangeMark) => void;
   readonly deleteRange: (rangeId: number) => void;
+  readonly updateRangeNote: (rangeId: number, note: string) => void;
 }
 
 export function useReviewControlModel(): ReviewControlModel {
@@ -131,6 +132,10 @@ export function useReviewControlModel(): ReviewControlModel {
     diagnosticsLog.push(`range ${rangeMark.label} removed`, 'dim', 'transport');
   }, [derivedMedia, diagnosticsLog, snapshot.rangeMarks]);
 
+  const updateRangeNote = useCallback((rangeId: number, note: string): void => {
+    derivedMedia.updateRangeNote(rangeId, note);
+  }, [derivedMedia]);
+
   return {
     transport,
     pendingRangeStartS,
@@ -148,5 +153,6 @@ export function useReviewControlModel(): ReviewControlModel {
     selectRange,
     auditionRange,
     deleteRange,
+    updateRangeNote,
   };
 }

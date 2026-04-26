@@ -93,6 +93,55 @@ describe('DerivedMediaStore', () => {
     expect(store.getSnapshot().rangeMarks).toEqual([]);
   });
 
+  it('updates a range note and trims surrounding whitespace', () => {
+    const store = new DerivedMediaStore();
+    const range = store.addRange(4, 8);
+
+    store.updateRangeNote(range.id, '  vocal level mismatch  ');
+    expect(store.getSnapshot().rangeMarks[0].note).toBe('vocal level mismatch');
+  });
+
+  it('clears a range note when set to empty or whitespace-only', () => {
+    const store = new DerivedMediaStore();
+    const range = store.addRange(4, 8);
+
+    store.updateRangeNote(range.id, 'temporary');
+    expect(store.getSnapshot().rangeMarks[0].note).toBe('temporary');
+
+    store.updateRangeNote(range.id, '   ');
+    expect(store.getSnapshot().rangeMarks[0].note).toBeUndefined();
+  });
+
+  it('does not emit when a range note update is a no-op', () => {
+    const store = new DerivedMediaStore();
+    const range = store.addRange(4, 8);
+    let emitCount = 0;
+    store.subscribe(() => {
+      emitCount++;
+    });
+
+    store.updateRangeNote(range.id, '');
+    expect(emitCount).toBe(0);
+
+    store.updateRangeNote(range.id, 'first');
+    expect(emitCount).toBe(1);
+
+    store.updateRangeNote(range.id, '  first  ');
+    expect(emitCount).toBe(1);
+  });
+
+  it('ignores note updates for unknown range ids', () => {
+    const store = new DerivedMediaStore();
+    store.addRange(4, 8);
+    let emitCount = 0;
+    store.subscribe(() => {
+      emitCount++;
+    });
+
+    store.updateRangeNote(999, 'phantom');
+    expect(emitCount).toBe(0);
+  });
+
   it('rejects zero-length range marks', () => {
     const store = new DerivedMediaStore();
 

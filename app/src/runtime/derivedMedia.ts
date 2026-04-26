@@ -193,6 +193,28 @@ export class DerivedMediaStore {
     return updatedRange;
   }
 
+  updateRangeNote(rangeId: number, note: string): void {
+    const trimmedNext = note.trim();
+    let changed = false;
+
+    const nextRanges = this.snapshot.rangeMarks.map((rangeMark) => {
+      if (rangeMark.id !== rangeId) return rangeMark;
+      const trimmedPrev = (rangeMark.note ?? '').trim();
+      if (trimmedPrev === trimmedNext) return rangeMark;
+      changed = true;
+      const { note: _omit, ...rest } = rangeMark;
+      void _omit;
+      return trimmedNext === '' ? rest : { ...rest, note: trimmedNext };
+    });
+
+    if (!changed) return;
+    this.snapshot = {
+      ...this.snapshot,
+      rangeMarks: nextRanges,
+    };
+    this.emit();
+  }
+
   deleteRange(rangeId: number): void {
     const nextRanges = this.snapshot.rangeMarks.filter((rangeMark) => rangeMark.id !== rangeId);
     if (nextRanges.length === this.snapshot.rangeMarks.length) return;
