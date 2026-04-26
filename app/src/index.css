@@ -67,6 +67,22 @@ input[type="range"] {
   background: transparent;
 }
 
+/* Range note inline editor — make the placeholder visible across themes. */
+input.range-note-input::placeholder {
+  color: currentColor;
+  opacity: 0.62;
+  font-style: italic;
+  letter-spacing: 0.04em;
+}
+input.range-note-input::-webkit-input-placeholder {
+  color: currentColor;
+  opacity: 0.62;
+}
+input.range-note-input::-moz-placeholder {
+  color: currentColor;
+  opacity: 0.62;
+}
+
 /* Panel hover measurement readout — positioned inside panel wrapper */
 .panel-hover-readout {
   display: none;

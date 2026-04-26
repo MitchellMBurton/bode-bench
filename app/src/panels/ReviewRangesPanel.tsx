@@ -339,45 +339,82 @@ function RangeNoteEditor({
   };
 
   const hasContent = draft.length > 0 || (noteValue ?? '').length > 0;
+  const placeholder = editing ? 'note...' : '+ add note';
 
   return (
-    <input
-      type="text"
-      value={draft}
-      placeholder="add note"
-      maxLength={RANGE_NOTE_MAX_LENGTH}
-      onFocus={() => setEditing(true)}
-      onChange={(event) => setDraft(event.currentTarget.value)}
-      onBlur={commit}
-      onKeyDown={(event) => {
-        if (event.key === 'Enter') {
-          event.preventDefault();
-          event.currentTarget.blur();
-        } else if (event.key === 'Escape') {
-          event.preventDefault();
-          cancellingRef.current = true;
-          setDraft(noteValue ?? '');
-          event.currentTarget.blur();
-        }
-      }}
-      data-shell-interactive="true"
+    <div
       style={{
-        ...noteInputStyle,
-        color: hasContent ? (selected ? theme.text : theme.dim) : theme.dim,
+        ...noteRowStyle,
+        background: editing ? theme.buttonActiveBg : 'transparent',
       }}
-    />
+    >
+      <span
+        aria-hidden="true"
+        style={{
+          ...noteGlyphStyle,
+          color: hasContent ? (selected ? theme.text : theme.dim) : theme.dim,
+          opacity: hasContent ? 0.85 : 0.55,
+        }}
+      >
+        {hasContent ? '·' : '+'}
+      </span>
+      <input
+        type="text"
+        className="range-note-input"
+        value={draft}
+        placeholder={placeholder}
+        maxLength={RANGE_NOTE_MAX_LENGTH}
+        onFocus={() => setEditing(true)}
+        onChange={(event) => setDraft(event.currentTarget.value)}
+        onBlur={commit}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') {
+            event.preventDefault();
+            event.currentTarget.blur();
+          } else if (event.key === 'Escape') {
+            event.preventDefault();
+            cancellingRef.current = true;
+            setDraft(noteValue ?? '');
+            event.currentTarget.blur();
+          }
+        }}
+        data-shell-interactive="true"
+        style={{
+          ...noteInputStyle,
+          color: hasContent ? (selected ? theme.text : theme.dim) : theme.dim,
+        }}
+      />
+    </div>
   );
 }
+
+const noteRowStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 5,
+  marginTop: 2,
+  paddingLeft: 4,
+  paddingRight: 4,
+  borderRadius: 2,
+};
+
+const noteGlyphStyle: React.CSSProperties = {
+  fontFamily: FONTS.mono,
+  fontSize: 10,
+  lineHeight: 1,
+  letterSpacing: 0,
+  flexShrink: 0,
+};
 
 const noteInputStyle: React.CSSProperties = {
   fontFamily: FONTS.mono,
   fontSize: 9,
   letterSpacing: '0.04em',
-  lineHeight: 1.3,
+  lineHeight: 1.4,
   background: 'transparent',
   border: 'none',
   outline: 'none',
-  padding: '1px 0',
+  padding: '2px 0',
   width: '100%',
   minWidth: 0,
 };
