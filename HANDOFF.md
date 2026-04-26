@@ -32,6 +32,9 @@ the entry point a fresh reviewer should use.
 ### Stable seams
 
 - `app/src/audio/engine.ts` — transport / runtime truth (will be split for two-source work in Track 4)
+- `app/src/audio/analysisWorkerProtocol.ts` — Track 3 v1 worker message contract, transferable buffers, boundary validation
+- `app/src/audio/analysisWorkerClient.ts` — dormant worker lifecycle client with request IDs, back-pressure drops, diagnostics, and termination
+- `app/src/audio/analysisRuntime.ts` — main-thread-compatible analysis adapter used as the worker parity seam
 - `app/src/core/session.tsx` — shared session wiring (extended for restore methods in v0.3.0)
 - `app/src/audio/frameBus.ts` — frame dispatch (producer changes in Track 3, consumers stable)
 - `app/src/runtime/waveformPyramid.ts` — shared waveform confidence and refinement
@@ -55,7 +58,7 @@ the entry point a fresh reviewer should use.
 
 Tracks 1 and 2 are shipped (`v0.3.0`). The remaining order:
 
-1. **Track 3 — Worker-based analysis core.** Boring infrastructure with payoff in many directions. Best done before A-B so two-source pipelines ride a solid base. Closes the focus-throttle story structurally.
+1. **Track 3 — Worker-based analysis core.** Boring infrastructure with payoff in many directions. Best done before A-B so two-source pipelines ride a solid base. The first slices now define the typed worker protocol, main-thread parity adapter, and dormant worker lifecycle client with one-frame back-pressure diagnostics. Next wire transferable buffer pooling into the analysis path before switching the frame producer. Closes the focus-throttle story structurally.
 2. **Track 4 — A-B comparison workspace.** The defining v0.3 feature. Builds on Tracks 2 and 3.
 3. **Track 5 — Differential null test.** Builds directly on Track 4's alignment machinery.
 
@@ -85,7 +88,7 @@ Carried from v0.2 — real but should not distort direction:
 
 - fullscreen short-streamed-media overview detail behavior still needs final hardening
 - frontend chunk size larger than ideal (visualizer in place; act during Track 3)
-- legacy `bach-cello-console` naming may surface in some packaged artifacts
+- installer hooks still close the legacy `bach-cello-console.exe` process for upgrade compatibility
 
 ## Excellence Standard
 

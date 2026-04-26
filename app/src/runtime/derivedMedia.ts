@@ -26,8 +26,8 @@ export interface DerivedMediaRestoreInput {
 
 function normalizeRangeNote(note: string | undefined): string | undefined {
   if (typeof note !== 'string') return undefined;
-  const trimmed = note.trim();
-  return trimmed ? trimmed.slice(0, RANGE_NOTE_MAX_LENGTH) : undefined;
+  const trimmed = note.trim().replace(/\s+/g, ' ').slice(0, RANGE_NOTE_MAX_LENGTH).trim();
+  return trimmed || undefined;
 }
 
 function nextIdFrom<T extends { readonly id: number }>(items: readonly T[]): number {
@@ -247,17 +247,17 @@ export class DerivedMediaStore {
   }
 
   updateRangeNote(rangeId: number, note: string): void {
-    const trimmedNext = note.trim();
+    const nextNote = normalizeRangeNote(note);
     let changed = false;
 
     const nextRanges = this.snapshot.rangeMarks.map((rangeMark) => {
       if (rangeMark.id !== rangeId) return rangeMark;
-      const trimmedPrev = (rangeMark.note ?? '').trim();
-      if (trimmedPrev === trimmedNext) return rangeMark;
+      const prevNote = normalizeRangeNote(rangeMark.note);
+      if (prevNote === nextNote) return rangeMark;
       changed = true;
       const { note: _omit, ...rest } = rangeMark;
       void _omit;
-      return trimmedNext === '' ? rest : { ...rest, note: trimmedNext };
+      return nextNote === undefined ? rest : { ...rest, note: nextNote };
     });
 
     if (!changed) return;

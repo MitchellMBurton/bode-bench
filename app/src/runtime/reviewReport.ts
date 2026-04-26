@@ -22,6 +22,12 @@ function formatDateForFilename(date: Date): string {
   return date.toISOString().replace(/[:.]/g, '-');
 }
 
+function escapeMarkdownTableCell(value: string): string {
+  return value
+    .replace(/\r?\n/g, '<br>')
+    .replace(/\|/g, '\\|');
+}
+
 export function buildReviewReportFilename(filename: string | null, generatedAt = new Date()): string {
   return `${sanitizeFilenamePart(filename ?? 'session')}_review_${formatDateForFilename(generatedAt)}.md`;
 }
@@ -55,7 +61,7 @@ export function buildReviewReportMarkdown(input: ReviewReportInput): string {
     lines.push('| Label | Start | End | Length | Note |');
     lines.push('| --- | ---: | ---: | ---: | --- |');
     for (const range of ranges) {
-      lines.push(`| ${range.label} | ${formatTransportTime(range.startS)} | ${formatTransportTime(range.endS)} | ${formatTransportTime(range.endS - range.startS)} | ${range.note ?? ''} |`);
+      lines.push(`| ${escapeMarkdownTableCell(range.label)} | ${formatTransportTime(range.startS)} | ${formatTransportTime(range.endS)} | ${formatTransportTime(range.endS - range.startS)} | ${escapeMarkdownTableCell(range.note ?? '')} |`);
     }
   }
 

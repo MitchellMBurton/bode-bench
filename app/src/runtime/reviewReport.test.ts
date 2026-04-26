@@ -27,4 +27,19 @@ describe('review report helpers', () => {
     expect(buildReviewReportFilename('Episode 01: Angel.mkv', new Date('2026-04-25T10:30:00.000Z')))
       .toBe('Episode_01_Angel_review_2026-04-25T10-30-00-000Z.md');
   });
+
+  it('escapes markdown table-sensitive range labels and notes', () => {
+    const markdown = buildReviewReportMarkdown({
+      filename: 'mix.wav',
+      durationS: 10,
+      currentTimeS: 0,
+      selectedRangeId: null,
+      generatedAt: new Date('2026-04-25T10:30:00.000Z'),
+      rangeMarks: [
+        { id: 1, label: 'R|1', startS: 1, endS: 2, note: 'phase | drift\ncheck' },
+      ],
+    });
+
+    expect(markdown).toContain('| R\\|1 | 00:01.0 | 00:02.0 | 00:01.0 | phase \\| drift<br>check |');
+  });
 });

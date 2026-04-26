@@ -1,6 +1,6 @@
 import type { VisualMode } from '../audio/displayMode';
 import { DEFAULT_ANALYSIS_CONFIG, normalizeAnalysisConfig } from '../audio/analysisConfig';
-import type { AnalysisConfig, Marker, RangeMark } from '../types';
+import { RANGE_NOTE_MAX_LENGTH, type AnalysisConfig, type Marker, type RangeMark } from '../types';
 
 export const REVIEW_SESSION_SCHEMA = 'bode-bench.review-session';
 export const REVIEW_SESSION_VERSION = 1;
@@ -99,6 +99,13 @@ function sourceKindOrNull(value: unknown): 'audio' | 'video' | null {
   return value === 'audio' || value === 'video' ? value : null;
 }
 
+function normalizeRangeNote(value: unknown): string | undefined {
+  const note = stringOrNull(value);
+  if (note === null) return undefined;
+  const normalized = note.trim().replace(/\s+/g, ' ').slice(0, RANGE_NOTE_MAX_LENGTH).trim();
+  return normalized || undefined;
+}
+
 function visualModeOrDefault(value: unknown): VisualMode {
   return VISUAL_MODES.includes(value as VisualMode) ? value as VisualMode : 'default';
 }
@@ -123,7 +130,7 @@ function normalizeRange(value: unknown): RangeMark | null {
   const endS = finiteNumberOrNull(value.endS);
   const label = stringOrNull(value.label);
   if (id === null || id <= 0 || startS === null || endS === null || !label || startS === endS) return null;
-  const note = stringOrNull(value.note)?.trim() || undefined;
+  const note = normalizeRangeNote(value.note);
   return {
     id: Math.floor(id),
     startS: Math.max(0, Math.min(startS, endS)),
@@ -240,6 +247,12 @@ export function matchReviewSessionSource(
 ): ReviewSessionSourceMatch {
   if (!current.filename || !current.durationS || !current.kind) {
     return { kind: 'no-current-source' };
+  }
+  if (saved.kind !== null && saved.kind !== current.kind) {
+    return {
+      kind: 'mismatch',
+      message: `Session expects ${saved.kind} source ${saved.filename ?? 'media'}. Open the matching media file to apply it.`,
+    };
   }
   if (saved.mediaKey && current.mediaKey && saved.mediaKey === current.mediaKey) {
     return { kind: 'match' };

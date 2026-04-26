@@ -28,7 +28,6 @@ export interface PanelDescriptor {
 }
 
 // Lazy imports — panel modules are only loaded when the registry is consumed.
-import { ReviewRangesPanel } from './ReviewRangesPanel';
 import { WaveformOverviewPanel } from './WaveformOverviewPanel';
 import { WaveformScrollPanel } from './WaveformScrollPanel';
 import { PitchTrackerPanel } from './PitchTrackerPanel';
@@ -45,7 +44,6 @@ import { SpectrogramPanel } from './SpectrogramPanel';
 
 export const PANEL_REGISTRY: readonly PanelDescriptor[] = [
   // ── Top-right: Live Diagnostic ──────────────────────────────
-  { id: 'review',      label: 'REVIEW',          defaultColumn: 'top-right',    component: ReviewRangesPanel },
   { id: 'overview',    label: 'OVERVIEW',        defaultColumn: 'top-right',    component: WaveformOverviewPanel },
   { id: 'wave-scroll', label: 'WAVEFORM',         defaultColumn: 'top-right',    component: WaveformScrollPanel },
   { id: 'pitch',       label: 'F0 TRACK',         defaultColumn: 'top-right',    component: PitchTrackerPanel },

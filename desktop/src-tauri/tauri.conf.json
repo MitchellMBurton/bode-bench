@@ -28,7 +28,7 @@
   "bundle": {
     "active": true,
     "publisher": "Mitchell Burton",
-    "homepage": "",
+    "homepage": "https://github.com/MitchellMBurton/bode-bench",
     "category": "Music",
     "shortDescription": "Local-first scientific listening instrument and media analysis console.",
     "longDescription": "A local-first desktop analysis console for scientific listening, waveform inspection, spectral study, loudness tracking, and session-based exploration of arbitrary local audio and video.",

@@ -10,11 +10,12 @@ deferred polish — pick them up if a real workflow asks for them.
 | 1. Range notes + inline editor | ✅ shipped | mounted via `RangeNoteEditor.tsx` in `OverviewTransportStrip` (the visible saved-range row) |
 | 2. Markdown report generator | ✅ shipped | `reviewReport.ts`, browser download path |
 | 3. Session schema v1 + restore | ✅ shipped | `reviewSession.ts`, `DerivedMediaStore.restore`, layout snapshot/restore |
-| 4. Save / load / relink + mismatch | ✅ shipped | round-trip validated; pending-session apply effect in `App.tsx` |
+| 4. Save / load / relink + mismatch | ✅ shipped | round-trip validated; pending-session restore is owned by `App.tsx` and applied from the transport subscription when matching media arrives |
 | 5. Embedded panel screenshots in report | ⏳ deferred | optional polish |
 | 6. Attachment metadata follow-through | ⏳ deferred | optional polish |
 
 Original plan body retained below for reference.
+Historical file targets in the original body may differ from the shipped surface; the status table above is the current truth.
 
 ---
 
@@ -37,7 +38,7 @@ Each lands a coherent unit of work. The app is deployable after every step.
 
 - Add `note?: string` to `RangeMark` in [app/src/types/index.ts](app/src/types/index.ts)
 - One-line cap, ~120 chars, soft-truncated in display
-- Inline edit on the saved-ranges row in [ReviewRangesPanel.tsx](app/src/panels/ReviewRangesPanel.tsx) — click → text input, Enter commits, Esc cancels
+- Inline edit on the visible saved-ranges row in [OverviewTransportStrip.tsx](app/src/controls/OverviewTransportStrip.tsx) via [RangeNoteEditor.tsx](app/src/controls/RangeNoteEditor.tsx) — click → text input, Enter commits, Esc cancels
 - `DerivedMediaStore.updateRangeNote(id, note)` method
 - Persist within the existing snapshot model
 - Tests: schema backwards-compatibility (old ranges have undefined note), store update behavior, inline editor commit/cancel
@@ -109,8 +110,8 @@ export interface ReviewSessionV1 {
 ### 4. Save / Load wiring + relink behavior (~3 days)
 
 - `SAVE SESSION` and `LOAD SESSION` buttons added to Session Console TOP CONTROL DECK alongside `GENERATE REPORT`
-- Browser save: serialize via `JSON.stringify`, trigger download as `<filename>-session-<timestamp>.sli.json`
-- Browser load: hidden file input, accepts `.sli.json` and `.json`
+- Browser save: serialize via `JSON.stringify`, trigger download as `<filename>_<timestamp>.review-session.json`
+- Browser load: hidden file input, accepts `.review-session.json` and `.json`
 - Desktop save: `tauri::dialog::save`, write file, optional reveal
 - Desktop load: `tauri::dialog::open`, read file, parse
 - Relink behavior:
@@ -152,7 +153,7 @@ Three natural ship points: after step 2 (notes + reports working), after step 4 
 |---|---|---|
 | [app/src/types/index.ts](app/src/types/index.ts) | 1 | `note?: string` on `RangeMark` |
 | [app/src/runtime/derivedMedia.ts](app/src/runtime/derivedMedia.ts) | 1, 3 | `updateRangeNote`, `restore` |
-| [app/src/panels/ReviewRangesPanel.tsx](app/src/panels/ReviewRangesPanel.tsx) | 1 | inline note editor |
+| [app/src/controls/RangeNoteEditor.tsx](app/src/controls/RangeNoteEditor.tsx) and [app/src/controls/OverviewTransportStrip.tsx](app/src/controls/OverviewTransportStrip.tsx) | 1 | inline note editor in the visible saved-range surface |
 | [app/src/runtime/reviewReport.ts](app/src/runtime/reviewReport.ts) | 2 | new — markdown generator |
 | [app/src/runtime/reviewSession.ts](app/src/runtime/reviewSession.ts) | 3 | new — schema, parse, build, migrate |
 | [app/src/controls/SessionControls.tsx](app/src/controls/SessionControls.tsx) | 2, 4 | report / save / load buttons |
@@ -184,7 +185,7 @@ These belong to later tracks or future ideas:
 ## Decisions Deferred Until Implementation
 
 - Exact placement of buttons in the TOP CONTROL DECK row (one row vs. two; `OPEN MEDIA / SAVE / LOAD / REPORT` vs. nested grouping) — decide while looking at the actual UI in step 2
-- File extension: `.sli.json` (transparent JSON) vs. `.sli` (opaque) — go with `.sli.json` for v1 because it's inspectable in any text editor, which matches the "trustworthy and inspectable" doctrine
+- File extension: `.review-session.json` (transparent JSON) vs. `.sli` (opaque) — go with `.review-session.json` for v1 because it's inspectable in any text editor and clearly names the artifact, which matches the "trustworthy and inspectable" doctrine
 - Per-range tuning snapshot in the schema — not in v1; revisit when per-range tuning becomes a feature in its own right
 
 ## Open Questions That Should Be Answered Before Step 1
@@ -192,4 +193,4 @@ These belong to later tracks or future ideas:
 1. **Note editing model:** click-to-edit inline vs. always-visible text input on each range row? Inline is denser, always-visible is lower friction. My pick: inline (matches the clinical density doctrine).
 2. **Note display when collapsed:** show first ~40 chars truncated, or hide entirely? My pick: show truncated as dim secondary text under the range label.
 3. **Markers also get notes?** Markers are point-in-time; ranges are spans. Notes feel more natural on ranges. My pick: ranges only in v1; revisit if there's user demand.
-4. **Browser-side `.sli.json` size limits?** Sessions are small (KB, not MB) since they don't bundle media or analysis. Not a concern for v1.
+4. **Browser-side `.review-session.json` size limits?** Sessions are small (KB, not MB) since they don't bundle media or analysis. Not a concern for v1.

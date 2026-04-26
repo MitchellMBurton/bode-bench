@@ -14,15 +14,11 @@ import { useRef, useState } from 'react';
 import type { VisualMode } from '../audio/displayMode';
 import {
   useAnalysisConfig,
-  useAnalysisConfigStore,
   useDerivedMediaSnapshot,
-  useDerivedMediaStore,
-  useDisplayMode,
 } from '../core/session';
 import {
   CONSOLE_SPLIT_PANE_KEYS,
   readRuntimeTrayHeight,
-  restoreConsoleLayoutWorkspaceSnapshot,
 } from '../layout/consoleLayoutWorkspace';
 import { readSplitPaneFractions } from '../layout/splitPanePersistence';
 import { buildReviewReportFilename, buildReviewReportMarkdown, downloadReviewReport } from '../runtime/reviewReport';
@@ -49,9 +45,9 @@ interface SessionDeckProps {
   readonly source: CurrentSessionSourceIdentity;
   readonly currentTimeS: number;
   readonly grayscale: boolean;
-  readonly onGrayscaleRestore: (next: boolean) => void;
   readonly pendingSession: ReviewSessionV1 | null;
   readonly onPendingSessionChange: (next: ReviewSessionV1 | null) => void;
+  readonly onSessionRestore: (session: ReviewSessionV1) => void;
   readonly onStatusChange: (status: SessionStatus) => void;
 }
 
@@ -77,16 +73,13 @@ export function SessionDeck({
   source,
   currentTimeS,
   grayscale,
-  onGrayscaleRestore,
   pendingSession,
   onPendingSessionChange,
+  onSessionRestore,
   onStatusChange,
 }: SessionDeckProps): React.ReactElement {
-  const derivedMedia = useDerivedMediaStore();
   const derivedSnapshot = useDerivedMediaSnapshot();
-  const analysisConfigStore = useAnalysisConfigStore();
   const analysisConfig = useAnalysisConfig();
-  const displayMode = useDisplayMode();
   const inputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
 
@@ -95,17 +88,6 @@ export function SessionDeck({
   const themedSubtle = mode.chromeBorder;
   const canSave = source.filename !== null;
   const canReport = derivedSnapshot.rangeMarks.length > 0;
-
-  const applySession = (session: ReviewSessionV1): void => {
-    derivedMedia.restore(session.review);
-    displayMode.setMode(session.workspace.visualMode);
-    analysisConfigStore.restore(session.workspace.analysisConfig);
-    restoreConsoleLayoutWorkspaceSnapshot({
-      layout: session.workspace.layout,
-      runtimeTrayHeight: session.workspace.runtimeTrayHeight,
-    });
-    onGrayscaleRestore(session.workspace.grayscale);
-  };
 
   const handleSave = (): void => {
     if (!canSave) return;
@@ -161,7 +143,7 @@ export function SessionDeck({
       }
       const match = matchReviewSessionSource(result.session.source, source);
       if (match.kind === 'match') {
-        applySession(result.session);
+        onSessionRestore(result.session);
         onPendingSessionChange(null);
         onStatusChange({ text: 'Session restored.', tone: 'ok' });
         return;

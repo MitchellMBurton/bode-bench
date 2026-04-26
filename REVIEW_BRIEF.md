@@ -1,5 +1,7 @@
 # Review Brief — v0.3.0 Baseline
 
+Post-review note: this brief remains useful as the v0.3.0 baseline prompt, but the current working tree has already resolved several questions it raises. `ReviewRangesPanel` was removed, session restore ownership was centralized in `App.tsx`, the pending-session restore no longer uses an eslint suppression, and the active test count is now higher than the baseline listed below.
+
 This document is the entry point for a code-review pass on the v0.3.0 baseline.
 It is written for a capable agent who will read code directly. It does not
 re-explain doctrine; it tells you where to look and what specifically I want a

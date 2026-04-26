@@ -324,7 +324,7 @@
             <a class="button secondary" id="webapp-link" href="./webapp.html">Open Browser App</a>
             <a class="button secondary" id="checksum-link" href="./ScientificListeningInstrument-Setup.exe.sha256.txt">SHA256 File</a>
             <a class="button secondary" id="manifest-link" href="./latest.json">Manifest</a>
-            <a class="button secondary" id="homepage-link" href="https://github.com/MitchellMBurton/bach-cello-console">Project Page</a>
+            <a class="button secondary" id="homepage-link" href="https://github.com/MitchellMBurton/bode-bench">Project Page</a>
           </div>
         </div>
 
@@ -364,7 +364,7 @@
             <div class="label">Browser App</div>
             <div class="value"><a id="browser-app-detail" href="./webapp.html" class="muted">webapp.html</a></div>
             <div class="label">Homepage</div>
-            <div class="value"><a id="homepage-link-detail" href="https://github.com/MitchellMBurton/bach-cello-console" class="muted">Project repository</a></div>
+            <div class="value"><a id="homepage-link-detail" href="https://github.com/MitchellMBurton/bode-bench" class="muted">Project repository</a></div>
           </div>
 
           <div class="checksum">
@@ -481,7 +481,7 @@
         setText('checksum-short', checksumShort);
         setText('verify-command', currentVerifyCommand);
 
-        const homepage = manifest.homepage || 'https://github.com/MitchellMBurton/bach-cello-console';
+        const homepage = manifest.homepage || 'https://github.com/MitchellMBurton/bode-bench';
         setHref('download-link', `./${file}`);
         if (browserAppFile) {
           setHref('webapp-link', `./${browserAppFile}`);

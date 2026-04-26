@@ -30,7 +30,7 @@ if (-not $launcher) {
   throw "Python 3 is required to serve the share directory."
 }
 
-$serverScriptPath = Join-Path $env:TEMP "bach-cello-console-serve-share.py"
+$serverScriptPath = Join-Path $env:TEMP "bode-bench-serve-share.py"
 $serverScript = @"
 import functools
 import http.server

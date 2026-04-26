@@ -39,7 +39,10 @@ Validated end-to-end with a save / refresh / load round trip; "Session restored.
 ### Track 3 — Worker-based Analysis Core (v0.3.2) — NEXT
 
 Boring infrastructure with payoff in many directions. Best done before A-B so two-source pipelines ride a solid base.
+First slices are infrastructure-only: the live frame producer remains synchronous until buffer pooling is wired into the analysis path.
 
+- [x] Define the v1 worker message protocol, transferables helper, and main-thread-compatible analysis adapter
+- [x] Add worker lifecycle client with response validation, one-frame back-pressure, and diagnostic counters
 - [ ] Stand up dedicated Web Worker for analysis loop
 - [ ] Move FFT, pitch detection, loudness integration, waveform pyramid, spectrogram bins to worker
 - [ ] Frame bus: switch producer to worker postMessage; consumers unchanged
@@ -61,7 +64,7 @@ The defining feature of the comparative bench. Depends on Tracks 2 and 3.
 - [ ] Panel dual-rendering opt-in: waveform overview, spectrogram, loudness, freq response
 - [ ] Persistent visual indicator of current audible source
 - [ ] Hotkey for monitor swap
-- [ ] A-B sessions extend the `.sli` schema (Track 2 already accommodates two-source field)
+- [ ] A-B sessions extend the `.review-session.json` schema (Track 2 already accommodates two-source field)
 
 ### Track 5 — Differential Analysis / Null Test (v0.4.1)
 
@@ -86,6 +89,7 @@ protection. Detailed plan in `PLAN_NOTES_AND_SESSIONS.md`.
 - [x] `DerivedMediaStore.restore()` with id-counter recomputation
 - [x] Shared `RangeNoteEditor` mounted in `OverviewTransportStrip`
 - [x] `SessionDeck` in the TOP CONTROL DECK (not a global File Bar — see REVIEW_BRIEF)
+- [x] Post-review hardening: removed dead `ReviewRangesPanel`, centralized session restore ownership, capped range notes at runtime/session boundaries, escaped report table cells, and tightened source-kind mismatch protection
 
 ## Recently Completed (v0.2)
 
@@ -112,7 +116,6 @@ These remain real but should not distort the v0.3 direction:
 - [ ] Fullscreen short-streamed-media overview detail behavior — still open; defer to a focused fix or document as a v0.2.x limitation
 - [ ] Frontend chunk size reduction (visualizer in place; act on findings during Track 3)
 - [ ] Final density pass for left-pane vertical rhythm (revisit after Track 4 reshapes the left pane)
-- [ ] `ReviewRangesPanel` is registered but filtered out of the layout — decide whether to re-enable or remove (see REVIEW_BRIEF.md)
 
 ## Done Criteria
 

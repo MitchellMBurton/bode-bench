@@ -1,6 +1,6 @@
 // ============================================================
-// RangeNoteEditor — inline one-line note attached to a saved
-// range. Empty state shows a "+ add note" placeholder; editing
+// RangeNoteEditor - inline one-line note attached to a saved
+// range. Empty state shows a compact add-note affordance; editing
 // state shows a tinted input. Enter commits, Esc cancels.
 //
 // Theming is intentionally primitive (raw colour strings) so
@@ -56,7 +56,7 @@ export function RangeNoteEditor({
   };
 
   const hasContent = draft.length > 0 || (noteValue ?? '').length > 0;
-  const placeholder = editing ? 'note...' : '+ add note';
+  const placeholder = editing ? 'note' : 'add note';
   const valueColor = hasContent ? (selected ? textColor : dimColor) : dimColor;
 
   return (
@@ -74,7 +74,7 @@ export function RangeNoteEditor({
           opacity: hasContent ? 0.85 : 0.55,
         }}
       >
-        {hasContent ? '·' : '+'}
+        {hasContent ? '-' : '+'}
       </span>
       <input
         type="text"

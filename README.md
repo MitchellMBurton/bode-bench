@@ -4,7 +4,7 @@ Local-first, desktop-grade media analysis console for close listening, technical
 
 This repo is the active continuation of the Scientific Listening Instrument. It opens at the v0.2-final state (forked from `bach-cello-console`, tagged for reference) and turns toward v0.3 — the comparative measurement bench. See `ROADMAP.md` for phase boundaries, `TASKS.md` for the live work order, and `FUTURE_PLANS_AND_IDEAS.md` for the broader idea pool.
 
-Legacy Bach naming still appears in sample data and some packaged artifacts; the product itself is general-purpose.
+Legacy Bach naming still appears in sample data and installer compatibility hooks; the product itself is general-purpose.
 
 ## Current Product Shape
 
@@ -45,7 +45,7 @@ Legacy Bach naming still appears in sample data and some packaged artifacts; the
 
 - fullscreen overview detail-waveform behavior on short streamed media still needs final hardening
 - chunk splitting in the frontend build is still larger than ideal
-- legacy naming remains in some packaged artifacts
+- legacy naming remains only where it preserves upgrade compatibility or documents sample-data lineage
 - export and review UX are strong but still being refined toward a more clinical, less mixed-control feel
 
 ## Quality Bar

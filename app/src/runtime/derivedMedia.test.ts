@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import type { MediaJobSpec } from '../types';
+import { RANGE_NOTE_MAX_LENGTH, type MediaJobSpec } from '../types';
 import { DerivedMediaStore } from './derivedMedia';
 
 const EXPORT_JOB_SPEC: MediaJobSpec = {
@@ -99,6 +99,27 @@ describe('DerivedMediaStore', () => {
 
     store.updateRangeNote(range.id, '  vocal level mismatch  ');
     expect(store.getSnapshot().rangeMarks[0].note).toBe('vocal level mismatch');
+  });
+
+  it('caps range note updates at the shared note limit', () => {
+    const store = new DerivedMediaStore();
+    const range = store.addRange(4, 8);
+
+    store.updateRangeNote(range.id, 'x'.repeat(RANGE_NOTE_MAX_LENGTH + 1));
+    expect(store.getSnapshot().rangeMarks[0].note).toBe('x'.repeat(RANGE_NOTE_MAX_LENGTH));
+  });
+
+  it('keeps restored range notes one-line', () => {
+    const store = new DerivedMediaStore();
+
+    store.restore({
+      markers: [],
+      pendingRangeStartS: null,
+      rangeMarks: [{ id: 1, startS: 4, endS: 8, label: 'R1', note: '  level\n  shift\tcheck  ' }],
+      selectedRangeId: 1,
+    });
+
+    expect(store.getSnapshot().rangeMarks[0].note).toBe('level shift check');
   });
 
   it('clears a range note when set to empty or whitespace-only', () => {

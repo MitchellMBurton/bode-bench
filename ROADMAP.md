@@ -17,7 +17,7 @@ v0.2-final ──► v0.3 ──► v0.4 ──► v0.5
 The phase that turns review work into things you can hand to other people.
 
 - **v0.3.0** — Notes on ranges + markdown session report (Track 1)
-- **v0.3.1** — Reproducible session artifact `.sli` (Track 2)
+- **v0.3.1** — Reproducible session artifact `.review-session.json` (Track 2)
 - **v0.3.2** — Worker-based analysis core (Track 3)
 
 **Phase done when:** a reviewer can mark, annotate, save, reopen, and report on a session without anything ephemeral being lost, and analysis runs off the main thread.

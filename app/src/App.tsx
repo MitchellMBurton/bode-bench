@@ -74,6 +74,18 @@ export default function App(): React.ReactElement {
   const displayMode = useDisplayMode();
   const analysisConfigStore = useAnalysisConfigStore();
 
+  const restoreReviewSession = useCallback((session: ReviewSessionV1): void => {
+    derivedMedia.restore(session.review);
+    displayMode.setMode(session.workspace.visualMode);
+    analysisConfigStore.restore(session.workspace.analysisConfig);
+    restoreConsoleLayoutWorkspaceSnapshot({
+      layout: session.workspace.layout,
+      runtimeTrayHeight: session.workspace.runtimeTrayHeight,
+    });
+    setGrayscale(session.workspace.grayscale);
+    setLayoutResetToken((token) => token + 1);
+  }, [analysisConfigStore, derivedMedia, displayMode]);
+
   useEffect(() => {
     return audioEngine.onTransport((state) => {
       const nextMediaKey = sessionMedia.mediaKey ?? buildTransportMediaKey(state.filename, state.duration);
@@ -83,8 +95,21 @@ export default function App(): React.ReactElement {
       }
       setTransportFilename(state.filename);
       performanceDiagnostics.noteTransport(state);
+
+      if (pendingSession === null) return;
+      const currentIdentity = {
+        filename: sessionMedia.filename ?? state.filename,
+        kind: sessionMedia.kind,
+        durationS: state.duration > 0 ? state.duration : null,
+        mediaKey: nextMediaKey,
+      };
+      const match = matchReviewSessionSource(pendingSession.source, currentIdentity);
+      if (match.kind !== 'match') return;
+      restoreReviewSession(pendingSession);
+      setPendingSession(null);
+      setSessionStatus({ text: 'Session restored.', tone: 'ok' });
     });
-  }, [audioEngine, derivedMedia, performanceDiagnostics, sessionMedia.mediaKey]);
+  }, [audioEngine, derivedMedia, pendingSession, performanceDiagnostics, restoreReviewSession, sessionMedia.filename, sessionMedia.kind, sessionMedia.mediaKey]);
 
   useEffect(() => audioEngine.onReset(() => {
     setSessionMedia({ filename: null, mediaKey: null, kind: null });
@@ -123,40 +148,11 @@ export default function App(): React.ReactElement {
   const panelTitle = fileTitle ?? 'NO SESSION';
   const visualDecoration = VISUAL_DECORATIONS[visualMode];
   const runtimeStatus = getRuntimeStatus(perfSnapshot);
-  const topRightPanels = panelsForColumn('top-right').filter(({ id }) => id !== 'wave-scroll' && id !== 'review');
+  const topRightPanels = panelsForColumn('top-right').filter(({ id }) => id !== 'wave-scroll');
 
   useEffect(() => {
     document.title = fileTitle ? `${fileTitle} - ${PRODUCT_NAME}` : PRODUCT_NAME;
   }, [fileTitle]);
-
-  // Apply a pending session once matching media arrives. The setState calls
-  // here are deliberate consequences of an external state transition (audio
-  // engine reporting new media), not speculative state churn — the
-  // react-hooks/set-state-in-effect rule is over-strict for this case.
-  useEffect(() => {
-    if (pendingSession === null) return;
-    const currentIdentity = {
-      filename: sessionMedia.filename ?? transportFilename,
-      kind: sessionMedia.kind,
-      durationS: audioEngine.duration > 0 ? audioEngine.duration : null,
-      mediaKey: sessionMedia.mediaKey,
-    };
-    const match = matchReviewSessionSource(pendingSession.source, currentIdentity);
-    if (match.kind !== 'match') return;
-    derivedMedia.restore(pendingSession.review);
-    displayMode.setMode(pendingSession.workspace.visualMode);
-    analysisConfigStore.restore(pendingSession.workspace.analysisConfig);
-    restoreConsoleLayoutWorkspaceSnapshot({
-      layout: pendingSession.workspace.layout,
-      runtimeTrayHeight: pendingSession.workspace.runtimeTrayHeight,
-    });
-    // Legitimate external-state-driven side effect: matching media just arrived.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setGrayscale(pendingSession.workspace.grayscale);
-    setLayoutResetToken((token) => token + 1);
-    setPendingSession(null);
-    setSessionStatus({ text: 'Session restored.', tone: 'ok' });
-  }, [analysisConfigStore, audioEngine.duration, derivedMedia, displayMode, pendingSession, sessionMedia.filename, sessionMedia.kind, sessionMedia.mediaKey, transportFilename]);
 
   const sessionDeckNode = (
     <SessionDeck
@@ -169,9 +165,9 @@ export default function App(): React.ReactElement {
       }}
       currentTimeS={audioEngine.currentTime}
       grayscale={grayscale}
-      onGrayscaleRestore={setGrayscale}
       pendingSession={pendingSession}
       onPendingSessionChange={setPendingSession}
+      onSessionRestore={restoreReviewSession}
       onStatusChange={setSessionStatus}
     />
   );

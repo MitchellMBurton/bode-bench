@@ -17,7 +17,7 @@ This is intentionally operational. Keep product thinking in `AGENT_BRIEF.md` and
 ## Current Source Of Truth
 
 - Active development branch: `main`
-- GitHub repo: `https://github.com/MitchellMBurton/bach-cello-console`
+- GitHub repo: `https://github.com/MitchellMBurton/bode-bench`
 - `master` is only a mirrored release head when explicitly kept in sync; do not treat it as the working branch by default
 
 ## Prerequisites

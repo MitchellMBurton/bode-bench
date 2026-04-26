@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { DEFAULT_ANALYSIS_CONFIG } from '../audio/analysisConfig';
+import { RANGE_NOTE_MAX_LENGTH } from '../types';
 import {
   buildReviewSessionFilename,
   matchReviewSessionSource,
@@ -73,6 +74,27 @@ describe('review session helpers', () => {
     expect(result.session.review.rangeMarks).toHaveLength(1);
   });
 
+  it('trims and caps range notes at the session boundary', () => {
+    const result = parseReviewSession({
+      schema: REVIEW_SESSION_SCHEMA,
+      version: REVIEW_SESSION_VERSION,
+      review: {
+        rangeMarks: [{
+          id: 1,
+          startS: 2,
+          endS: 4,
+          label: 'R1',
+          note: `  ${'a'.repeat(RANGE_NOTE_MAX_LENGTH + 12)}\ncheck  `,
+        }],
+      },
+      workspace: {},
+    });
+
+    expect(result.kind).toBe('ok');
+    if (result.kind !== 'ok') return;
+    expect(result.session.review.rangeMarks[0].note).toBe('a'.repeat(RANGE_NOTE_MAX_LENGTH));
+  });
+
   it('sanitizes review session filenames', () => {
     expect(buildReviewSessionFilename('Episode 01: Angel.mkv', new Date('2026-04-26T00:00:00.000Z')))
       .toBe('Episode_01_Angel_2026-04-26T00-00-00-000Z.review-session.json');
@@ -92,6 +114,11 @@ describe('review session helpers', () => {
     expect(matchReviewSessionSource(
       { filename: 'a.wav', kind: 'audio', durationS: 10, mediaKey: null, size: null, lastModified: null, sourcePath: null },
       { filename: 'b.wav', kind: 'audio', durationS: 10, mediaKey: null },
+    ).kind).toBe('mismatch');
+
+    expect(matchReviewSessionSource(
+      { filename: 'a.wav', kind: 'audio', durationS: 10, mediaKey: 'same-key', size: null, lastModified: null, sourcePath: null },
+      { filename: 'a.wav', kind: 'video', durationS: 10, mediaKey: 'same-key' },
     ).kind).toBe('mismatch');
   });
 });
