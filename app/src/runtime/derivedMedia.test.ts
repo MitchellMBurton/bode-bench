@@ -191,6 +191,49 @@ describe('DerivedMediaStore', () => {
     expect(store.getSnapshot().jobs[0].spec.label).toBe('Second clip');
   });
 
+  it('restores markers, ranges, and selection from a session snapshot', () => {
+    const store = new DerivedMediaStore();
+
+    store.restore({
+      markers: [
+        { id: 3, time: 7, label: 'M3' },
+        { id: 7, time: 21.5, label: 'M7' },
+      ],
+      pendingRangeStartS: null,
+      rangeMarks: [
+        { id: 4, startS: 9, endS: 4, label: 'R4', note: '  cued in  ' },
+        { id: 11, startS: 30, endS: 36, label: 'R11' },
+      ],
+      selectedRangeId: 11,
+    });
+
+    const snapshot = store.getSnapshot();
+    expect(snapshot.markers).toHaveLength(2);
+    expect(snapshot.rangeMarks[0]).toMatchObject({ id: 4, startS: 4, endS: 9, note: 'cued in' });
+    expect(snapshot.rangeMarks[1].note).toBeUndefined();
+    expect(snapshot.selectedRangeId).toBe(11);
+
+    // Future ids continue past the highest restored id.
+    expect(store.addMarker(5).label).toBe('M8');
+    expect(store.addRange(40, 42).label).toBe('R12');
+  });
+
+  it('falls back to the latest range when restored selection is missing', () => {
+    const store = new DerivedMediaStore();
+
+    store.restore({
+      markers: [],
+      pendingRangeStartS: null,
+      rangeMarks: [
+        { id: 1, startS: 1, endS: 2, label: 'R1' },
+        { id: 2, startS: 3, endS: 4, label: 'R2' },
+      ],
+      selectedRangeId: 999,
+    });
+
+    expect(store.getSnapshot().selectedRangeId).toBe(2);
+  });
+
   it('resets markers, ranges, jobs, and id counters together', () => {
     const store = new DerivedMediaStore();
 

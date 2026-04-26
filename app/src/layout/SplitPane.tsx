@@ -19,6 +19,11 @@
 
 import { useCallback, useEffect, useId, useMemo, useReducer, useRef, useState } from 'react';
 import { useLayoutInteraction } from './LayoutInteraction';
+import {
+  normalizeSplitPaneFractions as normalize,
+  readInitialSplitPaneFractions,
+  rememberSplitPaneFractions,
+} from './splitPanePersistence';
 import { COLORS } from '../theme';
 
 // Pixel height (column) or width (row) of the entire drag hit area.
@@ -28,13 +33,6 @@ const PREVIEW_LINE_PX = 2;
 const DEFAULT_MIN_PX = 48;
 const COMPRESSED_MIN_PX = 24;
 const EMPTY_SIZES: readonly number[] = [];
-const persistedPaneFractions = new Map<string, number[]>();
-
-function normalize(sizes: readonly number[]): number[] {
-  const total = sizes.reduce((a, b) => a + b, 0);
-  if (total === 0) return sizes.map(() => 1 / sizes.length);
-  return sizes.map(s => s / total);
-}
 
 interface SplitPaneState {
   readonly fracs: number[];
@@ -53,21 +51,6 @@ function splitPaneReducer(state: SplitPaneState, action: SplitPaneAction): Split
     default:
       return state;
   }
-}
-
-function readInitialFracs(initialSizes: readonly number[], persistKey?: string): number[] {
-  if (!persistKey) return normalize(initialSizes);
-
-  const stored = persistedPaneFractions.get(persistKey);
-  if (!stored || stored.length !== initialSizes.length) {
-    return normalize(initialSizes);
-  }
-
-  if (stored.some((value) => !Number.isFinite(value) || value <= 0)) {
-    return normalize(initialSizes);
-  }
-
-  return normalize(stored);
 }
 
 function getRequestedMinSizes(paneCount: number, minSizePx: readonly number[]): number[] {
@@ -232,7 +215,7 @@ export function SplitPane({
   persistKey,
   children,
 }: SplitPaneProps): React.ReactElement {
-  const [{ fracs }, dispatch] = useReducer(splitPaneReducer, { fracs: readInitialFracs(initialSizes, persistKey) });
+  const [{ fracs }, dispatch] = useReducer(splitPaneReducer, { fracs: readInitialSplitPaneFractions(initialSizes, persistKey) });
   const containerRef = useRef<HTMLDivElement>(null);
   const previewGuideRef = useRef<HTMLDivElement>(null);
   const pendingFracsRef = useRef<number[] | null>(null);
@@ -275,7 +258,7 @@ export function SplitPane({
 
   useEffect(() => {
     if (!persistKey) return;
-    persistedPaneFractions.set(persistKey, fracs);
+    rememberSplitPaneFractions(persistKey, fracs);
   }, [fracs, persistKey]);
 
   // Stable ref for drag state — avoids stale closures in event listeners.
@@ -320,7 +303,7 @@ export function SplitPane({
     clearDragState();
     const nextFracs = normalize(latestInitialSizesRef.current);
     if (persistKey) {
-      persistedPaneFractions.set(persistKey, nextFracs);
+      rememberSplitPaneFractions(persistKey, nextFracs);
     }
     dispatch({ type: 'reset', initialSizes: latestInitialSizesRef.current });
   }, [clearDragState, persistKey]);
@@ -453,7 +436,7 @@ export function SplitPane({
     document.body.style.userSelect = '';
     endInteraction();
     if (persistKey) {
-      persistedPaneFractions.set(persistKey, normalize(latestInitialSizesRef.current));
+      rememberSplitPaneFractions(persistKey, normalize(latestInitialSizesRef.current));
     }
     dispatch({ type: 'reset', initialSizes: latestInitialSizesRef.current });
   }, [endInteraction, persistKey, resetToken, setPreviewVisible]);

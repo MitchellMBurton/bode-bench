@@ -18,12 +18,15 @@ import { HotkeyOverlay } from './controls/HotkeyOverlay';
 import { panelsForColumn } from './panels/registry';
 import { captureQuadrant, downloadPng } from './panels/panelSnapshot';
 import { WaveformOverviewPanel } from './panels/WaveformOverviewPanel';
-import { useAudioEngine, useDerivedMediaSnapshot, useDerivedMediaStore, useMarkers, usePendingRangeStart, usePerformanceDiagnosticsStore, usePerformanceProfile, useRangeMarks, useTheaterMode, useVisualMode } from './core/session';
+import { useAnalysisConfigStore, useAudioEngine, useDerivedMediaSnapshot, useDerivedMediaStore, useDisplayMode, useMarkers, usePendingRangeStart, usePerformanceDiagnosticsStore, usePerformanceProfile, useRangeMarks, useTheaterMode, useVisualMode } from './core/session';
 import { VISUAL_DECORATIONS } from './audio/displayMode';
+import { restoreConsoleLayoutWorkspaceSnapshot } from './layout/consoleLayoutWorkspace';
 import type { PerformanceDiagnosticsSnapshot } from './diagnostics/logStore';
 import { PRODUCT_NAME } from './constants';
-import { COLORS, MODES, SPACING } from './theme';
+import { COLORS, FONTS, MODES, SPACING } from './theme';
 import { formatRuntimeMs } from './utils/format';
+import { SessionDeck, type SessionStatus } from './controls/SessionDeck';
+import { matchReviewSessionSource, type ReviewSessionV1 } from './runtime/reviewSession';
 
 function getRuntimeStatus(snapshot: PerformanceDiagnosticsSnapshot): string {
   if (snapshot.videoRecoveryCount > 0 || snapshot.videoStallCount > 0) return 'VIDEO PRESSURE';
@@ -65,7 +68,11 @@ export default function App(): React.ReactElement {
   const [grayscale, setGrayscale] = useState(false);
   const [layoutResetToken, setLayoutResetToken] = useState(0);
   const [hotkeyOverlayOpen, setHotkeyOverlayOpen] = useState(false);
+  const [pendingSession, setPendingSession] = useState<ReviewSessionV1 | null>(null);
+  const [sessionStatus, setSessionStatus] = useState<SessionStatus>({ text: '', tone: 'dim' });
   const activeMediaKeyRef = useRef<string | null>(null);
+  const displayMode = useDisplayMode();
+  const analysisConfigStore = useAnalysisConfigStore();
 
   useEffect(() => {
     return audioEngine.onTransport((state) => {
@@ -121,6 +128,69 @@ export default function App(): React.ReactElement {
   useEffect(() => {
     document.title = fileTitle ? `${fileTitle} - ${PRODUCT_NAME}` : PRODUCT_NAME;
   }, [fileTitle]);
+
+  // Apply a pending session once matching media arrives. The setState calls
+  // here are deliberate consequences of an external state transition (audio
+  // engine reporting new media), not speculative state churn — the
+  // react-hooks/set-state-in-effect rule is over-strict for this case.
+  useEffect(() => {
+    if (pendingSession === null) return;
+    const currentIdentity = {
+      filename: sessionMedia.filename ?? transportFilename,
+      kind: sessionMedia.kind,
+      durationS: audioEngine.duration > 0 ? audioEngine.duration : null,
+      mediaKey: sessionMedia.mediaKey,
+    };
+    const match = matchReviewSessionSource(pendingSession.source, currentIdentity);
+    if (match.kind !== 'match') return;
+    derivedMedia.restore(pendingSession.review);
+    displayMode.setMode(pendingSession.workspace.visualMode);
+    analysisConfigStore.restore(pendingSession.workspace.analysisConfig);
+    restoreConsoleLayoutWorkspaceSnapshot({
+      layout: pendingSession.workspace.layout,
+      runtimeTrayHeight: pendingSession.workspace.runtimeTrayHeight,
+    });
+    // Legitimate external-state-driven side effect: matching media just arrived.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setGrayscale(pendingSession.workspace.grayscale);
+    setLayoutResetToken((token) => token + 1);
+    setPendingSession(null);
+    setSessionStatus({ text: 'Session restored.', tone: 'ok' });
+  }, [analysisConfigStore, audioEngine.duration, derivedMedia, displayMode, pendingSession, sessionMedia.filename, sessionMedia.kind, sessionMedia.mediaKey, transportFilename]);
+
+  const sessionDeckNode = (
+    <SessionDeck
+      visualMode={visualMode}
+      source={{
+        filename: sessionMedia.filename ?? transportFilename,
+        kind: sessionMedia.kind,
+        durationS: audioEngine.duration > 0 ? audioEngine.duration : null,
+        mediaKey: sessionMedia.mediaKey,
+      }}
+      currentTimeS={audioEngine.currentTime}
+      grayscale={grayscale}
+      onGrayscaleRestore={setGrayscale}
+      pendingSession={pendingSession}
+      onPendingSessionChange={setPendingSession}
+      onStatusChange={setSessionStatus}
+    />
+  );
+
+  const sessionStatusNode = sessionStatus.text ? (
+    <div
+      style={{
+        ...sessionStatusStyle,
+        color:
+          sessionStatus.tone === 'warn'
+            ? MODES[visualMode].trace
+            : sessionStatus.tone === 'ok' || sessionStatus.tone === 'info'
+              ? MODES[visualMode].text
+              : MODES[visualMode].category,
+      }}
+    >
+      {sessionStatus.text}
+    </div>
+  ) : null;
 
   return (
     <>
@@ -187,6 +257,8 @@ export default function App(): React.ReactElement {
               />
               <TransportControls
                 onSessionMediaChange={setSessionMedia}
+                sessionDeckSlot={sessionDeckNode}
+                sessionStatusSlot={sessionStatusNode}
               />
             </div>
           ),
@@ -299,6 +371,14 @@ const dividerStyle: React.CSSProperties = {
   background: COLORS.border,
   margin: `0 ${SPACING.md}px`,
   flexShrink: 0,
+};
+
+const sessionStatusStyle: React.CSSProperties = {
+  fontFamily: FONTS.mono,
+  fontSize: 9,
+  letterSpacing: '0.06em',
+  paddingTop: 2,
+  whiteSpace: 'normal',
 };
 
 const scanLineStyle: React.CSSProperties = {

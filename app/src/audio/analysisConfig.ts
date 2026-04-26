@@ -74,7 +74,7 @@ function cloneConfig(config: AnalysisConfig): AnalysisConfig {
   };
 }
 
-function normalizeAnalysisConfig(raw: unknown): AnalysisConfig {
+export function normalizeAnalysisConfig(raw: unknown): AnalysisConfig {
   const parsed = isRecord(raw) ? raw : {};
   const general = isRecord(parsed.general) ? parsed.general : parsed;
   const frequencyResponse = isRecord(parsed.frequencyResponse) ? parsed.frequencyResponse : parsed;

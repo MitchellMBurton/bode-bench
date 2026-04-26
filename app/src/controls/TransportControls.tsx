@@ -375,6 +375,10 @@ function isFullFileLoopActive(transport: TransportState): boolean {
 interface Props {
   onFileLoaded?: () => void;
   onSessionMediaChange?: (identity: SessionMediaIdentity) => void;
+  /** Optional slot rendered inside the TOP CONTROL DECK below the routing grid. */
+  sessionDeckSlot?: React.ReactNode;
+  /** Optional status text shown below the session deck (e.g. relink hints). */
+  sessionStatusSlot?: React.ReactNode;
 }
 
 interface VideoSourceSize {
@@ -525,6 +529,8 @@ function resizeWindowRectFromDrag(
 export function TransportControls({
   onFileLoaded,
   onSessionMediaChange,
+  sessionDeckSlot,
+  sessionStatusSlot,
 }: Props): React.ReactElement {
   const audioEngine = useAudioEngine();
   const diagnosticsLog = useDiagnosticsLog();
@@ -1847,6 +1853,9 @@ export function TransportControls({
             <span style={{ ...topControlHintStyle, color: tt.mutedText }}>{videoWindowHint}</span>
           </button>
         </div>
+
+        {sessionDeckSlot}
+        {sessionStatusSlot}
 
         <div style={topStatusGridStyle}>
           <div style={{ ...topStatusCellStyle, alignItems: 'center', borderColor: tt.btnBorder, background: tt.panelBg, flex: '1 1 188px' }}>

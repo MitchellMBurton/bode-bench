@@ -5,6 +5,7 @@ import type {
   MediaJobSpec,
   RangeMark,
 } from '../types';
+import { RANGE_NOTE_MAX_LENGTH } from '../types';
 
 type Listener = () => void;
 
@@ -14,6 +15,23 @@ export interface DerivedMediaSnapshot {
   readonly rangeMarks: readonly RangeMark[];
   readonly selectedRangeId: number | null;
   readonly jobs: readonly MediaJobRecord[];
+}
+
+export interface DerivedMediaRestoreInput {
+  readonly markers: readonly Marker[];
+  readonly pendingRangeStartS: number | null;
+  readonly rangeMarks: readonly RangeMark[];
+  readonly selectedRangeId: number | null;
+}
+
+function normalizeRangeNote(note: string | undefined): string | undefined {
+  if (typeof note !== 'string') return undefined;
+  const trimmed = note.trim();
+  return trimmed ? trimmed.slice(0, RANGE_NOTE_MAX_LENGTH) : undefined;
+}
+
+function nextIdFrom<T extends { readonly id: number }>(items: readonly T[]): number {
+  return items.reduce((maxId, item) => Math.max(maxId, item.id), 0) + 1;
 }
 
 const EMPTY_SNAPSHOT: DerivedMediaSnapshot = {
@@ -191,6 +209,41 @@ export class DerivedMediaStore {
     };
     this.emit();
     return updatedRange;
+  }
+
+  restore(input: DerivedMediaRestoreInput): void {
+    const normalizedMarkers: Marker[] = input.markers.map((marker) => ({
+      id: marker.id,
+      time: Math.max(0, marker.time),
+      label: marker.label,
+    }));
+    const normalizedRanges: RangeMark[] = input.rangeMarks.map((rangeMark) => {
+      const normalized = normalizeRange(rangeMark.startS, rangeMark.endS);
+      const note = normalizeRangeNote(rangeMark.note);
+      const base: RangeMark = {
+        id: rangeMark.id,
+        label: rangeMark.label,
+        startS: normalized.startS,
+        endS: normalized.endS,
+      };
+      return note === undefined ? base : { ...base, note };
+    });
+    const selectedRangeId =
+      input.selectedRangeId !== null && normalizedRanges.some((rangeMark) => rangeMark.id === input.selectedRangeId)
+        ? input.selectedRangeId
+        : (normalizedRanges[normalizedRanges.length - 1]?.id ?? null);
+
+    this.nextMarkerId = nextIdFrom(normalizedMarkers);
+    this.nextRangeId = nextIdFrom(normalizedRanges);
+    this.snapshot = {
+      ...this.snapshot,
+      markers: normalizedMarkers,
+      pendingRangeStartS:
+        input.pendingRangeStartS === null ? null : Math.max(0, input.pendingRangeStartS),
+      rangeMarks: normalizedRanges,
+      selectedRangeId,
+    };
+    this.emit();
   }
 
   updateRangeNote(rangeId: number, note: string): void {
