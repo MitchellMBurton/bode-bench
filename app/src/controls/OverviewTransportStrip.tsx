@@ -6,6 +6,7 @@ import type { RangeMark } from '../types';
 import { formatTransportTime } from '../utils/format';
 import { RangeChip, ReviewGlyph } from './reviewChrome';
 import { getReviewButtonTone, type ReviewButtonIntent, type ReviewGlyphName } from './reviewChromeShared';
+import { RangeNoteEditor } from './RangeNoteEditor';
 import { InlineSessionControls, SessionControls } from './SessionControls';
 import { useReviewControlModel } from './useReviewControlModel';
 
@@ -18,7 +19,8 @@ const TUNING_POPOVER_WIDE_PX = 1480;
 const TUNING_POPOVER_NORMAL_WIDTH = 360;
 const TUNING_POPOVER_WIDE_WIDTH = 420;
 const SAVED_RANGE_VISIBLE_ROWS = 3;
-const SAVED_RANGE_ROW_HEIGHT_PX = 32;
+// Two-line rows (chip + time + actions on line 1, inline note on line 2).
+const SAVED_RANGE_ROW_HEIGHT_PX = 48;
 const SAVED_RANGE_ROW_GAP_PX = 6;
 
 export function OverviewTransportStrip(): React.ReactElement {
@@ -231,35 +233,46 @@ export function OverviewTransportStrip(): React.ReactElement {
           background: selected ? m.bg2 : 'transparent',
         }}
       >
-        <button
-          type="button"
-          style={savedRangeSelectStyle}
-          onClick={() => review.selectRange(rangeMark.id)}
-          title={`Select ${rangeMark.label}`}
-        >
-          <RangeChip label={rangeMark.label} visualMode={visualMode} selected={selected} />
-          <span style={{ ...savedRangeDetailStyle, color: selected ? m.text : COLORS.textDim }}>
-            {formatTransportTime(rangeMark.startS)} {'->'} {formatTransportTime(rangeMark.endS)}
-          </span>
-        </button>
-        <div style={savedRangeActionsStyle}>
+        <div style={savedRangeTopLineStyle}>
           <button
             type="button"
-            style={{ ...miniButtonStyle, color: m.text, borderColor: m.chromeBorder }}
-            onClick={() => review.auditionRange(rangeMark)}
-            title="Loop-audition this range"
+            style={savedRangeSelectStyle}
+            onClick={() => review.selectRange(rangeMark.id)}
+            title={`Select ${rangeMark.label}`}
           >
-            AUDITION
+            <RangeChip label={rangeMark.label} visualMode={visualMode} selected={selected} />
+            <span style={{ ...savedRangeDetailStyle, color: selected ? m.text : COLORS.textDim }}>
+              {formatTransportTime(rangeMark.startS)} {'->'} {formatTransportTime(rangeMark.endS)}
+            </span>
           </button>
-          <button
-            type="button"
-            style={{ ...miniButtonStyle, color: m.category, borderColor: m.chromeBorder }}
-            onClick={() => review.deleteRange(rangeMark.id)}
-            title="Delete this range"
-          >
-            X
-          </button>
+          <div style={savedRangeActionsStyle}>
+            <button
+              type="button"
+              style={{ ...miniButtonStyle, color: m.text, borderColor: m.chromeBorder }}
+              onClick={() => review.auditionRange(rangeMark)}
+              title="Loop-audition this range"
+            >
+              AUDITION
+            </button>
+            <button
+              type="button"
+              style={{ ...miniButtonStyle, color: m.category, borderColor: m.chromeBorder }}
+              onClick={() => review.deleteRange(rangeMark.id)}
+              title="Delete this range"
+            >
+              X
+            </button>
+          </div>
         </div>
+        <RangeNoteEditor
+          rangeId={rangeMark.id}
+          noteValue={rangeMark.note}
+          selected={selected}
+          textColor={m.text}
+          dimColor={m.category}
+          accentBg={m.bg2}
+          onCommit={review.updateRangeNote}
+        />
       </div>
     );
   };
@@ -652,13 +665,20 @@ const savedRangesListStyle: React.CSSProperties = {
 
 const savedRangeRowStyle: React.CSSProperties = {
   display: 'flex',
-  alignItems: 'center',
-  gap: 8,
+  flexDirection: 'column',
+  gap: 1,
   borderWidth: 1,
   borderStyle: 'solid',
   borderRadius: 2,
   minHeight: SAVED_RANGE_ROW_HEIGHT_PX,
   padding: '4px 6px',
+};
+
+const savedRangeTopLineStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+  minHeight: 22,
 };
 
 const savedRangeSelectStyle: React.CSSProperties = {
