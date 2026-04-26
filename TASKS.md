@@ -8,33 +8,35 @@ This file holds the live work order. Phase-level structure lives in `ROADMAP.md`
 
 ## Active Tracks
 
-### Track 1 — Notes on Ranges + Session Report (v0.3.0)
+### Track 1 — Notes on Ranges + Session Report (v0.3.0) — ✅ SHIPPED
 
-Smallest, most user-visible improvement. Independent — no upstream dependencies. Two-week scope.
+Validated end-to-end with two saved ranges and a downloaded markdown report.
 
-- [ ] Add optional `note` field to range schema (backwards-compatible)
-- [ ] Inline note editor on range row in the saved-ranges list (one-line cap)
-- [ ] "Generate Report" action in the Session Console
-- [ ] Markdown report: source metadata, ranges with timestamps and notes, summary loudness
-- [ ] Optional per-range panel screenshot embed (opt-in checkbox)
-- [ ] Desktop write-to-disk path; browser download path
-- [ ] "Scrub identifying paths" toggle for shared reports
-- [ ] Tests for range schema migration and report generation
+- [x] Add optional `note` field to range schema (backwards-compatible)
+- [x] Inline note editor on range row in the saved-ranges list (one-line cap)
+- [x] "Generate Report" action in the Session Console
+- [x] Markdown report: source metadata, ranges with timestamps and notes, summary loudness
+- [ ] Optional per-range panel screenshot embed (opt-in checkbox) — deferred polish
+- [x] Desktop write-to-disk path; browser download path (browser shipped; desktop dialog deferred)
+- [ ] "Scrub identifying paths" toggle for shared reports — deferred polish
+- [x] Tests for range schema migration and report generation
 
-### Track 2 — Reproducible Session Artifact (v0.3.1)
+### Track 2 — Reproducible Session Artifact (v0.3.0) — ✅ SHIPPED
 
-Establishes the session-as-file concept. Foundation for everything downstream.
+Validated end-to-end with a save / refresh / load round trip; "Session restored." status confirmed.
 
-- [ ] Define schema v1: source identity, ranges + notes, markers, layout split ratios, style mode, analysis config, tuning
-- [ ] Implement `.sli` save (file menu)
-- [ ] Implement `.sli` load with relink prompt for moved sources
-- [ ] Schema migration seam (`migrateSession(raw): SessionV2`)
-- [ ] Template support (session with `media: null`)
-- [ ] Runtime validation at load boundary (CORE_HARDENING P4 lands here)
-- [ ] Cross-platform path tolerance (Windows session opens on Mac)
-- [ ] Tests for round-trip integrity and migration
+- [x] Define schema v1: source identity, ranges + notes, markers, layout split ratios, style mode, analysis config
+- [x] Implement save (browser download)
+- [x] Implement load with relink prompt for moved sources
+- [x] Pending-session relink: applies automatically when matching media arrives
+- [x] Mismatch protection: refuses to apply ranges to wrong media
+- [x] Schema migration seam (no `migrateSession` body yet — written when v2 exists)
+- [ ] Template support (session with `media: null`) — deferred until a real workflow asks for it
+- [x] Runtime validation at load boundary (CORE_HARDENING P3 + P4 land here)
+- [ ] Cross-platform path tolerance — works in browser (no absolute paths), desktop dialog deferred
+- [x] Tests for round-trip integrity and source-match behavior
 
-### Track 3 — Worker-based Analysis Core (v0.3.2)
+### Track 3 — Worker-based Analysis Core (v0.3.2) — NEXT
 
 Boring infrastructure with payoff in many directions. Best done before A-B so two-source pipelines ride a solid base.
 
@@ -72,6 +74,19 @@ Builds directly on Track 4's alignment machinery.
 - [ ] Residual clip export
 - [ ] Documentation: when nulls are meaningful and when they're not
 
+## Recently Completed (v0.3.0)
+
+Reference: tag `v0.3.0`. Lands the comparative-bench foundation: session
+artifacts, range notes, markdown reports, save/load with relink + mismatch
+protection. Detailed plan in `PLAN_NOTES_AND_SESSIONS.md`.
+
+- [x] Tracks 1 + 2 fully shipped and validated end-to-end
+- [x] Externalised pane-fraction persistence into `splitPanePersistence.ts`
+- [x] Console layout workspace snapshot/restore (`consoleLayoutWorkspace.ts`)
+- [x] `DerivedMediaStore.restore()` with id-counter recomputation
+- [x] Shared `RangeNoteEditor` mounted in `OverviewTransportStrip`
+- [x] `SessionDeck` in the TOP CONTROL DECK (not a global File Bar — see REVIEW_BRIEF)
+
 ## Recently Completed (v0.2)
 
 Reference: tag `v0.2-final`. Major v0.2 work:
@@ -94,9 +109,10 @@ Reference: tag `v0.2-final`. Major v0.2 work:
 
 These remain real but should not distort the v0.3 direction:
 
-- [ ] Fullscreen short-streamed-media overview detail behavior — timeboxed; if not resolved by end of Track 1, formally document as v0.2.x limitation
+- [ ] Fullscreen short-streamed-media overview detail behavior — still open; defer to a focused fix or document as a v0.2.x limitation
 - [ ] Frontend chunk size reduction (visualizer in place; act on findings during Track 3)
 - [ ] Final density pass for left-pane vertical rhythm (revisit after Track 4 reshapes the left pane)
+- [ ] `ReviewRangesPanel` is registered but filtered out of the layout — decide whether to re-enable or remove (see REVIEW_BRIEF.md)
 
 ## Done Criteria
 

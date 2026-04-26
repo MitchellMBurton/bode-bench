@@ -4,10 +4,18 @@
 
 Repo: `bode-bench`
 Branch: `main`
+Baseline tag: `v0.3.0`
 Forked from: `bach-cello-console` at tag `v0.2-final`
 Direction: v0.3 — comparative measurement bench
 
-This repo opens at the trustworthy review-and-export console delivered by v0.2 and now turns toward two-source comparison, reproducible session state, and a worker-based analysis core. The v0.2 codebase carries over intact; the work below is additive.
+`v0.3.0` ships the comparative-bench foundation: range notes, markdown reports,
+versioned session artifacts (`.review-session.json`), and full save/load with
+relink + mismatch protection. Both Tracks 1 and 2 from `PLAN_NOTES_AND_SESSIONS.md`
+are validated end-to-end.
+
+The next track (Track 3 — worker-based analysis core) is invisible
+infrastructure that unblocks A-B comparison cleanly. See `REVIEW_BRIEF.md` for
+the entry point a fresh reviewer should use.
 
 ## What Already Exists (v0.2 state)
 
@@ -24,11 +32,18 @@ This repo opens at the trustworthy review-and-export console delivered by v0.2 a
 ### Stable seams
 
 - `app/src/audio/engine.ts` — transport / runtime truth (will be split for two-source work in Track 4)
-- `app/src/core/session.tsx` — shared session wiring (extended in Track 2 for `.sli` support)
+- `app/src/core/session.tsx` — shared session wiring (extended for restore methods in v0.3.0)
 - `app/src/audio/frameBus.ts` — frame dispatch (producer changes in Track 3, consumers stable)
 - `app/src/runtime/waveformPyramid.ts` — shared waveform confidence and refinement
+- `app/src/runtime/reviewSession.ts` — versioned session schema, parse, build, source-match
+- `app/src/runtime/reviewReport.ts` — markdown report generator
+- `app/src/runtime/derivedMedia.ts` — derived state store with `restore()` method
 - `app/src/layout/ConsoleLayout.tsx` — shell/chrome structure (left pane reshapes in Track 4)
+- `app/src/layout/splitPanePersistence.ts` — externalised pane-fraction persistence
+- `app/src/layout/consoleLayoutWorkspace.ts` — workspace snapshot/restore + canonical pane keys
 - `app/src/panels/WaveformOverviewPanel.tsx` — overview timeline system
+- `app/src/controls/RangeNoteEditor.tsx` — shared inline note editor
+- `app/src/controls/SessionDeck.tsx` — SAVE / LOAD / REPORT row in the TOP CONTROL DECK
 - `desktop/src-tauri/src/lib.rs` — desktop export and file-system seams
 
 ### CI
@@ -38,11 +53,13 @@ This repo opens at the trustworthy review-and-export console delivered by v0.2 a
 
 ## Best Next Work Order
 
-1. **Track 1 — Notes on ranges + session report.** Independent, two-week scope, immediate user value. Establishes the "ranges as artifact" pattern that everything downstream extends.
-2. **Track 2 — Reproducible session artifact (`.sli`).** Lands the schema. Forces CORE_HARDENING P3 and P4 to land with a real consumer driving design.
-3. **Track 3 — Worker-based analysis core.** Boring infrastructure. Best done before A-B so two-source pipelines ride a solid base. Closes the focus-throttle story structurally.
-4. **Track 4 — A-B comparison workspace.** The defining v0.3 feature. Builds on Tracks 2 and 3.
-5. **Track 5 — Differential null test.** Builds directly on Track 4's alignment machinery.
+Tracks 1 and 2 are shipped (`v0.3.0`). The remaining order:
+
+1. **Track 3 — Worker-based analysis core.** Boring infrastructure with payoff in many directions. Best done before A-B so two-source pipelines ride a solid base. Closes the focus-throttle story structurally.
+2. **Track 4 — A-B comparison workspace.** The defining v0.3 feature. Builds on Tracks 2 and 3.
+3. **Track 5 — Differential null test.** Builds directly on Track 4's alignment machinery.
+
+A fresh review of v0.3.0 can usefully precede Track 3. See `REVIEW_BRIEF.md`.
 
 See `TASKS.md` for per-track checklists and `ROADMAP.md` for phase boundaries.
 

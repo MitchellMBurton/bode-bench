@@ -1,6 +1,24 @@
 # Plan: Notes on Ranges + Reproducible Sessions (Tracks 1 + 2)
 
-## Status
+## Status: SHIPPED at tag v0.3.0
+
+Steps 1 through 4 are complete and validated end-to-end. Steps 5 and 6 are
+deferred polish — pick them up if a real workflow asks for them.
+
+| Step | Status | Notes |
+|---|---|---|
+| 1. Range notes + inline editor | ✅ shipped | mounted via `RangeNoteEditor.tsx` in `OverviewTransportStrip` (the visible saved-range row) |
+| 2. Markdown report generator | ✅ shipped | `reviewReport.ts`, browser download path |
+| 3. Session schema v1 + restore | ✅ shipped | `reviewSession.ts`, `DerivedMediaStore.restore`, layout snapshot/restore |
+| 4. Save / load / relink + mismatch | ✅ shipped | round-trip validated; pending-session apply effect in `App.tsx` |
+| 5. Embedded panel screenshots in report | ⏳ deferred | optional polish |
+| 6. Attachment metadata follow-through | ⏳ deferred | optional polish |
+
+Original plan body retained below for reference.
+
+---
+
+## Original Scope
 
 Scoped from `TASKS.md` Tracks 1 and 2. Combines them per the rationale in our planning conversation: notes need sessions to survive across days, sessions need notes to make reports meaningful, and the schema cost is paid once whether we add the `note` field in v1 or migrate to it later.
 
