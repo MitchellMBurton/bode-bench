@@ -94,7 +94,11 @@ export class AnalysisWorkerClient {
     this.disposed = true;
     this.inFlightRequestId = null;
     this.updateDiagnostics({ inFlightFrames: 0 });
-    this.worker?.terminate();
+    if (this.worker) {
+      this.worker.onmessage = null;
+      this.worker.onerror = null;
+      this.worker.terminate();
+    }
     this.worker = null;
   }
 
@@ -113,6 +117,8 @@ export class AnalysisWorkerClient {
   }
 
   private handleResponse(value: unknown): void {
+    if (this.disposed) return;
+
     if (!isAnalysisWorkerResponse(value)) {
       this.handleInvalidResponse();
       return;
@@ -171,6 +177,8 @@ export class AnalysisWorkerClient {
   }
 
   private handleWorkerError(message: string): void {
+    if (this.disposed) return;
+
     this.inFlightRequestId = null;
     const error: AnalysisWorkerError = {
       kind: 'analysis-error',

@@ -176,8 +176,34 @@ describe('analysis worker client', () => {
     client.dispose();
 
     expect(worker.terminated).toBe(true);
+    expect(worker.onmessage).toBeNull();
+    expect(worker.onerror).toBeNull();
     expect(client.requestFrame(createPayload())).toBe(false);
     expect(client.getDiagnostics().inFlightFrames).toBe(0);
+  });
+
+  it('ignores late worker messages after disposal', () => {
+    const worker = new FakeAnalysisWorker();
+    const received: AnalysisFrameResult[] = [];
+    const errors: string[] = [];
+    const client = new AnalysisWorkerClient({
+      createWorker: () => worker,
+      onFrame: (result) => received.push(result),
+      onError: (error) => errors.push(error.message),
+    });
+
+    client.requestFrame(createPayload());
+    const diagnosticsBeforeDispose = client.getDiagnostics();
+    client.dispose();
+    worker.emitResponse(createResult(1));
+    worker.emitError('Late worker failure.');
+
+    expect(received).toEqual([]);
+    expect(errors).toEqual([]);
+    expect(client.getDiagnostics()).toEqual({
+      ...diagnosticsBeforeDispose,
+      inFlightFrames: 0,
+    });
   });
 
   it('reports worker runtime errors', () => {

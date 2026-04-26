@@ -275,6 +275,14 @@ export class PerformanceDiagnosticsStore {
     return this.snapshot;
   };
 
+  dispose(): void {
+    if (this.emitTimer !== null) {
+      clearTimeout(this.emitTimer);
+      this.emitTimer = null;
+    }
+    this.listeners.clear();
+  }
+
   noteUiFrame(deltaMs: number): void {
     if (!Number.isFinite(deltaMs) || deltaMs <= 0 || deltaMs > 1000) return;
     this.frameSamples.push(deltaMs);
@@ -526,4 +534,3 @@ export class PerformanceDiagnosticsStore {
     this.lastTraceSampleAt = stamp;
   }
 }
-

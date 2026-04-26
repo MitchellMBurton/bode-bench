@@ -122,6 +122,7 @@ export function createAppSession(): AppSession {
         waveformPyramid.destroy();
         spectralAnatomy.destroy();
         audioEngine.dispose();
+        performanceDiagnostics.dispose();
         diagnosticsLog.detachGlobalCapture();
       },
       destroyed: false,
