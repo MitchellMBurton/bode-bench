@@ -136,6 +136,7 @@ struct ClipExportManifest {
   preset: ExportPresetManifest,
   processor: ProcessorManifest,
   tool_report: ExportToolReport,
+  ffmpeg_args: Vec<String>,
   completed_at_ms: u64,
   artifacts: Vec<ClipExportManifestArtifact>,
 }
@@ -522,10 +523,18 @@ fn clip_export_manifest_path(output_path: &str) -> PathBuf {
   PathBuf::from(format!("{output_path}.manifest.json"))
 }
 
+fn ffmpeg_args_as_strings(args: &[OsString]) -> Vec<String> {
+  args
+    .iter()
+    .map(|value| value.to_string_lossy().to_string())
+    .collect()
+}
+
 fn build_clip_export_manifest(
   desktop_job_id: &str,
   request: &StartClipExportRequest,
   tool_report: &ExportToolReport,
+  ffmpeg_args: &[OsString],
   completed_at_ms: u64,
 ) -> Result<ClipExportManifest, String> {
   let duration_s = clip_duration_seconds(request)?;
@@ -556,6 +565,7 @@ fn build_clip_export_manifest(
     preset: seed.preset.clone(),
     processor,
     tool_report: tool_report.clone(),
+    ffmpeg_args: ffmpeg_args_as_strings(ffmpeg_args),
     completed_at_ms,
     artifacts: vec![ClipExportManifestArtifact {
       id: format!("{}-media", seed.job_id),
@@ -571,10 +581,16 @@ fn write_clip_export_manifest(
   desktop_job_id: &str,
   request: &StartClipExportRequest,
   tool_report: &ExportToolReport,
+  ffmpeg_args: &[OsString],
 ) -> Result<String, String> {
   let manifest_path = clip_export_manifest_path(&request.destination_path);
-  let manifest =
-    build_clip_export_manifest(desktop_job_id, request, tool_report, current_time_ms())?;
+  let manifest = build_clip_export_manifest(
+    desktop_job_id,
+    request,
+    tool_report,
+    ffmpeg_args,
+    current_time_ms(),
+  )?;
   let contents = serde_json::to_string_pretty(&manifest)
     .map_err(|error| format!("Failed to serialize export manifest: {error}"))?;
   std::fs::write(&manifest_path, format!("{contents}\n"))
@@ -943,7 +959,7 @@ fn run_clip_export(
   }
 
   let mut child = match Command::new(ffmpeg_path)
-    .args(args)
+    .args(&args)
     .stdin(Stdio::null())
     .stdout(Stdio::null())
     .stderr(Stdio::piped())
@@ -1024,7 +1040,7 @@ fn run_clip_export(
     match child.try_wait() {
       Ok(Some(status)) if status.success() => {
         let (manifest_path, manifest_error) =
-          match write_clip_export_manifest(&desktop_job_id, &request, &tool_report) {
+          match write_clip_export_manifest(&desktop_job_id, &request, &tool_report, &args) {
             Ok(path) => (Some(path), None),
             Err(error) => {
               log::warn!("clip export manifest was not written: {error}");
@@ -1598,8 +1614,10 @@ mod tests {
       manifest: manifest_seed(),
     };
 
-    let manifest = build_clip_export_manifest("clip-export-7", &request, &tool_report(), 1234)
-      .expect("manifest builds");
+    let args = build_ffmpeg_args(&request).expect("ffmpeg args");
+    let manifest =
+      build_clip_export_manifest("clip-export-7", &request, &tool_report(), &args, 1234)
+        .expect("manifest builds");
     let value = serde_json::to_value(manifest).expect("manifest serializes");
 
     assert_eq!(value["schema"], "bode-bench.clip-export-manifest");
@@ -1611,6 +1629,15 @@ mod tests {
     assert_eq!(value["range"]["durationS"], 6.5);
     assert_eq!(value["processor"]["version"], "ffmpeg version 8.1");
     assert_eq!(value["toolReport"]["ffmpegPath"], "C:/app/ffmpeg.exe");
+    assert_eq!(value["ffmpegArgs"][0], "-hide_banner");
+    assert_eq!(
+      value["ffmpegArgs"]
+        .as_array()
+        .expect("ffmpeg args array")
+        .last()
+        .expect("output path arg"),
+      "C:/exports/clip.wav"
+    );
     assert_eq!(value["artifacts"][0]["role"], "media");
     assert_eq!(
       clip_export_manifest_path("C:/exports/clip.wav")
