@@ -3,10 +3,17 @@ import type { AudioFrameFeatures } from './frameAnalysis';
 export const ANALYSIS_WORKER_PROTOCOL_VERSION = 1;
 
 export interface AnalysisFramePayload {
+  readonly currentTimeS: number;
   readonly sampleRateHz: number;
+  readonly fftBinCount: number;
+  readonly playId: number;
+  readonly fileId: number;
+  readonly displayGain: number;
+  readonly analysisGeneration: number;
   readonly timeDomainLeft: Float32Array<ArrayBuffer>;
   readonly timeDomainRight: Float32Array<ArrayBuffer>;
   readonly frequencyDbLeft: Float32Array<ArrayBuffer>;
+  readonly frequencyDbRight: Float32Array<ArrayBuffer>;
 }
 
 export interface AnalyzeFrameRequest {
@@ -22,6 +29,7 @@ export interface AnalysisFrameResult {
   readonly kind: 'analysis-frame-result';
   readonly protocolVersion: typeof ANALYSIS_WORKER_PROTOCOL_VERSION;
   readonly id: number;
+  readonly payload: AnalysisFramePayload;
   readonly features: AudioFrameFeatures;
   readonly elapsedMs: number;
 }
@@ -51,8 +59,13 @@ export function getAnalysisFrameTransferables(payload: AnalysisFramePayload): Tr
   addBuffer(payload.timeDomainLeft);
   addBuffer(payload.timeDomainRight);
   addBuffer(payload.frequencyDbLeft);
+  addBuffer(payload.frequencyDbRight);
 
   return transferables;
+}
+
+export function getAnalysisFrameResultTransferables(result: AnalysisFrameResult): Transferable[] {
+  return getAnalysisFrameTransferables(result.payload);
 }
 
 export function createAnalysisWorkerErrorResponse(
@@ -89,6 +102,7 @@ export function isAnalysisWorkerResponse(value: unknown): value is AnalysisWorke
   if (value.kind === 'analysis-frame-result') {
     return (
       isRequestId(value.id) &&
+      isAnalysisFramePayload(value.payload) &&
       isAudioFrameFeatures(value.features) &&
       typeof value.elapsedMs === 'number' &&
       Number.isFinite(value.elapsedMs) &&
@@ -109,14 +123,38 @@ export function isAnalysisWorkerResponse(value: unknown): value is AnalysisWorke
 
 function isAnalysisFramePayload(value: unknown): value is AnalysisFramePayload {
   if (!isRecord(value)) return false;
-  const { sampleRateHz, timeDomainLeft, timeDomainRight, frequencyDbLeft } = value;
+  const {
+    currentTimeS,
+    sampleRateHz,
+    fftBinCount,
+    playId,
+    fileId,
+    displayGain,
+    analysisGeneration,
+    timeDomainLeft,
+    timeDomainRight,
+    frequencyDbLeft,
+    frequencyDbRight,
+  } = value;
   return (
+    isFiniteNumber(currentTimeS) &&
+    currentTimeS >= 0 &&
     typeof sampleRateHz === 'number' &&
     Number.isFinite(sampleRateHz) &&
     sampleRateHz > 0 &&
+    isPositiveSafeInteger(fftBinCount) &&
+    isRequestId(playId) &&
+    isRequestId(fileId) &&
+    isFiniteNumber(displayGain) &&
+    displayGain >= 0 &&
+    isPositiveSafeInteger(analysisGeneration) &&
     timeDomainLeft instanceof Float32Array &&
     timeDomainRight instanceof Float32Array &&
-    frequencyDbLeft instanceof Float32Array
+    frequencyDbLeft instanceof Float32Array &&
+    frequencyDbRight instanceof Float32Array &&
+    timeDomainLeft.length === timeDomainRight.length &&
+    frequencyDbLeft.length === fftBinCount &&
+    frequencyDbRight.length === fftBinCount
   );
 }
 
@@ -144,6 +182,10 @@ function isFiniteNumber(value: unknown): value is number {
 
 function isRequestId(value: unknown): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+}
+
+function isPositiveSafeInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

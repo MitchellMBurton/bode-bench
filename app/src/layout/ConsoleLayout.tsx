@@ -481,7 +481,7 @@ export function ConsoleLayout({
             <div style={runtimeSummaryStyle}>{runtimeDock.summary}</div>
             <div style={runtimeToolbarActionsStyle}>
               {runtimeDock.open && (
-                <span style={{ ...runtimeToolbarHintStyle, color: lt.runtimeHint }}>DRAG PERF LAB EDGE TO RESIZE</span>
+                <span style={{ ...runtimeToolbarHintStyle, color: lt.runtimeHint }}>DRAWER FIXED / DRAG EDGE TO RESIZE</span>
               )}
             </div>
             <button
@@ -502,8 +502,12 @@ export function ConsoleLayout({
               style={{
                 ...runtimeTrayStyle,
                 height: runtimeTrayHeight,
+                top: GLOBAL_H + TOOLBAR_H,
                 background: lt.runtimeTrayBg,
-                borderBottom: `1px solid ${m.chromeBorder}`,
+                borderTop: `2px solid ${m.chromeBorderActive}`,
+                borderBottom: `2px solid ${m.chromeBorderActive}`,
+                borderLeft: `1px solid ${m.chromeBorder}`,
+                borderRight: `1px solid ${m.chromeBorder}`,
               }}
             >
               <div style={runtimeTrayContentStyle}>
@@ -853,13 +857,18 @@ const runtimeToolbarHintStyle: React.CSSProperties = {
 };
 
 const runtimeTrayStyle: React.CSSProperties = {
-  flexShrink: 0,
+  position: 'fixed',
+  left: 0,
+  right: 0,
+  zIndex: 60,
   minHeight: RUNTIME_TRAY_MIN_H,
+  maxHeight: `calc(100vh - ${GLOBAL_H + TOOLBAR_H}px)`,
   background: COLORS.bg0,
   boxSizing: 'border-box',
   display: 'flex',
   flexDirection: 'column',
   overflow: 'hidden',
+  boxShadow: '0 20px 48px rgba(0,0,0,0.48), inset 0 1px 0 rgba(255,255,255,0.05)',
 };
 
 const runtimeTrayContentStyle: React.CSSProperties = {

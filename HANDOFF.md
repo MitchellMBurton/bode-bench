@@ -13,9 +13,7 @@ versioned session artifacts (`.review-session.json`), and full save/load with
 relink + mismatch protection. Both Tracks 1 and 2 from `PLAN_NOTES_AND_SESSIONS.md`
 are validated end-to-end.
 
-The next track (Track 3 — worker-based analysis core) is invisible
-infrastructure that unblocks A-B comparison cleanly. See `REVIEW_BRIEF.md` for
-the entry point a fresh reviewer should use.
+Track 3 (worker-based analysis core) is underway: live frame feature analysis is worker-backed, and the remaining work moves heavier history/offline analysis behind the same boundary. See `REVIEW_BRIEF.md` for the v0.3.0 baseline context.
 
 ## What Already Exists (v0.2 state)
 
@@ -33,10 +31,10 @@ the entry point a fresh reviewer should use.
 
 - `app/src/audio/engine.ts` — transport / runtime truth (will be split for two-source work in Track 4)
 - `app/src/audio/analysisWorkerProtocol.ts` — Track 3 v1 worker message contract, transferable buffers, boundary validation
-- `app/src/audio/analysisWorkerClient.ts` — dormant worker lifecycle client with request IDs, back-pressure drops, diagnostics, and termination
-- `app/src/audio/analysisRuntime.ts` — main-thread-compatible analysis adapter used as the worker parity seam
+- `app/src/audio/analysisWorkerClient.ts` — active worker lifecycle client with request IDs, back-pressure drops, diagnostics, and termination
+- `app/src/audio/analysisRuntime.ts` — main-thread-compatible analysis adapter used as the fallback/parity seam
 - `app/src/core/session.tsx` — shared session wiring (extended for restore methods in v0.3.0)
-- `app/src/audio/frameBus.ts` — frame dispatch (producer changes in Track 3, consumers stable)
+- `app/src/audio/frameBus.ts` — frame dispatch (live feature producer is worker-backed; consumers stay stable)
 - `app/src/runtime/waveformPyramid.ts` — shared waveform confidence and refinement
 - `app/src/runtime/reviewSession.ts` — versioned session schema, parse, build, source-match
 - `app/src/runtime/reviewReport.ts` — markdown report generator
@@ -58,7 +56,7 @@ the entry point a fresh reviewer should use.
 
 Tracks 1 and 2 are shipped (`v0.3.0`). The remaining order:
 
-1. **Track 3 — Worker-based analysis core.** Boring infrastructure with payoff in many directions. Best done before A-B so two-source pipelines ride a solid base. The first slices now define the typed worker protocol, main-thread parity adapter, and dormant worker lifecycle client with one-frame back-pressure diagnostics. Next wire transferable buffer pooling into the analysis path before switching the frame producer. Closes the focus-throttle story structurally.
+1. **Track 3 — Worker-based analysis core.** The live frame feature producer now runs through the worker by default with transferable buffer pooling, one-frame back-pressure, a main-thread fallback, and PERF LAB worker/main diagnostics. Next move heavier history/offline analysis work behind the same boundary: waveform pyramid, spectrogram history/bins, and deeper loudness integration.
 2. **Track 4 — A-B comparison workspace.** The defining v0.3 feature. Builds on Tracks 2 and 3.
 3. **Track 5 — Differential null test.** Builds directly on Track 4's alignment machinery.
 

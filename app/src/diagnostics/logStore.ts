@@ -146,8 +146,9 @@ export class DiagnosticsLogStore {
 
 
 export type PerformanceTone = 'dim' | 'info' | 'warn';
-export type PerformanceSource = 'ui' | 'video' | 'load' | 'transport';
+export type PerformanceSource = 'ui' | 'video' | 'load' | 'transport' | 'analysis';
 export type PerformanceVideoState = 'idle' | 'playing' | 'sync' | 'waiting' | 'stalled' | 'scrub';
+export type PerformanceAnalysisMode = 'main-thread' | 'worker';
 
 export interface PerformanceEvent {
   readonly id: number;
@@ -167,6 +168,18 @@ export interface PerformanceLoadSample {
   readonly channels: number;
   readonly durationS: number;
   readonly stretchEnabled: boolean;
+}
+
+export interface PerformanceAnalysisTelemetry {
+  readonly mode: PerformanceAnalysisMode;
+  readonly requestedFrames: number;
+  readonly completedFrames: number;
+  readonly droppedFrames: number;
+  readonly failedFrames: number;
+  readonly invalidResponses: number;
+  readonly inFlightFrames: number;
+  readonly lastElapsedMs: number | null;
+  readonly lastError: string | null;
 }
 
 export interface PerformanceTraceSample {
@@ -199,6 +212,7 @@ export interface PerformanceDiagnosticsSnapshot {
   readonly videoWaitCount: number;
   readonly videoStallCount: number;
   readonly lastLoad: PerformanceLoadSample | null;
+  readonly analysis: PerformanceAnalysisTelemetry;
   readonly trace: readonly PerformanceTraceSample[];
   readonly recentEvents: readonly PerformanceEvent[];
 }
@@ -248,6 +262,17 @@ const INITIAL_PERF_SNAPSHOT: PerformanceDiagnosticsSnapshot = {
   videoWaitCount: 0,
   videoStallCount: 0,
   lastLoad: null,
+  analysis: {
+    mode: 'worker',
+    requestedFrames: 0,
+    completedFrames: 0,
+    droppedFrames: 0,
+    failedFrames: 0,
+    invalidResponses: 0,
+    inFlightFrames: 0,
+    lastElapsedMs: null,
+    lastError: null,
+  },
   trace: [],
   recentEvents: [],
 };
@@ -424,6 +449,28 @@ export class PerformanceDiagnosticsStore {
       0,
     );
     this.scheduleEmit(true);
+  }
+
+  noteAnalysisTelemetry(telemetry: PerformanceAnalysisTelemetry): void {
+    const previous = this.snapshot.analysis;
+    this.snapshot = {
+      ...this.snapshot,
+      analysis: telemetry,
+    };
+
+    if (previous.mode !== telemetry.mode) {
+      this.pushEvent('analysis', `analysis core ${telemetry.mode}`, 'info', 0);
+      this.scheduleEmit(true);
+      return;
+    }
+
+    if (telemetry.lastError && telemetry.lastError !== previous.lastError) {
+      this.pushEvent('analysis', telemetry.lastError, 'warn', 900);
+      this.scheduleEmit(true);
+      return;
+    }
+
+    this.scheduleEmit();
   }
 
   clearEvents(): void {

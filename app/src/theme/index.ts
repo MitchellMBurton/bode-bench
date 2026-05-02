@@ -4,36 +4,36 @@
 
 export const COLORS = {
   // Background layers
-  bg0: '#08080b',      // deepest background
-  bg1: '#0e0e13',      // panel background
-  bg2: '#13131a',      // panel inner surface
-  bg3: '#1c1c26',      // subtle divider / inactive
+  bg0: '#07090d',      // deepest background
+  bg1: '#0d1118',      // panel background
+  bg2: '#141a23',      // panel inner surface
+  bg3: '#202735',      // subtle divider / inactive
 
   // Borders and chrome
-  border: '#252535',
-  borderActive: '#3a3a55',
-  borderHighlight: '#5050a0',
+  border: '#344055',
+  borderActive: '#60759a',
+  borderHighlight: '#788ee0',
 
   // Text
-  textPrimary: '#c8c8d8',
-  textSecondary: '#606080',
-  textDim: '#363648',
-  textLabel: '#808098',
+  textPrimary: '#e2e9f5',
+  textSecondary: '#8b98b3',
+  textDim: '#526077',
+  textLabel: '#a9b4c8',
 
   // Category labels (panel section headings)
-  textCategory: '#4a4a70',
-  textTitle: '#a0a0c0',
+  textCategory: '#6d82a8',
+  textTitle: '#d6e0f0',
 
   // Accent / signal (used for seek bar, focus)
-  accent: '#5060c0',
-  accentDim: '#28305a',
-  accentGlow: 'rgba(80, 96, 192, 0.12)',
+  accent: '#6f83d8',
+  accentDim: '#27345f',
+  accentGlow: 'rgba(111, 131, 216, 0.16)',
 
   // Oscilloscope - amber / instrument gold
-  waveform: '#c8922a',
-  waveformGlow: 'rgba(200, 146, 42, 0.18)',
-  waveformGrid: '#1e1a10',
-  waveformZero: '#2a2218',
+  waveform: '#d0a038',
+  waveformGlow: 'rgba(208, 160, 56, 0.20)',
+  waveformGrid: '#263044',
+  waveformZero: '#3a3f4a',
 
   // Spectrogram - NGE thermal: void -> indigo -> teal -> amber -> white-gold
   spectroLow: '#03040a',
@@ -46,7 +46,7 @@ export const COLORS = {
   levelGreen: '#38a850',
   levelYellow: '#b09030',
   levelRed: '#a83030',
-  levelTrack: '#181820',
+  levelTrack: '#1a202b',
 
   // Frequency bands - spectral by register (sub=navy -> shimmer=amber)
   bandSub: '#1a2870',
@@ -61,8 +61,8 @@ export const COLORS = {
   noteOverlayBorder: 'rgba(240, 200, 100, 0.9)',
 
   // Global header
-  headerBg: '#08080b',
-  headerBorder: '#1e1e2a',
+  headerBg: '#07090d',
+  headerBorder: '#263044',
 
   // Status
   statusOk: '#38a050',
@@ -177,14 +177,14 @@ export const CANVAS = {
     bg:           '#02050c',
     bg2:          '#091120',
     trace:        '#62e8ff',
-    grid:         'rgba(84,132,255,0.22)',
-    label:        'rgba(112,208,255,0.62)',
-    text:         'rgba(228,146,255,0.78)',
+    grid:         'rgba(78,126,232,0.20)',
+    label:        'rgba(124,214,255,0.66)',
+    text:         'rgba(214,241,255,0.90)',
     glow:         'rgba(98,232,255,0.22)',
     chromeBorder: '#122048',
-    chromeBorderActive: '#3559d8',
-    category:     'rgba(112,180,255,0.74)',
-    stat:         '#ff68c6',
+    chromeBorderActive: '#2b67d8',
+    category:     'rgba(104,190,255,0.68)',
+    stat:         '#6be6ff',
     persistenceFill: 'rgba(9,17,32,0.86)',
     spectroAxis:  '#2f4ec0',
     spectroPalette: [
@@ -268,30 +268,30 @@ export const CANVAS = {
   // High-key, instrument-clean surfaces with pale cyan structure and
   // prismatic accents. Intended to feel clinical, luminous, and exact.
   optic: {
-    bg:              '#eaf1f5',
-    bg2:             '#dbe5ec',
-    shell:           '#eef4f7',
-    header:          '#e3edf2',
-    trace:           '#126f9d',
-    grid:            'rgba(73,106,126,0.34)',
-    label:           'rgba(42,69,88,0.96)',
+    bg:              '#e8f0f5',
+    bg2:             '#d5e2ea',
+    shell:           '#edf3f7',
+    header:          '#dfeaf1',
+    trace:           '#0f6d98',
+    grid:            'rgba(49,82,104,0.46)',
+    label:           'rgba(21,48,66,0.98)',
     text:            'rgba(14,31,43,0.98)',
-    glow:            'rgba(18,124,173,0.08)',
-    chromeBorder:    '#a9c0ce',
-    chromeBorderActive: '#4f86a3',
-    category:        'rgba(45,78,97,0.96)',
-    stat:            '#0d7e9e',
-    persistenceFill: 'rgba(223,231,236,0.94)',
-    spectroAxis:     '#5b8199',
+    glow:            'rgba(16,112,154,0.10)',
+    chromeBorder:    '#8eacbf',
+    chromeBorderActive: '#2f789d',
+    category:        'rgba(24,56,76,0.98)',
+    stat:            '#087b99',
+    persistenceFill: 'rgba(211,223,231,0.90)',
+    spectroAxis:     '#486f87',
     spectroPalette: [
-      '#eaf0f4',
-      '#cfdde6',
-      '#a6bfd1',
-      '#6f9ec1',
-      '#3d7dab',
-      '#1f8898',
-      '#b89258',
-      '#7a62a9',
+      '#edf3f6',
+      '#c2d4df',
+      '#86a9bf',
+      '#4e8eb5',
+      '#1f719f',
+      '#068692',
+      '#b18443',
+      '#7058a1',
     ],
     bandColors: [
       '#587bc4',

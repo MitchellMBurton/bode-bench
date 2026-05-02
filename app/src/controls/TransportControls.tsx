@@ -28,6 +28,7 @@ import { parseSubtitleFile, type SubtitleCue, type SubtitleFormat } from '../run
 import { CANVAS, COLORS, FONTS, SPACING } from '../theme';
 import type { VisualMode } from '../audio/displayMode';
 import type { TransportState } from '../types';
+import { quietDisabledControlStyle } from './controlVisualStates';
 import { ReviewGlyph } from './reviewChrome';
 import { getReviewButtonTone, type ReviewButtonIntent, type ReviewGlyphName } from './reviewChromeShared';
 
@@ -1740,6 +1741,26 @@ export function TransportControls({
   const audioStatusText = externalAudio ? 'ATTACHED' : primaryMedia ? 'ORIGINAL' : 'NONE';
   const subtitleStatusText = subtitleTrack ? 'ACTIVE' : canAttachLinkedTracks ? 'NONE' : 'N/A';
   const viewStatusText = videoUrl ? (videoViewMode === 'inline' ? 'DOCKED' : 'WINDOWED') : loadedLayoutMode === 'audio' ? 'AUDIO ONLY' : 'NONE';
+  const openMediaDisabled = isLoading;
+  const resetDisabled = isLoading || !transport.filename;
+  const altAudioDisabled = isLoading || (!externalAudio && !canAttachLinkedTracks);
+  const subtitleDisabled = isLoading || (!subtitleTrack && !canAttachLinkedTracks);
+  const videoWindowDisabled = isLoading || !videoUrl;
+  const altAudioTitle = externalAudio
+    ? 'Restore the original media audio track'
+    : canAttachLinkedTracks
+      ? 'Attach an alternate audio file for playback'
+      : 'Alternate audio is available when a video source is loaded';
+  const subtitleTitle = subtitleTrack
+    ? 'Clear the current subtitle file'
+    : canAttachLinkedTracks
+      ? 'Attach a subtitle file'
+      : 'Subtitles are available when a video source is loaded';
+  const videoWindowTitle = videoUrl
+    ? videoViewMode === 'inline'
+      ? 'Open the video in a movable window'
+      : 'Dock the video back into the session console'
+    : 'Video window controls are available when a video source is loaded';
   const ingestLabel = isLoading
     ? 'DECODING...'
     : sessionFilename
@@ -1761,9 +1782,10 @@ export function TransportControls({
                 background: tt.btnResetBg,
                 borderColor: tt.btnResetBorder,
                 color: tt.btnColor,
+                ...quietDisabledControlStyle(resetDisabled),
               }}
               onClick={() => audioEngine.reset()}
-              disabled={isLoading || !transport.filename}
+              disabled={resetDisabled}
               title="Reset - clear file and all visuals"
             >
               RESET
@@ -1779,12 +1801,13 @@ export function TransportControls({
               background: tt.panelBg,
               borderColor: tt.btnActiveBorder,
               color: tt.btnColor,
+              ...quietDisabledControlStyle(openMediaDisabled),
             }}
             onClick={() => {
               clearFileInput();
               fileInputRef.current?.click();
             }}
-            disabled={isLoading}
+            disabled={openMediaDisabled}
             title="Open or replace the main media file"
           >
             <span style={topControlLabelStyle}>OPEN MEDIA</span>
@@ -1796,6 +1819,7 @@ export function TransportControls({
               background: externalAudio ? tt.btnActiveBg : tt.btnBg,
               borderColor: externalAudio ? tt.btnActiveBorder : tt.btnBorder,
               color: tt.btnColor,
+              ...quietDisabledControlStyle(altAudioDisabled),
             }}
             onClick={() => {
               if (externalAudio) {
@@ -1808,8 +1832,8 @@ export function TransportControls({
               if (alternateAudioInputRef.current) alternateAudioInputRef.current.value = '';
               alternateAudioInputRef.current?.click();
             }}
-            disabled={isLoading || (!externalAudio && !canAttachLinkedTracks)}
-            title={externalAudio ? 'Restore the original media audio track' : 'Attach an alternate audio file for playback'}
+            disabled={altAudioDisabled}
+            title={altAudioTitle}
           >
             <span style={topControlLabelStyle}>ALT AUDIO</span>
             <span style={{ ...topControlHintStyle, color: tt.mutedText }}>{audioRouteHint}</span>
@@ -1820,6 +1844,7 @@ export function TransportControls({
               background: subtitleTrack ? tt.btnActiveBg : tt.btnBg,
               borderColor: subtitleTrack ? tt.btnActiveBorder : tt.btnBorder,
               color: tt.btnColor,
+              ...quietDisabledControlStyle(subtitleDisabled),
             }}
             onClick={() => {
               if (subtitleTrack) {
@@ -1832,8 +1857,8 @@ export function TransportControls({
               if (subtitleInputRef.current) subtitleInputRef.current.value = '';
               subtitleInputRef.current?.click();
             }}
-            disabled={isLoading || (!subtitleTrack && !canAttachLinkedTracks)}
-            title={subtitleTrack ? 'Clear the current subtitle file' : 'Attach a subtitle file'}
+            disabled={subtitleDisabled}
+            title={subtitleTitle}
           >
             <span style={topControlLabelStyle}>SUBTITLES</span>
             <span style={{ ...topControlHintStyle, color: tt.mutedText }}>{subtitleRouteHint}</span>
@@ -1844,10 +1869,11 @@ export function TransportControls({
               background: videoViewMode !== 'inline' ? tt.btnActiveBg : tt.btnBg,
               borderColor: videoViewMode !== 'inline' ? tt.btnActiveBorder : tt.btnBorder,
               color: tt.btnColor,
+              ...quietDisabledControlStyle(videoWindowDisabled),
             }}
             onClick={onToggleWindowed}
-            disabled={isLoading || !videoUrl}
-            title={videoViewMode === 'inline' ? 'Open the video in a movable window' : 'Dock the video back into the session console'}
+            disabled={videoWindowDisabled}
+            title={videoWindowTitle}
           >
             <span style={topControlLabelStyle}>VIDEO WINDOW</span>
             <span style={{ ...topControlHintStyle, color: tt.mutedText }}>{videoWindowHint}</span>
@@ -1857,25 +1883,20 @@ export function TransportControls({
         {sessionDeckSlot}
         {sessionStatusSlot}
 
-        <div style={topStatusGridStyle}>
-          <div style={{ ...topStatusCellStyle, alignItems: 'center', borderColor: tt.btnBorder, background: tt.panelBg, flex: '1 1 188px' }}>
-            <span style={{ ...topStatusValueStyle, color: sessionFilename ? tt.btnColor : tt.mutedText }}>
-              {sessionFilename ?? 'NONE'}
-            </span>
-          </div>
-          <div style={{ ...topStatusCellStyle, borderColor: tt.btnBorder, background: tt.panelBg }}>
+        <div style={topStatusGridStyle} aria-label="Source routing status">
+          <div style={{ ...topStatusCellStyle, borderColor: tt.btnBorder, background: tt.btnBg }}>
             <span style={{ ...topStatusLabelStyle, color: tt.panelLabel }}>AUDIO</span>
             <span style={{ ...topStatusValueStyle, color: primaryMedia ? tt.btnColor : tt.mutedText }}>
               {audioStatusText}
             </span>
           </div>
-          <div style={{ ...topStatusCellStyle, borderColor: tt.btnBorder, background: tt.panelBg }}>
+          <div style={{ ...topStatusCellStyle, borderColor: tt.btnBorder, background: tt.btnBg }}>
             <span style={{ ...topStatusLabelStyle, color: tt.panelLabel }}>SUBS</span>
             <span style={{ ...topStatusValueStyle, color: subtitleTrack || canAttachLinkedTracks ? tt.btnColor : tt.mutedText }}>
               {subtitleStatusText}
             </span>
           </div>
-          <div style={{ ...topStatusCellStyle, borderColor: tt.btnBorder, background: tt.panelBg }}>
+          <div style={{ ...topStatusCellStyle, borderColor: tt.btnBorder, background: tt.btnBg }}>
             <span style={{ ...topStatusLabelStyle, color: tt.panelLabel }}>VIEW</span>
             <span style={{ ...topStatusValueStyle, color: videoUrl || loadedLayoutMode === 'audio' ? tt.btnColor : tt.mutedText }}>
               {viewStatusText}
@@ -2801,7 +2822,7 @@ const topStatusGridStyle: React.CSSProperties = {
   display: 'flex',
   flexWrap: 'wrap',
   alignItems: 'center',
-  gap: 4,
+  gap: 3,
 };
 
 const topStatusCellStyle: React.CSSProperties = {
@@ -2809,11 +2830,12 @@ const topStatusCellStyle: React.CSSProperties = {
   alignItems: 'baseline',
   gap: 4,
   minWidth: 0,
-  padding: `3px ${SPACING.xs}px`,
+  padding: `2px ${SPACING.xs}px`,
   borderWidth: 1,
   borderStyle: 'solid',
   borderRadius: 2,
   background: COLORS.bg1,
+  opacity: 0.86,
 };
 
 const topStatusLabelStyle: React.CSSProperties = {

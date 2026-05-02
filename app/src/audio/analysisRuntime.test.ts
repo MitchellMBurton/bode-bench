@@ -6,7 +6,13 @@ import type { AnalysisFramePayload } from './analysisWorkerProtocol';
 
 function createPayload(): AnalysisFramePayload {
   return {
+    currentTimeS: 0,
     sampleRateHz: 48_000,
+    fftBinCount: 1024,
+    playId: 0,
+    fileId: 0,
+    displayGain: 1,
+    analysisGeneration: 1,
     timeDomainLeft: Float32Array.from({ length: 2048 }, (_, index) =>
       0.5 * Math.sin((index / 48_000) * Math.PI * 2 * 240),
     ),
@@ -14,6 +20,7 @@ function createPayload(): AnalysisFramePayload {
       0.5 * Math.sin((index / 48_000) * Math.PI * 2 * 240),
     ),
     frequencyDbLeft: new Float32Array(1024).fill(-90),
+    frequencyDbRight: new Float32Array(1024).fill(-90),
   };
 }
 

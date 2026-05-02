@@ -17,6 +17,7 @@ import { usePerformanceMonitoring } from './controls/usePerformanceMonitoring';
 import { HotkeyOverlay } from './controls/HotkeyOverlay';
 import { panelsForColumn } from './panels/registry';
 import { captureQuadrant, downloadPng } from './panels/panelSnapshot';
+import { SupportInstrumentationRack } from './panels/SupportInstrumentationRack';
 import { WaveformOverviewPanel } from './panels/WaveformOverviewPanel';
 import { useAnalysisConfigStore, useAudioEngine, useDerivedMediaSnapshot, useDerivedMediaStore, useDisplayMode, useMarkers, usePendingRangeStart, usePerformanceDiagnosticsStore, usePerformanceProfile, useRangeMarks, useTheaterMode, useVisualMode } from './core/session';
 import { VISUAL_DECORATIONS } from './audio/displayMode';
@@ -301,17 +302,7 @@ export default function App(): React.ReactElement {
               detail="Instrumentation is held in place during video priority mode, then resumes instantly."
               visualMode={visualMode}
             >
-              <SplitPane
-                direction="column"
-                initialSizes={[14, 38, 24, 24]}
-                minSizePx={[48, 80, 56, 56]}
-                resetToken={layoutResetToken}
-                persistKey="console:bottom-left-stack"
-              >
-                {panelsForColumn('bottom-left').map(({ id, component: Panel }) => (
-                  <Panel key={id} />
-                ))}
-              </SplitPane>
+              <SupportInstrumentationRack />
             </TheaterPanelShell>
           ),
         }}

@@ -61,14 +61,22 @@ export class AnalysisWorkerClient {
     this.options = options;
   }
 
+  canRequestFrame(): boolean {
+    return !this.disposed && this.inFlightRequestId === null;
+  }
+
+  dropFrame(): void {
+    if (this.disposed) return;
+    this.updateDiagnostics({ droppedFrames: this.diagnostics.droppedFrames + 1 });
+  }
+
   requestFrame(payload: AnalysisFramePayload): boolean {
     if (this.disposed) return false;
     if (this.inFlightRequestId !== null) {
-      this.updateDiagnostics({ droppedFrames: this.diagnostics.droppedFrames + 1 });
+      this.dropFrame();
       return false;
     }
 
-    const worker = this.ensureWorker();
     const request: AnalysisWorkerRequest = {
       kind: 'analyze-frame',
       protocolVersion: ANALYSIS_WORKER_PROTOCOL_VERSION,
@@ -82,8 +90,15 @@ export class AnalysisWorkerClient {
       inFlightFrames: 1,
       lastError: null,
     });
-    worker.postMessage(request, getAnalysisFrameTransferables(payload));
-    return true;
+    try {
+      const worker = this.ensureWorker();
+      worker.postMessage(request, getAnalysisFrameTransferables(payload));
+      return true;
+    } catch (error) {
+      this.inFlightRequestId = null;
+      this.handleWorkerError(error instanceof Error ? error.message : 'Analysis worker failed.');
+      return false;
+    }
   }
 
   getDiagnostics(): AnalysisWorkerDiagnostics {

@@ -13,19 +13,19 @@
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   --app-bg: #0a0a0c;
-  --app-fg: #d0d0e0;
-  --panel-hover-bg: rgba(6, 6, 10, 0.82);
-  --panel-hover-border: rgba(160, 140, 80, 0.18);
-  --panel-hover-color: rgba(200, 185, 120, 0.9);
+  --app-fg: #e2e9f5;
+  --panel-hover-bg: rgba(10, 14, 22, 0.94);
+  --panel-hover-border: rgba(116, 140, 190, 0.44);
+  --panel-hover-color: rgba(226, 233, 245, 0.96);
 }
 
 :root[data-visual-mode="optic"] {
   color-scheme: light;
-  --app-bg: #eaf1f5;
+  --app-bg: #edf3f7;
   --app-fg: #132c3c;
-  --panel-hover-bg: rgba(242, 247, 250, 0.98);
-  --panel-hover-border: rgba(79, 134, 163, 0.68);
-  --panel-hover-color: rgba(16, 45, 62, 0.98);
+  --panel-hover-bg: rgba(240, 246, 249, 0.98);
+  --panel-hover-border: rgba(47, 120, 157, 0.74);
+  --panel-hover-color: rgba(13, 39, 56, 0.98);
 }
 
 :root[data-visual-mode="red"] {
@@ -57,7 +57,8 @@ button:focus-visible {
 }
 
 button:disabled {
-  opacity: 0.35;
+  opacity: 0.32;
+  filter: saturate(0.48);
   cursor: not-allowed;
 }
 

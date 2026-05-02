@@ -15,6 +15,10 @@
 
 import type { FrameBus } from './frameBus';
 import { computeAudioFrameFeatures } from './frameAnalysis';
+import { AnalysisFrameBufferPool, type AnalysisFrameBuffers } from './analysisFrameBufferPool';
+import { AnalysisWorkerClient, createBrowserAnalysisWorker, type AnalysisWorkerDiagnostics } from './analysisWorkerClient';
+import type { AnalysisFramePayload, AnalysisFrameResult } from './analysisWorkerProtocol';
+import type { AnalysisRuntimeMode } from './analysisRuntime';
 import {
   canPrepareStretchBuffers,
   shouldPreferStreamingLoad,
@@ -91,6 +95,7 @@ export class AudioEngine {
   private readonly frameBus: FrameBus;
   private readonly performanceDiagnostics: PerformanceDiagnosticsStore | null;
   private analysisConfig: AnalysisConfig;
+  private readonly analysisFrameBufferPool: AnalysisFrameBufferPool;
 
   constructor(
     frameBus: FrameBus,
@@ -100,6 +105,7 @@ export class AudioEngine {
     this.frameBus = frameBus;
     this.performanceDiagnostics = performanceDiagnostics;
     this.analysisConfig = analysisConfig;
+    this.analysisFrameBufferPool = new AnalysisFrameBufferPool(analysisConfig.general.fftSize);
   }
 
   private ctx: AudioContext | null = null;
@@ -165,6 +171,19 @@ export class AudioEngine {
   private _fileAnalysis: FileAnalysis | null = null;
   private _filename: string | null = null;
   private lastAnalysisAt = 0;
+  private analysisRuntimeMode: AnalysisRuntimeMode = 'worker';
+  private analysisGeneration = 1;
+  private analysisWorkerClient: AnalysisWorkerClient | null = null;
+  private mainThreadAnalysisDiagnostics: AnalysisWorkerDiagnostics = {
+    requestedFrames: 0,
+    completedFrames: 0,
+    droppedFrames: 0,
+    failedFrames: 0,
+    invalidResponses: 0,
+    inFlightFrames: 0,
+    lastElapsedMs: null,
+    lastError: null,
+  };
   private stretchMutationChain: Promise<void> = Promise.resolve();
   private deferredAnalysisCancel: (() => void) | null = null;
 
@@ -242,10 +261,13 @@ export class AudioEngine {
   /** Apply analysis configuration changes to the live analyser nodes.
    *  Called by AppSession when the AnalysisConfigStore emits. */
   applyAnalysisConfig(config: AnalysisConfig): void {
+    const fftSizeChanged = this.analysisConfig.general.fftSize !== config.general.fftSize;
     this.analysisConfig = config;
+    if (fftSizeChanged) {
+      this.analysisFrameBufferPool.resize(config.general.fftSize);
+      this.analysisGeneration++;
+    }
     if (!this.analyserL || !this.analyserR) return;
-
-    const fftSizeChanged = this.analyserL.fftSize !== config.general.fftSize;
 
     this.analyserL.fftSize = config.general.fftSize;
     this.analyserL.smoothingTimeConstant = config.general.smoothing;
@@ -263,6 +285,81 @@ export class AudioEngine {
       this.frequencyData = new Float32Array(config.general.fftSize / 2);
       this.frequencyDataR = new Float32Array(config.general.fftSize / 2);
     }
+  }
+
+  setAnalysisRuntimeMode(mode: AnalysisRuntimeMode): void {
+    if (this.analysisRuntimeMode === mode) return;
+    this.analysisRuntimeMode = mode;
+    this.analysisGeneration++;
+    this.resetMainThreadAnalysisDiagnostics();
+    if (mode === 'main-thread') {
+      this.disposeAnalysisWorkerClient();
+    }
+    this.publishAnalysisDiagnostics();
+  }
+
+  private ensureAnalysisWorkerClient(): AnalysisWorkerClient {
+    if (this.analysisWorkerClient) return this.analysisWorkerClient;
+    this.analysisWorkerClient = new AnalysisWorkerClient({
+      createWorker: createBrowserAnalysisWorker,
+      onFrame: (result) => this.handleAnalysisWorkerFrame(result),
+      onError: (error) => this.fallbackToMainThreadAnalysis(error.message),
+    });
+    return this.analysisWorkerClient;
+  }
+
+  private disposeAnalysisWorkerClient(): void {
+    if (!this.analysisWorkerClient) return;
+    this.analysisWorkerClient.dispose();
+    this.analysisWorkerClient = null;
+  }
+
+  private fallbackToMainThreadAnalysis(message: string): void {
+    if (this.analysisRuntimeMode !== 'worker') return;
+    this.analysisRuntimeMode = 'main-thread';
+    this.analysisGeneration++;
+    this.disposeAnalysisWorkerClient();
+    this.resetMainThreadAnalysisDiagnostics();
+    this.mainThreadAnalysisDiagnostics = {
+      ...this.mainThreadAnalysisDiagnostics,
+      failedFrames: 1,
+      lastError: message,
+    };
+    this.publishAnalysisDiagnostics();
+  }
+
+  private resetMainThreadAnalysisDiagnostics(): void {
+    this.mainThreadAnalysisDiagnostics = {
+      requestedFrames: 0,
+      completedFrames: 0,
+      droppedFrames: 0,
+      failedFrames: 0,
+      invalidResponses: 0,
+      inFlightFrames: 0,
+      lastElapsedMs: null,
+      lastError: null,
+    };
+  }
+
+  private publishAnalysisDiagnostics(diagnostics = this.getCurrentAnalysisDiagnostics()): void {
+    this.performanceDiagnostics?.noteAnalysisTelemetry({
+      mode: this.analysisRuntimeMode,
+      requestedFrames: diagnostics.requestedFrames,
+      completedFrames: diagnostics.completedFrames,
+      droppedFrames: diagnostics.droppedFrames,
+      failedFrames: diagnostics.failedFrames,
+      invalidResponses: diagnostics.invalidResponses,
+      inFlightFrames: diagnostics.inFlightFrames,
+      lastElapsedMs: diagnostics.lastElapsedMs,
+      lastError: diagnostics.lastError,
+    });
+  }
+
+  private getCurrentAnalysisDiagnostics(): AnalysisWorkerDiagnostics {
+    if (this.analysisRuntimeMode === 'worker' && this.analysisWorkerClient) {
+      return this.analysisWorkerClient.getDiagnostics();
+    }
+    return this.mainThreadAnalysisDiagnostics;
   }
 
   private queueStretchCommand(command: Promise<unknown>, label: string): void {
@@ -846,6 +943,8 @@ export class AudioEngine {
     this.clearSeekResume();
     this.clearScrubTimers();
     this.cancelDeferredAnalysis();
+    this.disposeAnalysisWorkerClient();
+    this.analysisGeneration++;
     this.disposeStreamedMedia();
     this.scrubActive = false;
     this.scrubResumeAfter = false;
@@ -1328,6 +1427,8 @@ export class AudioEngine {
     this.clearSeekResume();
     this.clearScrubTimers();
     this.cancelDeferredAnalysis();
+    this.disposeAnalysisWorkerClient();
+    this.analysisGeneration++;
     this.scrubActive = false;
     this.scrubResumeAfter = false;
     this.scrubPreviewRate = 1;
@@ -1342,6 +1443,8 @@ export class AudioEngine {
     this.clearSeekResume();
     this.clearScrubTimers();
     this.cancelDeferredAnalysis();
+    this.disposeAnalysisWorkerClient();
+    this.analysisGeneration++;
     this.scrubActive = false;
     this.scrubResumeAfter = false;
     this.scrubPreviewRate = 1;
@@ -1376,6 +1479,8 @@ export class AudioEngine {
     this.clearSeekResume();
     this.clearScrubTimers();
     this.cancelDeferredAnalysis();
+    this.disposeAnalysisWorkerClient();
+    this.analysisGeneration++;
     this.scrubActive = false;
     this.scrubResumeAfter = false;
     this.scrubPreviewRate = 1;
@@ -1740,6 +1845,11 @@ export class AudioEngine {
   private extractFrame(): void {
     if (!this.analyserL || !this.analyserR || !this.ctx) return;
 
+    if (this.analysisRuntimeMode === 'worker') {
+      this.extractFrameViaWorker();
+      return;
+    }
+
     this.analyserL.getFloatTimeDomainData(this.timeDomainData as Float32Array<ArrayBuffer>);
     this.analyserL.getFloatFrequencyData(this.frequencyData as Float32Array<ArrayBuffer>);
     this.analyserR.getFloatTimeDomainData(this.timeDomainDataR as Float32Array<ArrayBuffer>);
@@ -1749,7 +1859,16 @@ export class AudioEngine {
     const tdR = this.timeDomainDataR;
     const fftBinCount = this.frequencyData.length;
 
+    const startedAt = performance.now();
     const features = computeAudioFrameFeatures(tdL, tdR, this.frequencyData, this.ctx.sampleRate);
+    this.mainThreadAnalysisDiagnostics = {
+      ...this.mainThreadAnalysisDiagnostics,
+      requestedFrames: this.mainThreadAnalysisDiagnostics.requestedFrames + 1,
+      completedFrames: this.mainThreadAnalysisDiagnostics.completedFrames + 1,
+      lastElapsedMs: Math.max(0, performance.now() - startedAt),
+      lastError: null,
+    };
+    this.publishAnalysisDiagnostics(this.mainThreadAnalysisDiagnostics);
 
     // Zero-copy: pass pre-allocated analyser buffers directly.
     // Safe because frameBus.publish() is synchronous — all subscribers
@@ -1770,6 +1889,88 @@ export class AudioEngine {
       playId: this.playId,
       fileId: this.fileId,
       displayGain: this._displayGain,
+      spectralCentroid: features.spectralCentroid,
+      f0Hz: features.f0Hz,
+      f0Confidence: features.f0Confidence,
+      phaseCorrelation: features.phaseCorrelation,
+    };
+
+    this.frameBus.publish(frame);
+  }
+
+  private extractFrameViaWorker(): void {
+    if (!this.analyserL || !this.analyserR || !this.ctx) return;
+
+    const workerClient = this.ensureAnalysisWorkerClient();
+    if (!workerClient.canRequestFrame()) {
+      workerClient.dropFrame();
+      this.publishAnalysisDiagnostics(workerClient.getDiagnostics());
+      return;
+    }
+
+    const buffers = this.analysisFrameBufferPool.acquire();
+    this.analyserL.getFloatTimeDomainData(buffers.timeDomainLeft);
+    this.analyserL.getFloatFrequencyData(buffers.frequencyDbLeft);
+    this.analyserR.getFloatTimeDomainData(buffers.timeDomainRight);
+    this.analyserR.getFloatFrequencyData(buffers.frequencyDbRight);
+
+    const payload = this.createAnalysisFramePayload(buffers);
+    const requested = workerClient.requestFrame(payload);
+    if (!requested) {
+      this.analysisFrameBufferPool.release(payload);
+    }
+    this.publishAnalysisDiagnostics(workerClient.getDiagnostics());
+  }
+
+  private createAnalysisFramePayload(buffers: AnalysisFrameBuffers): AnalysisFramePayload {
+    return {
+      currentTimeS: this.currentTime,
+      sampleRateHz: this.ctx?.sampleRate ?? 44100,
+      fftBinCount: buffers.frequencyDbLeft.length,
+      playId: this.playId,
+      fileId: this.fileId,
+      displayGain: this._displayGain,
+      analysisGeneration: this.analysisGeneration,
+      timeDomainLeft: buffers.timeDomainLeft,
+      timeDomainRight: buffers.timeDomainRight,
+      frequencyDbLeft: buffers.frequencyDbLeft,
+      frequencyDbRight: buffers.frequencyDbRight,
+    };
+  }
+
+  private handleAnalysisWorkerFrame(result: AnalysisFrameResult): void {
+    if (
+      this.analysisRuntimeMode !== 'worker' ||
+      result.payload.analysisGeneration !== this.analysisGeneration
+    ) {
+      this.analysisFrameBufferPool.release(result.payload);
+      return;
+    }
+
+    this.publishAudioFrameFromAnalysisResult(result);
+    this.analysisFrameBufferPool.release(result.payload);
+    if (this.analysisWorkerClient) {
+      this.publishAnalysisDiagnostics(this.analysisWorkerClient.getDiagnostics());
+    }
+  }
+
+  private publishAudioFrameFromAnalysisResult(result: AnalysisFrameResult): void {
+    const { payload, features } = result;
+    const frame: AudioFrame = {
+      currentTime: payload.currentTimeS,
+      timeDomain: payload.timeDomainLeft,
+      timeDomainRight: payload.timeDomainRight,
+      frequencyDb: payload.frequencyDbLeft,
+      frequencyDbRight: payload.frequencyDbRight,
+      peakLeft: features.peakLeft,
+      peakRight: features.peakRight,
+      rmsLeft: features.rmsLeft,
+      rmsRight: features.rmsRight,
+      sampleRate: payload.sampleRateHz,
+      fftBinCount: payload.fftBinCount,
+      playId: payload.playId,
+      fileId: payload.fileId,
+      displayGain: payload.displayGain,
       spectralCentroid: features.spectralCentroid,
       f0Hz: features.f0Hz,
       f0Confidence: features.f0Confidence,
@@ -1891,6 +2092,7 @@ export class AudioEngine {
   get pitchSemitones(): number { return this._pitchSemitones; }
   get scrubStyle(): ScrubStyle { return this._scrubStyle; }
   get analysisFps(): number { return ANALYSIS_FPS; }
+  get analysisMode(): AnalysisRuntimeMode { return this.analysisRuntimeMode; }
   get fileAnalysis(): FileAnalysis | null { return this._fileAnalysis; }
   get audioBuffer(): AudioBuffer | null { return this.buffer; }
   get displayGain(): number { return this._displayGain; }

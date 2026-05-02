@@ -38,18 +38,26 @@ class FakeAnalysisWorker implements AnalysisWorkerPort {
 
 function createPayload(): AnalysisFramePayload {
   return {
+    currentTimeS: 12.5,
     sampleRateHz: 48_000,
+    fftBinCount: 3,
+    playId: 2,
+    fileId: 4,
+    displayGain: 1.2,
+    analysisGeneration: 1,
     timeDomainLeft: new Float32Array([0, 0.1, -0.1]),
     timeDomainRight: new Float32Array([0, 0.1, -0.1]),
     frequencyDbLeft: new Float32Array([-100, -30, -80]),
+    frequencyDbRight: new Float32Array([-100, -32, -82]),
   };
 }
 
-function createResult(id: number): AnalysisFrameResult {
+function createResult(id: number, payload = createPayload()): AnalysisFrameResult {
   return {
     kind: 'analysis-frame-result',
     protocolVersion: ANALYSIS_WORKER_PROTOCOL_VERSION,
     id,
+    payload,
     elapsedMs: 1.25,
     features: {
       peakLeft: 0.1,
@@ -85,12 +93,13 @@ describe('analysis worker client', () => {
       payload.timeDomainLeft.buffer,
       payload.timeDomainRight.buffer,
       payload.frequencyDbLeft.buffer,
+      payload.frequencyDbRight.buffer,
     ]);
     expect(client.getDiagnostics()).toMatchObject({ requestedFrames: 1, inFlightFrames: 1 });
 
-    worker.emitResponse(createResult(1));
+    worker.emitResponse(createResult(1, payload));
 
-    expect(received).toEqual([createResult(1)]);
+    expect(received).toEqual([createResult(1, payload)]);
     expect(client.getDiagnostics()).toMatchObject({
       completedFrames: 1,
       inFlightFrames: 0,
@@ -107,6 +116,7 @@ describe('analysis worker client', () => {
     });
 
     expect(client.requestFrame(createPayload())).toBe(true);
+    expect(client.canRequestFrame()).toBe(false);
     expect(client.requestFrame(createPayload())).toBe(false);
 
     expect(worker.posted).toHaveLength(1);
@@ -114,6 +124,23 @@ describe('analysis worker client', () => {
       requestedFrames: 1,
       droppedFrames: 1,
       inFlightFrames: 1,
+    });
+  });
+
+  it('allows callers to record a deliberate back-pressure drop before copying buffers', () => {
+    const worker = new FakeAnalysisWorker();
+    const client = new AnalysisWorkerClient({
+      createWorker: () => worker,
+      onFrame: () => {},
+    });
+
+    expect(client.canRequestFrame()).toBe(true);
+    client.dropFrame();
+
+    expect(worker.posted).toHaveLength(0);
+    expect(client.getDiagnostics()).toMatchObject({
+      droppedFrames: 1,
+      inFlightFrames: 0,
     });
   });
 

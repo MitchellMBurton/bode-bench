@@ -39,16 +39,16 @@ Validated end-to-end with a save / refresh / load round trip; "Session restored.
 ### Track 3 — Worker-based Analysis Core (v0.3.2) — NEXT
 
 Boring infrastructure with payoff in many directions. Best done before A-B so two-source pipelines ride a solid base.
-First slices are infrastructure-only: the live frame producer remains synchronous until buffer pooling is wired into the analysis path.
+The live frame feature producer now runs through the worker by default with a main-thread fallback. Remaining slices move heavier history/offline analysis work behind the same boundary.
 
 - [x] Define the v1 worker message protocol, transferables helper, and main-thread-compatible analysis adapter
 - [x] Add worker lifecycle client with response validation, one-frame back-pressure, and diagnostic counters
-- [ ] Stand up dedicated Web Worker for analysis loop
-- [ ] Move FFT, pitch detection, loudness integration, waveform pyramid, spectrogram bins to worker
-- [ ] Frame bus: switch producer to worker postMessage; consumers unchanged
-- [ ] Transferable buffer pool to avoid per-frame copies
-- [ ] Back-pressure policy (drop with diagnostic counter)
-- [ ] PERF LAB toggle: core main / worker for diagnostic comparison
+- [x] Stand up dedicated Web Worker for live frame feature analysis
+- [x] Route live frame feature computation through worker postMessage; consumers unchanged
+- [x] Transferable buffer pool to avoid per-frame copies
+- [x] Back-pressure policy (drop with diagnostic counter)
+- [x] PERF LAB toggle: core main / worker for diagnostic comparison
+- [ ] Move waveform pyramid, spectrogram history/bins, and deeper loudness integration to worker
 - [ ] OffscreenCanvas for spectrogram (follow-up, optional in this track)
 
 ### Track 4 — Reference / A-B Comparison Workspace (v0.4.0)

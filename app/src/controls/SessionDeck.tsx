@@ -32,6 +32,7 @@ import {
   type ReviewSessionV1,
 } from '../runtime/reviewSession';
 import { CANVAS, COLORS, FONTS, MODES, SPACING } from '../theme';
+import { quietDisabledControlStyle } from './controlVisualStates';
 
 export type SessionStatusTone = 'dim' | 'info' | 'warn' | 'ok';
 
@@ -168,23 +169,26 @@ export function SessionDeck({
     onClick: () => void,
     disabled: boolean,
     title: string,
-  ): React.ReactElement => (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled || busy}
-      title={title}
-      style={{
-        ...buttonStyle,
-        color: disabled ? mode.category : mode.text,
-        borderColor: disabled ? themedSubtle : themedBorder,
-        background: disabled ? 'transparent' : sessionDeckBg(visualMode),
-        opacity: disabled ? 0.55 : 1,
-      }}
-    >
-      {label}
-    </button>
-  );
+  ): React.ReactElement => {
+    const isUnavailable = disabled || busy;
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        disabled={isUnavailable}
+        title={title}
+        style={{
+          ...buttonStyle,
+          color: isUnavailable ? mode.category : mode.text,
+          borderColor: isUnavailable ? themedSubtle : themedBorder,
+          background: isUnavailable ? 'transparent' : sessionDeckBg(visualMode),
+          ...quietDisabledControlStyle(isUnavailable),
+        }}
+      >
+        {label}
+      </button>
+    );
+  };
 
   const pendingLabel = pendingSession
     ? `PENDING: ${pendingSession.source.filename ?? 'unknown source'}`

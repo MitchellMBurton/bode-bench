@@ -12,7 +12,7 @@ import { PRODUCT_EXPORT_SLUG, PRODUCT_NAME } from '../constants';
 import { CANVAS, COLORS, FONTS, SPACING } from '../theme';
 import type { VisualMode } from '../audio/displayMode';
 import type { FileAnalysis, TransportState } from '../types';
-import type { DiagnosticsEntry, PerformanceDiagnosticsSnapshot, PerformanceEvent, PerformanceTraceSample } from '../diagnostics/logStore';
+import type { DiagnosticsEntry, PerformanceAnalysisMode, PerformanceDiagnosticsSnapshot, PerformanceEvent, PerformanceTraceSample } from '../diagnostics/logStore';
 
 interface PerfTheme {
   bg0: string;
@@ -44,7 +44,7 @@ const PERF_THEMES: Record<VisualMode, PerfTheme> = {
     bg0: COLORS.bg0,
     bg1: COLORS.bg1,
     bg2: COLORS.bg2,
-    border: COLORS.border,
+    border: '#4c5e7e',
     buttonBg: COLORS.bg3,
     buttonBorder: COLORS.border,
     buttonColor: COLORS.textSecondary,
@@ -92,7 +92,7 @@ const PERF_THEMES: Record<VisualMode, PerfTheme> = {
     bg0: CANVAS.optic.bg,
     bg1: '#f5fafc',
     bg2: CANVAS.optic.bg2,
-    border: CANVAS.optic.chromeBorder,
+    border: '#7194aa',
     buttonBg: 'rgba(247,250,252,0.94)',
     buttonBorder: 'rgba(109,146,165,0.68)',
     buttonColor: CANVAS.optic.text,
@@ -140,7 +140,7 @@ const PERF_THEMES: Record<VisualMode, PerfTheme> = {
     bg0: CANVAS.hyper.bg,
     bg1: '#04091a',
     bg2: CANVAS.hyper.bg2,
-    border: CANVAS.hyper.chromeBorder,
+    border: 'rgba(62,116,210,0.72)',
     buttonBg: 'rgba(2,5,18,0.9)',
     buttonBorder: 'rgba(40,70,180,0.35)',
     buttonColor: 'rgba(112,180,255,0.5)',
@@ -392,6 +392,15 @@ const PERFORMANCE_PROFILE_OPTIONS: ReadonlyArray<{
   { value: 'auto', label: 'AUTO', detail: 'runtime decides' },
   { value: 'web-safe', label: 'WEB SAFE', detail: 'browser budget' },
   { value: 'desktop-high', label: 'DESKTOP HIGH', detail: 'installed headroom' },
+];
+
+const ANALYSIS_MODE_OPTIONS: ReadonlyArray<{
+  readonly value: PerformanceAnalysisMode;
+  readonly label: string;
+  readonly detail: string;
+}> = [
+  { value: 'worker', label: 'WORKER', detail: 'transfer frame analysis off the UI thread' },
+  { value: 'main-thread', label: 'MAIN', detail: 'run frame analysis on the UI thread for comparison' },
 ];
 
 interface DiagnosticsLogProps {
@@ -850,7 +859,7 @@ const dockedWrapStyle: React.CSSProperties = {
   flexDirection: 'column',
   minHeight: 0,
   flex: '0 0 auto',
-  overflow: 'hidden',
+  overflowY: 'auto',
   borderWidth: 1,
   borderStyle: 'solid',
   borderRadius: 2,
@@ -1060,6 +1069,8 @@ function buildPerformanceExport(snapshot: PerformanceDiagnosticsSnapshot): strin
     `Recoveries   ${snapshot.videoRecoveryCount}`,
     `Wait/Stall   ${snapshot.videoWaitCount} / ${snapshot.videoStallCount}`,
     `Transport    ${snapshot.transportRate.toFixed(2)}x / ${snapshot.pitchSemitones.toFixed(0)} st`,
+    `Analysis     ${snapshot.analysis.mode.toUpperCase()} / ${snapshot.analysis.completedFrames} ok / ${snapshot.analysis.droppedFrames} drop / ${snapshot.analysis.failedFrames} fail`,
+    `Analysis ms  ${formatPerfMs(snapshot.analysis.lastElapsedMs)}`,
     `Trace Span   ${formatTraceSpan(snapshot.trace)}`,
   ];
 
@@ -1076,6 +1087,7 @@ function buildPerformanceExport(snapshot: PerformanceDiagnosticsSnapshot): strin
 
 export function PerformanceDiagnostics({ visualMode = 'default' }: { visualMode?: VisualMode }): React.ReactElement {
   const theme = PERF_THEMES[visualMode];
+  const audioEngine = useAudioEngine();
   const performanceDiagnostics = usePerformanceDiagnosticsStore();
   const performanceProfileStore = usePerformanceProfileStore();
   const performanceProfile = usePerformanceProfile();
@@ -1123,6 +1135,10 @@ export function PerformanceDiagnostics({ visualMode = 'default' }: { visualMode?
     performanceProfileStore.setPreference(next);
   }, [performanceProfileStore]);
 
+  const onSetAnalysisMode = useCallback((next: PerformanceAnalysisMode) => {
+    audioEngine.setAnalysisRuntimeMode(next);
+  }, [audioEngine]);
+
   const healthColor =
     health.tone === 'warn'
       ? COLORS.statusWarn
@@ -1130,7 +1146,7 @@ export function PerformanceDiagnostics({ visualMode = 'default' }: { visualMode?
         ? theme.textPrimary
         : theme.textSecondary;
 
-  const panelStyle: React.CSSProperties = { ...perfPanelStyle, background: theme.bg1, border: `1px solid ${theme.border}` };
+  const panelStyle: React.CSSProperties = { ...perfPanelStyle, background: theme.bg1, border: `2px solid ${theme.border}` };
   const sectionTitleStyle: React.CSSProperties = { ...perfSectionTitleStyle, color: theme.textCategory };
   const perfActionButtonStyle: React.CSSProperties = {
     ...actionButtonStyle,
@@ -1147,7 +1163,7 @@ export function PerformanceDiagnostics({ visualMode = 'default' }: { visualMode?
 
   return (
     <div style={{ ...perfWrapStyle, background: theme.bg0 }}>
-      <div style={{ ...perfHeaderStyle, borderBottom: `1px solid ${theme.border}` }}>
+      <div style={{ ...perfHeaderStyle, borderBottom: `2px solid ${theme.border}` }}>
         <div style={perfHeaderTextStyle}>
           <div style={{ ...perfEyebrowStyle, color: theme.textCategory }}>PERF LAB / INTERNAL TELEMETRY</div>
           <div style={{ ...perfHealthTitleStyle, color: healthColor }}>{health.title}</div>
@@ -1161,7 +1177,7 @@ export function PerformanceDiagnostics({ visualMode = 'default' }: { visualMode?
         </div>
       </div>
 
-      <div style={{ ...perfProfileRailStyle, background: theme.bg1, border: `1px solid ${theme.border}` }}>
+      <div style={{ ...perfProfileRailStyle, background: theme.bg1, border: `2px solid ${theme.border}` }}>
         <div style={perfProfileSummaryStyle}>
           <div style={sectionTitleStyle}>PERFORMANCE PROFILE</div>
           <div style={{ ...perfProfileActiveStyle, color: theme.textPrimary }}>
@@ -1181,6 +1197,36 @@ export function PerformanceDiagnostics({ visualMode = 'default' }: { visualMode?
                 ...(performanceProfile.preference === option.value ? perfActionButtonActiveStyle : {}),
               }}
               onClick={() => onSetProfilePreference(option.value)}
+              title={option.detail}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ ...perfProfileRailStyle, background: theme.bg1, border: `2px solid ${theme.border}` }}>
+        <div style={perfProfileSummaryStyle}>
+          <div style={sectionTitleStyle}>ANALYSIS CORE</div>
+          <div style={{ ...perfProfileActiveStyle, color: theme.textPrimary }}>
+            {snapshot.analysis.mode.toUpperCase()}
+            <span style={{ ...perfProfileMetaStyle, color: theme.textCategory }}>
+              {snapshot.analysis.completedFrames} OK / {snapshot.analysis.droppedFrames} DROP / {snapshot.analysis.failedFrames} FAIL
+            </span>
+          </div>
+          <div style={{ ...perfProfileDetailStyle, color: theme.textSecondary }}>
+            {snapshot.analysis.lastError ?? `last slice ${formatPerfMs(snapshot.analysis.lastElapsedMs)}`}
+          </div>
+        </div>
+        <div style={perfProfileButtonGroupStyle}>
+          {ANALYSIS_MODE_OPTIONS.map((option) => (
+            <button
+              key={option.value}
+              style={{
+                ...perfActionButtonStyle,
+                ...(snapshot.analysis.mode === option.value ? perfActionButtonActiveStyle : {}),
+              }}
+              onClick={() => onSetAnalysisMode(option.value)}
               title={option.detail}
             >
               {option.label}
@@ -1215,6 +1261,12 @@ export function PerformanceDiagnostics({ visualMode = 'default' }: { visualMode?
           tone={snapshot.lastLoad && snapshot.lastLoad.totalMs >= 1200 ? 'warn' : snapshot.lastLoad && snapshot.lastLoad.totalMs >= 900 ? 'info' : 'dim'}
         />
         <PerformanceStatCard theme={theme}
+          label="ANALYSIS"
+          value={snapshot.analysis.mode.toUpperCase()}
+          detail={`${snapshot.analysis.completedFrames} ok / ${snapshot.analysis.droppedFrames} drop / ${formatPerfMs(snapshot.analysis.lastElapsedMs)}`}
+          tone={snapshot.analysis.failedFrames > 0 || snapshot.analysis.invalidResponses > 0 ? 'warn' : snapshot.analysis.droppedFrames > 0 ? 'info' : 'dim'}
+        />
+        <PerformanceStatCard theme={theme}
           label="PROFILE"
           value={performanceProfile.label}
           detail={`${performanceProfile.runtimeKind.toUpperCase()} / ${performanceProfile.preference.toUpperCase()}`}
@@ -1228,26 +1280,29 @@ export function PerformanceDiagnostics({ visualMode = 'default' }: { visualMode?
         />
       </div>
 
-      <PerformanceTracePanel samples={traceSamples} events={snapshot.recentEvents} theme={theme} />
+      <div style={perfDetailScrollStyle}>
+        <PerformanceTracePanel samples={traceSamples} events={snapshot.recentEvents} theme={theme} />
 
-      <div style={perfBodyStyle}>
-        <div style={panelStyle}>
-          <div style={sectionTitleStyle}>PRESSURE MAP</div>
-          <PerformanceMeter theme={theme} label="UI P95" value={snapshot.uiFrameP95Ms} max={40} detail={formatPerfMs(snapshot.uiFrameP95Ms)} tone={snapshot.uiFrameP95Ms >= 24 ? 'warn' : 'dim'} />
-          <PerformanceMeter theme={theme} label="JANK" value={snapshot.uiJankPercent} max={30} detail={`${snapshot.uiJankPercent.toFixed(1)}%`} tone={snapshot.uiJankPercent >= 14 ? 'warn' : 'dim'} />
-          <PerformanceMeter theme={theme} label="DRIFT" value={Math.abs(snapshot.videoDriftMs)} max={240} detail={formatPerfSignedMs(snapshot.videoDriftMs)} tone={Math.abs(snapshot.videoDriftMs) >= 90 ? 'warn' : snapshot.videoCatchupActive ? 'info' : 'dim'} />
-          <PerformanceMeter theme={theme} label="LONG TASK" value={snapshot.lastLongTaskMs ?? 0} max={120} detail={snapshot.lastLongTaskMs !== null ? formatPerfMs(snapshot.lastLongTaskMs, 0) : '--'} tone={(snapshot.lastLongTaskMs ?? 0) >= 40 ? 'warn' : 'dim'} />
-          <PerformanceMeter theme={theme} label="LOAD" value={snapshot.lastLoad?.totalMs ?? 0} max={2400} detail={snapshot.lastLoad ? `${snapshot.lastLoad.totalMs.toFixed(0)} ms` : '--'} tone={snapshot.lastLoad && snapshot.lastLoad.totalMs >= 1200 ? 'warn' : snapshot.lastLoad && snapshot.lastLoad.totalMs >= 900 ? 'info' : 'dim'} />
-        </div>
+        <div style={perfBodyStyle}>
+          <div style={panelStyle}>
+            <div style={sectionTitleStyle}>PRESSURE MAP</div>
+            <PerformanceMeter theme={theme} label="UI P95" value={snapshot.uiFrameP95Ms} max={40} detail={formatPerfMs(snapshot.uiFrameP95Ms)} tone={snapshot.uiFrameP95Ms >= 24 ? 'warn' : 'dim'} />
+            <PerformanceMeter theme={theme} label="JANK" value={snapshot.uiJankPercent} max={30} detail={`${snapshot.uiJankPercent.toFixed(1)}%`} tone={snapshot.uiJankPercent >= 14 ? 'warn' : 'dim'} />
+            <PerformanceMeter theme={theme} label="DRIFT" value={Math.abs(snapshot.videoDriftMs)} max={240} detail={formatPerfSignedMs(snapshot.videoDriftMs)} tone={Math.abs(snapshot.videoDriftMs) >= 90 ? 'warn' : snapshot.videoCatchupActive ? 'info' : 'dim'} />
+            <PerformanceMeter theme={theme} label="LONG TASK" value={snapshot.lastLongTaskMs ?? 0} max={120} detail={snapshot.lastLongTaskMs !== null ? formatPerfMs(snapshot.lastLongTaskMs, 0) : '--'} tone={(snapshot.lastLongTaskMs ?? 0) >= 40 ? 'warn' : 'dim'} />
+            <PerformanceMeter theme={theme} label="LOAD" value={snapshot.lastLoad?.totalMs ?? 0} max={2400} detail={snapshot.lastLoad ? `${snapshot.lastLoad.totalMs.toFixed(0)} ms` : '--'} tone={snapshot.lastLoad && snapshot.lastLoad.totalMs >= 1200 ? 'warn' : snapshot.lastLoad && snapshot.lastLoad.totalMs >= 900 ? 'info' : 'dim'} />
+            <PerformanceMeter theme={theme} label="ANALYSIS" value={snapshot.analysis.lastElapsedMs ?? 0} max={24} detail={formatPerfMs(snapshot.analysis.lastElapsedMs)} tone={snapshot.analysis.failedFrames > 0 ? 'warn' : snapshot.analysis.droppedFrames > 0 ? 'info' : 'dim'} />
+          </div>
 
-        <div style={panelStyle}>
-          <div style={sectionTitleStyle}>RECENT SIGNALS</div>
-          <div style={{ ...perfEventsStyle, background: theme.bg2, border: `1px solid ${theme.border}` }}>
-            {recentEvents.length === 0 ? (
-              <div style={{ ...perfEmptyStyle, color: theme.textDim }}>Open this panel, reproduce the stutter, and the runtime trace will collect the last few important signals here.</div>
-            ) : (
-              recentEvents.map((event) => <PerformanceEventLine key={event.id} event={event} theme={theme} />)
-            )}
+          <div style={panelStyle}>
+            <div style={sectionTitleStyle}>RECENT SIGNALS</div>
+            <div style={{ ...perfEventsStyle, background: theme.bg2, border: `1px solid ${theme.border}` }}>
+              {recentEvents.length === 0 ? (
+                <div style={{ ...perfEmptyStyle, color: theme.textDim }}>Open this panel, reproduce the stutter, and the runtime trace will collect the last few important signals here.</div>
+              ) : (
+                recentEvents.map((event) => <PerformanceEventLine key={event.id} event={event} theme={theme} />)
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -1329,6 +1384,9 @@ function classifyTraceEvent(event: PerformanceEvent): {
   if (event.source === 'load') {
     return { label: 'LOAD', laneIndex: 3, tone: event.tone };
   }
+  if (event.source === 'analysis') {
+    return { label: 'ANL', laneIndex: 2, tone: event.tone };
+  }
   if (event.source === 'ui' && text.includes('long task')) {
     return { label: 'TASK', laneIndex: 2, tone: event.tone };
   }
@@ -1366,7 +1424,7 @@ function PerformanceTracePanel({
   const latest = samples[samples.length - 1] ?? null;
   const spanLabel = formatTraceSpan(samples);
 
-  const tracePanelStyle: React.CSSProperties = { ...perfPanelStyle, background: theme.bg1, border: `1px solid ${theme.border}` };
+  const tracePanelStyle: React.CSSProperties = { ...perfPanelStyle, background: theme.bg1, border: `2px solid ${theme.border}` };
 
   if (samples.length < 2 || !latest) {
     return (
@@ -1670,7 +1728,7 @@ const perfWrapStyle: React.CSSProperties = {
   gap: SPACING.sm,
   height: '100%',
   minHeight: 0,
-  overflowY: 'auto',
+  overflow: 'hidden',
   padding: `${SPACING.md}px ${SPACING.lg}px ${SPACING.sm}px`,
   boxSizing: 'border-box',
   background: COLORS.bg0,
@@ -1785,8 +1843,18 @@ const perfCardGridStyle: React.CSSProperties = {
   flexShrink: 0,
 };
 
+const perfDetailScrollStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: SPACING.sm,
+  flex: 1,
+  minHeight: 0,
+  overflowY: 'auto',
+  paddingRight: 2,
+};
+
 const perfCardStyle: React.CSSProperties = {
-  borderWidth: 1,
+  borderWidth: 2,
   borderStyle: 'solid',
   borderColor: COLORS.border,
   background: COLORS.bg2,
@@ -1916,4 +1984,3 @@ const perfEmptyStyle: React.CSSProperties = {
   lineHeight: 1.6,
   letterSpacing: '0.03em',
 };
-

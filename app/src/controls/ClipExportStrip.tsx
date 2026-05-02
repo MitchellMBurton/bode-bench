@@ -34,6 +34,7 @@ import {
 import { CANVAS, COLORS, FONTS, SPACING } from '../theme';
 import type { ClipExportTuning, MediaQualityMode, RangeMark } from '../types';
 import { formatTransportTime } from '../utils/format';
+import { quietDisabledControlStyle } from './controlVisualStates';
 
 interface Props {
   sessionFilename: string;
@@ -1043,6 +1044,7 @@ export function ClipExportStrip({
                   color: exportBusy ? theme.dim : theme.text,
                   borderColor: exportBusy ? theme.border : theme.accentBorder,
                   background: exportBusy ? theme.buttonBg : theme.buttonActiveBg,
+                  ...quietDisabledControlStyle(exportBusy),
                 }}
                 disabled={exportBusy}
                 onClick={() => void onResolveSource()}
@@ -1132,6 +1134,7 @@ export function ClipExportStrip({
                       color: modeDisabled ? theme.dim : theme.text,
                       borderColor: modeDisabled ? theme.border : active ? theme.accentBorder : theme.border,
                       background: modeDisabled ? theme.buttonBg : theme.buttonActiveBg,
+                      ...quietDisabledControlStyle(modeDisabled),
                     }}
                     disabled={modeDisabled}
                     onClick={() => void onStartExport(qualityMode)}
@@ -1163,7 +1166,7 @@ export function ClipExportStrip({
                   color: tuningDisabled ? theme.dim : theme.text,
                   borderColor: includeCurrentTuning ? theme.accentBorder : theme.border,
                   background: includeCurrentTuning ? theme.buttonActiveBg : theme.buttonBg,
-                  opacity: tuningDisabled ? 0.7 : 1,
+                  ...quietDisabledControlStyle(tuningDisabled),
                 }}
                 disabled={tuningDisabled}
                 onClick={() => {
@@ -1197,7 +1200,13 @@ export function ClipExportStrip({
       <div style={actionRowStyle}>
         <button
           type="button"
-          style={{ ...actionButtonStyle, color: selectedRange ? theme.text : theme.dim, borderColor: theme.border, background: theme.buttonBg }}
+          style={{
+            ...actionButtonStyle,
+            color: selectedRange ? theme.text : theme.dim,
+            borderColor: theme.border,
+            background: theme.buttonBg,
+            ...quietDisabledControlStyle(!selectedRange),
+          }}
           disabled={!selectedRange}
           onClick={onAuditionRange}
           title="Audition the selected clip by looping it"
