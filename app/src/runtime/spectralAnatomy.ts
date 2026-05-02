@@ -9,6 +9,7 @@ type Listener = () => void;
 const HISTORY_MAX = 1200;
 const BASE_SCROLL_PX = CANVAS.timelineScrollPx;
 const LUFS_FLOOR = -60;
+const LUFS_DISPLAY_FLOOR = -59.5;
 const MOMENTARY_FRAMES = 8;
 const SHORT_TERM_FRAMES = 60;
 const ABS_GATE_LUFS = -70;
@@ -216,6 +217,14 @@ export class SpectralAnatomyStore {
 
   get truePeakHoldDb(): number {
     return this.truePeakDb;
+  }
+
+  getLatestMomentaryLufs(): number | null {
+    if (this.historyLen <= 0 || this.lufsValues.length <= 0) return null;
+    const index = (this.historyPtr - 1 + this.lufsValues.length) % this.lufsValues.length;
+    const value = this.lufsValues[index];
+    if (!Number.isFinite(value) || value <= LUFS_DISPLAY_FLOOR) return null;
+    return value;
   }
 
   private handleFrame(frame: AudioFrame): void {

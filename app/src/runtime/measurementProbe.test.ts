@@ -58,10 +58,9 @@ describe('buildLiveMeasurementProbe', () => {
   });
 
   it('formats valid frame and loudness measurements', () => {
-    const loudnessHistory = new Float64Array([-18.4, -12.7, -20]);
     const probe = buildLiveMeasurementProbe(
       makeFrame({ peakLeft: 0.25, peakRight: 0.125, phaseCorrelation: 0.9 }),
-      { loudnessHistory, ptr: 2, len: 2 },
+      -12.7,
       29.75,
     );
 
@@ -86,11 +85,9 @@ describe('buildLiveMeasurementProbe', () => {
     expect(probe.band).toBe('BAND Mid');
   });
 
-  it('treats missing or silent loudness history as unavailable', () => {
-    const missing = buildLiveMeasurementProbe(makeFrame(), { loudnessHistory: new Float64Array(3), ptr: 0, len: 0 }, 0);
-    const silent = buildLiveMeasurementProbe(makeFrame(), { loudnessHistory: new Float64Array([-60]), ptr: 1, len: 1 }, 0);
+  it('treats missing loudness as unavailable', () => {
+    const missing = buildLiveMeasurementProbe(makeFrame(), null, 0);
 
     expect(missing.momentaryLufs).toBe('M --');
-    expect(silent.momentaryLufs).toBe('M --');
   });
 });

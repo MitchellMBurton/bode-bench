@@ -49,7 +49,11 @@ export function MeasurementProbeRibbon({
 
   const publishSnapshot = useCallback((): void => {
     lastPublishedAtRef.current = performance.now();
-    setSnapshot(buildLiveMeasurementProbe(frameRef.current, spectralAnatomy, transportTimeRef.current));
+    setSnapshot(buildLiveMeasurementProbe(
+      frameRef.current,
+      spectralAnatomy.getLatestMomentaryLufs(),
+      transportTimeRef.current,
+    ));
   }, [spectralAnatomy]);
 
   const scheduleSnapshot = useCallback((): void => {

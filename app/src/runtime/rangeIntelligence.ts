@@ -35,7 +35,6 @@ const MAX_SAMPLES = 24000;
 const EMIT_INTERVAL_MS = 250;
 const MAX_CONTIGUOUS_STEP_S = 0.5;
 const PITCH_CONFIDENCE_MIN = 0.45;
-const LUFS_SILENCE_FLOOR = -59.5;
 
 export class RangeIntelligenceStore {
   private listeners = new Set<Listener>();
@@ -94,7 +93,7 @@ export class RangeIntelligenceStore {
       timeS: frame.currentTime,
       fileId: frame.fileId,
       peakDb: levelToDb(Math.max(frame.peakLeft, frame.peakRight)),
-      momentaryLufs: getLatestMomentaryLufs(this.spectralAnatomy),
+      momentaryLufs: this.spectralAnatomy.getLatestMomentaryLufs(),
       f0Hz: frame.f0Hz !== null && frame.f0Confidence > PITCH_CONFIDENCE_MIN ? frame.f0Hz : null,
       centroidHz: frame.spectralCentroid,
       phaseCorrelation: frame.phaseCorrelation,
@@ -283,14 +282,6 @@ function strongestBandIndex(frame: AudioFrame): number | null {
     }
   }
   return bestIndex !== null && bestDb > CANVAS.dbMin + 1 ? bestIndex : null;
-}
-
-function getLatestMomentaryLufs(spectralAnatomy: SpectralAnatomyStore): number | null {
-  if (spectralAnatomy.len <= 0 || spectralAnatomy.loudnessHistory.length <= 0) return null;
-  const index = (spectralAnatomy.ptr - 1 + spectralAnatomy.loudnessHistory.length) % spectralAnatomy.loudnessHistory.length;
-  const value = spectralAnatomy.loudnessHistory[index];
-  if (!Number.isFinite(value) || value <= LUFS_SILENCE_FLOOR) return null;
-  return value;
 }
 
 function formatDuration(durationS: number): string {

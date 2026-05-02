@@ -91,11 +91,13 @@ describe('SpectralAnatomyStore', () => {
       frameBus.publish(createFrame(0.3, i / 20, 1));
     }
     expect(store.hasIntegratedValue).toBe(true);
+    expect(store.getLatestMomentaryLufs()).not.toBeNull();
 
     audioEngine.emitReset();
 
     expect(store.hasIntegratedValue).toBe(false);
     expect(store.integratedValueLufs).toBe(-60);
+    expect(store.getLatestMomentaryLufs()).toBeNull();
 
     store.destroy();
   });

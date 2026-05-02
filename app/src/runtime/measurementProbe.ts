@@ -23,26 +23,19 @@ export interface MeasurementProbeSnapshot {
   readonly fields: readonly MeasurementProbeField[];
 }
 
-export interface MeasurementProbeLoudnessSource {
-  readonly loudnessHistory: ArrayLike<number>;
-  readonly ptr: number;
-  readonly len: number;
-}
-
 const PITCH_CONFIDENCE_MIN = 0.45;
-const LUFS_SILENCE_FLOOR = -59.5;
 const EMPTY_VALUE = '--';
 
 export function buildLiveMeasurementProbe(
   frame: AudioFrame | null,
-  loudness: MeasurementProbeLoudnessSource | null,
+  momentaryLufsValue: number | null,
   transportTimeS: number | null,
 ): MeasurementProbeSnapshot {
   const time = formatProbeTime(transportTimeS);
   const levels = formatStereoPeakDb(frame, 'full');
   const compactLevels = formatStereoPeakDb(frame, 'compact');
-  const momentaryLufs = formatMomentaryLufs(latestMomentaryLufs(loudness), 'full');
-  const compactMomentaryLufs = formatMomentaryLufs(latestMomentaryLufs(loudness), 'compact');
+  const momentaryLufs = formatMomentaryLufs(momentaryLufsValue, 'full');
+  const compactMomentaryLufs = formatMomentaryLufs(momentaryLufsValue, 'compact');
   const f0 = formatF0(frame, 'full');
   const compactF0 = formatF0(frame, 'compact');
   const centroid = formatCentroid(frame, 'full');
@@ -119,14 +112,6 @@ function formatHzNumber(hz: number, density: 'full' | 'compact'): string {
   if (!Number.isFinite(hz) || hz <= 0) return EMPTY_VALUE;
   if (density === 'compact' && hz >= 1000) return `${(hz / 1000).toFixed(1)}k`;
   return `${Math.round(hz)}${density === 'full' ? ' Hz' : ''}`;
-}
-
-function latestMomentaryLufs(source: MeasurementProbeLoudnessSource | null): number | null {
-  if (!source || source.len <= 0 || source.loudnessHistory.length <= 0) return null;
-  const index = (source.ptr - 1 + source.loudnessHistory.length) % source.loudnessHistory.length;
-  const value = source.loudnessHistory[index];
-  if (!Number.isFinite(value) || value <= LUFS_SILENCE_FLOOR) return null;
-  return value;
 }
 
 function strongestBand(frame: AudioFrame): string | null {
