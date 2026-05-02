@@ -74,6 +74,7 @@ Owns:
 - review ranges
 - selected clip state
 - export preset mapping
+- clip export manifest sidecars
 - source relink behavior
 - desktop job lifecycle for clip export
 
@@ -166,6 +167,7 @@ The desktop layer should own:
 - ffmpeg and ffprobe access
 - temp files
 - export process management
+- export manifest sidecar writing
 - reveal/open-folder behavior
 
 The React frontend should own:

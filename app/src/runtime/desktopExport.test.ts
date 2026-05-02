@@ -16,6 +16,26 @@ const START_REQUEST: StartClipExportRequest = {
   qualityMode: 'copy-fast',
   destinationPath: 'C:/exports/clip.mp4',
   tuning: null,
+  manifest: {
+    jobId: 'job-1',
+    sourceAssetId: 'source-mov:120.000',
+    label: 'R1 FAST REVIEW',
+    rangeLabel: 'R1',
+    rangeNote: null,
+    preset: {
+      id: 'video-copy-fast',
+      label: 'FAST REVIEW',
+      container: 'mp4',
+      audioCodec: 'aac',
+      videoCodec: 'libx264',
+      qualityMode: 'copy-fast',
+    },
+    processor: {
+      kind: 'ffmpeg',
+      name: 'ffmpeg',
+      version: 'ffmpeg version 8.1',
+    },
+  },
 };
 
 describe('desktopExport', () => {
@@ -38,7 +58,11 @@ describe('desktopExport', () => {
     invoke
       .mockResolvedValueOnce({ status: 'queued', progress_percent: 5, message: 'Queued export...' })
       .mockResolvedValueOnce({ status: 'running', progress_percent: 48, message: 'Exporting 48%' })
-      .mockResolvedValueOnce({ status: 'completed', output_path: 'C:/exports/clip.mp4' })
+      .mockResolvedValueOnce({
+        status: 'completed',
+        output_path: 'C:/exports/clip.mp4',
+        manifest_path: 'C:/exports/clip.mp4.manifest.json',
+      })
       .mockResolvedValueOnce({ status: 'failed', error_text: 'boom' });
 
     await expect(getClipExportStatus('job-1')).resolves.toEqual({
@@ -54,6 +78,8 @@ describe('desktopExport', () => {
     await expect(getClipExportStatus('job-1')).resolves.toEqual({
       status: 'completed',
       outputPath: 'C:/exports/clip.mp4',
+      manifestPath: 'C:/exports/clip.mp4.manifest.json',
+      manifestError: null,
     });
     await expect(getClipExportStatus('job-1')).resolves.toEqual({
       status: 'failed',
@@ -175,6 +201,8 @@ describe('desktopExport', () => {
     await expect(getClipExportStatus('job-2')).resolves.toEqual({
       status: 'completed',
       outputPath: null,
+      manifestPath: null,
+      manifestError: null,
     });
     expect(resolveClipExportOutputPath(null, 'C:/exports/clip.mp4')).toBe('C:/exports/clip.mp4');
     expect(resolveClipExportOutputPath('C:/exports/real.mp4', 'C:/exports/fallback.mp4')).toBe('C:/exports/real.mp4');

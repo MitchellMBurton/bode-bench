@@ -1,4 +1,5 @@
 import type {
+  ClipExportManifestSeed,
   ClipExportTuning,
   ExportPreset,
   MediaJobSpec,
@@ -226,6 +227,7 @@ export function createClipExportJobSpec(options: {
   sourceKind: SourceKind;
   qualityMode: MediaQualityMode;
   tuning: ClipExportTuning | null;
+  processorVersion?: string | null;
 }): Extract<MediaJobSpec, { kind: 'clip-export' }> {
   const preset = getQuickClipExportPreset(options.sourceKind, options.qualityMode);
   const mode = getQuickClipExportModeDescriptor(options.sourceKind, options.qualityMode);
@@ -245,7 +247,23 @@ export function createClipExportJobSpec(options: {
     processor: {
       kind: 'ffmpeg',
       name: 'ffmpeg',
-      version: null,
+      version: options.processorVersion ?? null,
     },
+  };
+}
+
+export function createClipExportManifestSeed(options: {
+  jobId: string;
+  spec: Extract<MediaJobSpec, { kind: 'clip-export' }>;
+  range: RangeMark;
+}): ClipExportManifestSeed {
+  return {
+    jobId: options.jobId,
+    sourceAssetId: options.spec.sourceAssetId,
+    label: options.spec.label,
+    rangeLabel: options.range.label,
+    rangeNote: options.range.note ?? null,
+    preset: options.spec.preset,
+    processor: options.spec.processor,
   };
 }

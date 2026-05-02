@@ -179,6 +179,16 @@ export interface ClipExportTuning {
   readonly pitchSemitones: number;
 }
 
+export interface ClipExportManifestSeed {
+  readonly jobId: string;
+  readonly sourceAssetId: string;
+  readonly label: string;
+  readonly rangeLabel: string;
+  readonly rangeNote: string | null;
+  readonly preset: ExportPreset;
+  readonly processor: ProcessorDescriptor;
+}
+
 export interface RepairRecipe {
   readonly id: string;
   readonly label: string;

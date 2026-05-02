@@ -21,6 +21,7 @@ import {
 } from '../runtime/desktopExport';
 import {
   buildSuggestedClipExportFilename,
+  createClipExportManifestSeed,
   createClipExportJobSpec,
   getQuickClipExportModeDescriptor,
   type SourceKind,
@@ -32,7 +33,7 @@ import {
   rememberSourcePath,
 } from '../runtime/exportStorage';
 import { CANVAS, COLORS, FONTS, SPACING } from '../theme';
-import type { ClipExportTuning, MediaQualityMode, RangeMark } from '../types';
+import type { ClipExportTuning, DerivedArtifact, MediaQualityMode, RangeMark } from '../types';
 import { formatTransportTime } from '../utils/format';
 import { quietDisabledControlStyle } from './controlVisualStates';
 
@@ -502,31 +503,48 @@ export function ClipExportStrip({
             return;
           case 'completed':
             setRunningProgress(null);
-            rememberExportFolder(resolveClipExportOutputPath(status.outputPath, phase.destinationPath));
-            derivedMedia.completeJob(phase.recordId, {
-              artifacts: [
+            {
+              const outputPath = resolveClipExportOutputPath(status.outputPath, phase.destinationPath);
+              const completedAtMs = Date.now();
+              const artifacts: DerivedArtifact[] = [
                 {
                   id: `${phase.recordId}-media`,
                   role: 'media',
-                  path: resolveClipExportOutputPath(status.outputPath, phase.destinationPath),
+                  path: outputPath,
                   sha256: null,
-                  createdAtMs: Date.now(),
+                  createdAtMs: completedAtMs,
                 },
-              ],
-              metrics: {
-                durationS: phase.range.endS - phase.range.startS,
-              },
-            });
-            diagnosticsLog.push(
-              `export complete ${resolveClipExportOutputPath(status.outputPath, phase.destinationPath)}`,
-              'info',
-              'transport',
-            );
-            setPhase({
-              kind: 'done',
-              outputPath: resolveClipExportOutputPath(status.outputPath, phase.destinationPath),
-              qualityMode: phase.qualityMode,
-            });
+              ];
+              if (status.manifestPath) {
+                artifacts.push({
+                  id: `${phase.recordId}-manifest`,
+                  role: 'manifest',
+                  path: status.manifestPath,
+                  sha256: null,
+                  createdAtMs: completedAtMs,
+                });
+              }
+
+              rememberExportFolder(outputPath);
+              derivedMedia.completeJob(phase.recordId, {
+                artifacts,
+                metrics: {
+                  durationS: phase.range.endS - phase.range.startS,
+                },
+              });
+              diagnosticsLog.push(`export complete ${outputPath}`, 'info', 'transport');
+              if (status.manifestPath) {
+                diagnosticsLog.push(`export manifest ${status.manifestPath}`, 'dim', 'transport');
+              }
+              if (status.manifestError) {
+                diagnosticsLog.push(`export manifest failed ${status.manifestError}`, 'warn', 'transport');
+              }
+              setPhase({
+                kind: 'done',
+                outputPath,
+                qualityMode: phase.qualityMode,
+              });
+            }
             return;
           case 'failed': {
             setRunningProgress(null);
@@ -634,6 +652,7 @@ export function ClipExportStrip({
         return _exhaustive;
       }
     }
+    const toolReport = tools.report;
 
     assert(sessionDurationS > 0, 'session duration must be positive');
     if (!effectiveSourcePath) {
@@ -674,14 +693,16 @@ export function ClipExportStrip({
         pitchAvailable: transportTuning.pitchAvailable,
       });
 
-      const job = derivedMedia.enqueueJob(createClipExportJobSpec({
+      const jobSpec = createClipExportJobSpec({
         filename: sessionFilename,
         durationS: sessionDurationS,
         range: selectedRange,
         sourceKind,
         qualityMode,
         tuning: tuningSnapshot,
-      }));
+        processorVersion: toolReport.ffmpegVersion,
+      });
+      const job = derivedMedia.enqueueJob(jobSpec);
       recordId = job.id;
 
       const { jobId } = await startClipExport({
@@ -692,6 +713,11 @@ export function ClipExportStrip({
         qualityMode,
         destinationPath: destination.path,
         tuning: tuningSnapshot,
+        manifest: createClipExportManifestSeed({
+          jobId: job.id,
+          spec: jobSpec,
+          range: selectedRange,
+        }),
       });
 
       derivedMedia.markJobRunning(job.id, 0, `Exporting ${selectedRange.label}...`);

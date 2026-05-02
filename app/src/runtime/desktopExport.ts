@@ -1,4 +1,4 @@
-import type { ClipExportTuning, MediaQualityMode } from '../types';
+import type { ClipExportManifestSeed, ClipExportTuning, MediaQualityMode } from '../types';
 import type { SourceKind } from './exportPresets';
 
 interface TauriInvokeBridge {
@@ -56,6 +56,7 @@ export interface StartClipExportRequest {
   readonly qualityMode: MediaQualityMode;
   readonly destinationPath: string;
   readonly tuning: ClipExportTuning | null;
+  readonly manifest: ClipExportManifestSeed;
 }
 
 export interface StartClipExportResponse {
@@ -65,7 +66,7 @@ export interface StartClipExportResponse {
 export type ClipExportStatus =
   | { status: 'queued'; progressPercent: number; message: string }
   | { status: 'running'; progressPercent: number; message: string }
-  | { status: 'completed'; outputPath: string | null }
+  | { status: 'completed'; outputPath: string | null; manifestPath: string | null; manifestError: string | null }
   | { status: 'failed'; errorText: string }
   | { status: 'canceled' };
 
@@ -147,6 +148,8 @@ function normalizeClipExportStatus(raw: unknown): ClipExportStatus {
       return {
         status,
         outputPath: getStringValue(object, 'outputPath', 'output_path'),
+        manifestPath: getStringValue(object, 'manifestPath', 'manifest_path'),
+        manifestError: getStringValue(object, 'manifestError', 'manifest_error'),
       };
     case 'failed':
       return {

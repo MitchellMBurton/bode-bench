@@ -6,28 +6,28 @@ use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use tauri::{Manager, State};
 use tauri_plugin_log::{RotationStrategy, Target, TargetKind, TimezoneStrategy};
 
 type JobHandle = Arc<Mutex<ClipExportJob>>;
 
-#[derive(Clone, Copy, serde::Deserialize)]
+#[derive(Clone, Copy, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "lowercase")]
 enum SourceKind {
   Audio,
   Video,
 }
 
-#[derive(Clone, Copy, serde::Deserialize)]
+#[derive(Clone, Copy, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "kebab-case")]
 enum QualityMode {
   CopyFast,
   ExactMaster,
 }
 
-#[derive(Clone, serde::Deserialize)]
+#[derive(Clone, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ExportTuning {
   volume: f64,
@@ -68,6 +68,78 @@ enum ExportToolStatus {
   },
 }
 
+#[derive(Clone, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ExportPresetManifest {
+  id: String,
+  label: String,
+  container: String,
+  audio_codec: Option<String>,
+  video_codec: Option<String>,
+  quality_mode: QualityMode,
+}
+
+#[derive(Clone, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ProcessorManifest {
+  kind: String,
+  name: String,
+  version: Option<String>,
+}
+
+#[derive(Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ClipExportManifestSeed {
+  job_id: String,
+  source_asset_id: String,
+  label: String,
+  range_label: String,
+  range_note: Option<String>,
+  preset: ExportPresetManifest,
+  processor: ProcessorManifest,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ClipExportManifestRange {
+  label: String,
+  note: Option<String>,
+  start_s: f64,
+  end_s: f64,
+  duration_s: f64,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ClipExportManifestArtifact {
+  id: String,
+  role: String,
+  path: String,
+  sha256: Option<String>,
+  created_at_ms: u64,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ClipExportManifest {
+  schema: &'static str,
+  version: u8,
+  job_id: String,
+  desktop_job_id: String,
+  label: String,
+  source_asset_id: String,
+  source_path: String,
+  source_kind: SourceKind,
+  range: ClipExportManifestRange,
+  quality_mode: QualityMode,
+  tuning: Option<ExportTuning>,
+  preset: ExportPresetManifest,
+  processor: ProcessorManifest,
+  tool_report: ExportToolReport,
+  completed_at_ms: u64,
+  artifacts: Vec<ClipExportManifestArtifact>,
+}
+
 #[derive(serde::Serialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 enum PickClipExportDestinationResult {
@@ -91,6 +163,10 @@ enum ClipExportStatus {
   Completed {
     #[serde(rename = "outputPath")]
     output_path: String,
+    #[serde(rename = "manifestPath")]
+    manifest_path: Option<String>,
+    #[serde(rename = "manifestError")]
+    manifest_error: Option<String>,
   },
   Failed {
     #[serde(rename = "errorText")]
@@ -150,6 +226,7 @@ struct StartClipExportRequest {
   quality_mode: QualityMode,
   destination_path: String,
   tuning: Option<ExportTuning>,
+  manifest: ClipExportManifestSeed,
 }
 
 #[derive(serde::Serialize)]
@@ -430,6 +507,79 @@ fn build_ffmpeg_args(request: &StartClipExportRequest) -> Result<Vec<OsString>, 
   }
 
   Ok(args)
+}
+
+const CLIP_EXPORT_MANIFEST_SCHEMA: &str = "bode-bench.clip-export-manifest";
+
+fn current_time_ms() -> u64 {
+  SystemTime::now()
+    .duration_since(UNIX_EPOCH)
+    .map(|duration| duration.as_millis() as u64)
+    .unwrap_or(0)
+}
+
+fn clip_export_manifest_path(output_path: &str) -> PathBuf {
+  PathBuf::from(format!("{output_path}.manifest.json"))
+}
+
+fn build_clip_export_manifest(
+  desktop_job_id: &str,
+  request: &StartClipExportRequest,
+  tool_report: &ExportToolReport,
+  completed_at_ms: u64,
+) -> Result<ClipExportManifest, String> {
+  let duration_s = clip_duration_seconds(request)?;
+  let seed = &request.manifest;
+  let mut processor = seed.processor.clone();
+  processor.kind = "ffmpeg".into();
+  processor.name = "ffmpeg".into();
+  processor.version = Some(tool_report.ffmpeg_version.clone());
+
+  Ok(ClipExportManifest {
+    schema: CLIP_EXPORT_MANIFEST_SCHEMA,
+    version: 1,
+    job_id: seed.job_id.clone(),
+    desktop_job_id: desktop_job_id.to_string(),
+    label: seed.label.clone(),
+    source_asset_id: seed.source_asset_id.clone(),
+    source_path: request.source_path.clone(),
+    source_kind: request.source_kind,
+    range: ClipExportManifestRange {
+      label: seed.range_label.clone(),
+      note: seed.range_note.clone(),
+      start_s: request.start_s,
+      end_s: request.end_s,
+      duration_s,
+    },
+    quality_mode: request.quality_mode,
+    tuning: request.tuning.clone(),
+    preset: seed.preset.clone(),
+    processor,
+    tool_report: tool_report.clone(),
+    completed_at_ms,
+    artifacts: vec![ClipExportManifestArtifact {
+      id: format!("{}-media", seed.job_id),
+      role: "media".into(),
+      path: request.destination_path.clone(),
+      sha256: None,
+      created_at_ms: completed_at_ms,
+    }],
+  })
+}
+
+fn write_clip_export_manifest(
+  desktop_job_id: &str,
+  request: &StartClipExportRequest,
+  tool_report: &ExportToolReport,
+) -> Result<String, String> {
+  let manifest_path = clip_export_manifest_path(&request.destination_path);
+  let manifest =
+    build_clip_export_manifest(desktop_job_id, request, tool_report, current_time_ms())?;
+  let contents = serde_json::to_string_pretty(&manifest)
+    .map_err(|error| format!("Failed to serialize export manifest: {error}"))?;
+  std::fs::write(&manifest_path, format!("{contents}\n"))
+    .map_err(|error| format!("Failed to write export manifest: {error}"))?;
+  Ok(manifest_path.display().to_string())
 }
 
 fn resolve_bundled_tool_path(app: &tauri::AppHandle, binary: &str) -> Option<PathBuf> {
@@ -765,7 +915,13 @@ fn insert_job(state: &ClipExportManager, job_id: String, job: JobHandle) -> Resu
   Ok(())
 }
 
-fn run_clip_export(job: JobHandle, ffmpeg_path: PathBuf, request: StartClipExportRequest) {
+fn run_clip_export(
+  job: JobHandle,
+  desktop_job_id: String,
+  ffmpeg_path: PathBuf,
+  tool_report: ExportToolReport,
+  request: StartClipExportRequest,
+) {
   let args = match build_ffmpeg_args(&request) {
     Ok(args) => args,
     Err(error) => {
@@ -867,10 +1023,20 @@ fn run_clip_export(job: JobHandle, ffmpeg_path: PathBuf, request: StartClipExpor
 
     match child.try_wait() {
       Ok(Some(status)) if status.success() => {
+        let (manifest_path, manifest_error) =
+          match write_clip_export_manifest(&desktop_job_id, &request, &tool_report) {
+            Ok(path) => (Some(path), None),
+            Err(error) => {
+              log::warn!("clip export manifest was not written: {error}");
+              (None, Some(error))
+            }
+          };
         set_job_status(
           &job,
           ClipExportStatus::Completed {
             output_path: request.destination_path.clone(),
+            manifest_path,
+            manifest_error,
           },
         );
         return;
@@ -995,8 +1161,9 @@ fn start_clip_export(
   }));
   insert_job(&state, job_id.clone(), job.clone())?;
 
+  let desktop_job_id = job_id.clone();
   thread::spawn(move || {
-    run_clip_export(job, ffmpeg_path, request);
+    run_clip_export(job, desktop_job_id, ffmpeg_path, tool_report, request);
   });
 
   Ok(StartClipExportResponse { job_id })
@@ -1104,11 +1271,52 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
   use super::{
-    build_ffmpeg_args, build_save_dialog_filter, build_save_dialog_title,
-    parse_ffmpeg_progress_seconds, ClipExportStatus, ExportToolFeatures, ExportToolReport,
-    ExportToolStatus, ExportTuning, QualityMode, SourceKind, StartClipExportRequest,
-    StartClipExportResponse,
+    build_clip_export_manifest, build_ffmpeg_args, build_save_dialog_filter,
+    build_save_dialog_title, clip_export_manifest_path, parse_ffmpeg_progress_seconds,
+    ClipExportManifestSeed, ClipExportStatus, ExportPresetManifest, ExportToolFeatures,
+    ExportToolReport, ExportToolStatus, ExportTuning, ProcessorManifest, QualityMode, SourceKind,
+    StartClipExportRequest, StartClipExportResponse,
   };
+
+  fn manifest_seed() -> ClipExportManifestSeed {
+    ClipExportManifestSeed {
+      job_id: "job-1".into(),
+      source_asset_id: "source-flac:120.000".into(),
+      label: "R1 EXACT MASTER".into(),
+      range_label: "R1".into(),
+      range_note: Some("inspect transient".into()),
+      preset: ExportPresetManifest {
+        id: "audio-exact-master".into(),
+        label: "PCM 24 MASTER".into(),
+        container: "wav".into(),
+        audio_codec: Some("pcm_s24le".into()),
+        video_codec: None,
+        quality_mode: QualityMode::ExactMaster,
+      },
+      processor: ProcessorManifest {
+        kind: "ffmpeg".into(),
+        name: "ffmpeg".into(),
+        version: None,
+      },
+    }
+  }
+
+  fn tool_report() -> ExportToolReport {
+    ExportToolReport {
+      ffmpeg_path: "C:/app/ffmpeg.exe".into(),
+      ffmpeg_version: "ffmpeg version 8.1".into(),
+      ffprobe_path: Some("C:/app/ffprobe.exe".into()),
+      features: ExportToolFeatures {
+        rubberband_filter: true,
+        volume_filter: true,
+        setpts_filter: true,
+        libx264_encoder: true,
+        aac_encoder: true,
+        pcm_s24le_encoder: true,
+      },
+      warnings: vec![],
+    }
+  }
 
   fn args_as_strings(request: &StartClipExportRequest) -> Vec<String> {
     build_ffmpeg_args(request)
@@ -1128,6 +1336,7 @@ mod tests {
       quality_mode: QualityMode::CopyFast,
       destination_path: "C:/exports/clip.flac".into(),
       tuning: None,
+      manifest: manifest_seed(),
     });
     let video = args_as_strings(&StartClipExportRequest {
       source_path: "C:/video/source.mov".into(),
@@ -1137,6 +1346,7 @@ mod tests {
       quality_mode: QualityMode::CopyFast,
       destination_path: "C:/exports/clip.mp4".into(),
       tuning: None,
+      manifest: manifest_seed(),
     });
 
     assert!(audio.windows(2).any(|pair| pair == ["-c", "copy"]));
@@ -1176,6 +1386,7 @@ mod tests {
       quality_mode: QualityMode::ExactMaster,
       destination_path: "C:/exports/clip.wav".into(),
       tuning: None,
+      manifest: manifest_seed(),
     });
     let video = args_as_strings(&StartClipExportRequest {
       source_path: "C:/video/source.mov".into(),
@@ -1185,6 +1396,7 @@ mod tests {
       quality_mode: QualityMode::ExactMaster,
       destination_path: "C:/exports/clip.mp4".into(),
       tuning: None,
+      manifest: manifest_seed(),
     });
 
     assert!(audio.windows(2).any(|pair| pair == ["-c:a", "pcm_s24le"]));
@@ -1206,6 +1418,7 @@ mod tests {
         playback_rate: 1.15,
         pitch_semitones: 2.0,
       }),
+      manifest: manifest_seed(),
     };
 
     let fast = args_as_strings(&request);
@@ -1245,6 +1458,7 @@ mod tests {
         playback_rate: 0.9,
         pitch_semitones: -1.0,
       }),
+      manifest: manifest_seed(),
     };
 
     let master = args_as_strings(&request);
@@ -1322,10 +1536,17 @@ mod tests {
 
     let completed = serde_json::to_value(ClipExportStatus::Completed {
       output_path: "C:/exports/clip.mp4".into(),
+      manifest_path: Some("C:/exports/clip.mp4.manifest.json".into()),
+      manifest_error: None,
     })
     .expect("completed status serializes");
     assert_eq!(completed["status"], "completed");
     assert_eq!(completed["outputPath"], "C:/exports/clip.mp4");
+    assert_eq!(
+      completed["manifestPath"],
+      "C:/exports/clip.mp4.manifest.json"
+    );
+    assert!(completed.get("manifest_path").is_none());
     assert!(completed.get("output_path").is_none());
 
     let failed = serde_json::to_value(ClipExportStatus::Failed {
@@ -1362,5 +1583,40 @@ mod tests {
     assert_eq!(tools["kind"], "ready");
     assert_eq!(tools["report"]["ffmpegPath"], "C:/app/ffmpeg.exe");
     assert_eq!(tools["report"]["features"]["pcmS24leEncoder"], true);
+  }
+
+  #[test]
+  fn builds_export_manifest_with_tool_report() {
+    let request = StartClipExportRequest {
+      source_path: "C:/audio/source.flac".into(),
+      source_kind: SourceKind::Audio,
+      start_s: 12.0,
+      end_s: 18.5,
+      quality_mode: QualityMode::ExactMaster,
+      destination_path: "C:/exports/clip.wav".into(),
+      tuning: None,
+      manifest: manifest_seed(),
+    };
+
+    let manifest = build_clip_export_manifest("clip-export-7", &request, &tool_report(), 1234)
+      .expect("manifest builds");
+    let value = serde_json::to_value(manifest).expect("manifest serializes");
+
+    assert_eq!(value["schema"], "bode-bench.clip-export-manifest");
+    assert_eq!(value["version"], 1);
+    assert_eq!(value["jobId"], "job-1");
+    assert_eq!(value["desktopJobId"], "clip-export-7");
+    assert_eq!(value["sourcePath"], "C:/audio/source.flac");
+    assert_eq!(value["range"]["startS"], 12.0);
+    assert_eq!(value["range"]["durationS"], 6.5);
+    assert_eq!(value["processor"]["version"], "ffmpeg version 8.1");
+    assert_eq!(value["toolReport"]["ffmpegPath"], "C:/app/ffmpeg.exe");
+    assert_eq!(value["artifacts"][0]["role"], "media");
+    assert_eq!(
+      clip_export_manifest_path("C:/exports/clip.wav")
+        .to_string_lossy()
+        .as_ref(),
+      "C:/exports/clip.wav.manifest.json"
+    );
   }
 }

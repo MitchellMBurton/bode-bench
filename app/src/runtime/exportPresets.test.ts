@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildSourceAssetId,
   buildSuggestedClipExportFilename,
+  createClipExportManifestSeed,
   createClipExportJobSpec,
   describeExportMode,
   describeExportPreset,
@@ -48,6 +49,7 @@ describe('exportPresets', () => {
         playbackRate: 1.15,
         pitchSemitones: 2,
       },
+      processorVersion: 'ffmpeg version 8.1',
     });
 
     expect(spec.kind).toBe('clip-export');
@@ -62,6 +64,22 @@ describe('exportPresets', () => {
       volume: 0.66,
       playbackRate: 1.15,
       pitchSemitones: 2,
+    });
+    expect(spec.processor.version).toBe('ffmpeg version 8.1');
+    expect(createClipExportManifestSeed({ jobId: 'job-3', spec, range: {
+      id: 3,
+      label: 'R3',
+      startS: 8,
+      endS: 12.5,
+      note: 'check edit',
+    } })).toEqual({
+      jobId: 'job-3',
+      sourceAssetId: 'prelude-wav:120.000',
+      label: 'R3 EXACT MASTER TUNED',
+      rangeLabel: 'R3',
+      rangeNote: 'check edit',
+      preset: spec.preset,
+      processor: spec.processor,
     });
   });
 
