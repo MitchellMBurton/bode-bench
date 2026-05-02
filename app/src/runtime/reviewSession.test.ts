@@ -74,6 +74,26 @@ describe('review session helpers', () => {
     expect(result.session.review.rangeMarks).toHaveLength(1);
   });
 
+  it('drops ranges that clamp to zero duration', () => {
+    const result = parseReviewSession({
+      schema: REVIEW_SESSION_SCHEMA,
+      version: REVIEW_SESSION_VERSION,
+      review: {
+        rangeMarks: [
+          { id: 2, startS: -5, endS: -1, label: 'R2' },
+          { id: 3, startS: -1, endS: 2, label: 'R3' },
+        ],
+      },
+      workspace: {},
+    });
+
+    expect(result.kind).toBe('ok');
+    if (result.kind !== 'ok') return;
+    expect(result.session.review.rangeMarks).toEqual([
+      expect.objectContaining({ id: 3, startS: 0, endS: 2 }),
+    ]);
+  });
+
   it('trims and caps range notes at the session boundary', () => {
     const result = parseReviewSession({
       schema: REVIEW_SESSION_SCHEMA,

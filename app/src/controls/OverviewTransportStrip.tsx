@@ -1,11 +1,19 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { useAudioEngine, useDiagnosticsLog, useVisualMode } from '../core/session';
+import {
+  useAudioEngine,
+  useDiagnosticsLog,
+  useRangeIntelligenceSnapshot,
+  useRangeIntelligenceStore,
+  useVisualMode,
+} from '../core/session';
+import { formatRangeIntelligenceSummary } from '../runtime/rangeIntelligence';
 import { COLORS, FONTS, MODES } from '../theme';
 import type { RangeMark } from '../types';
 import { formatTransportTime } from '../utils/format';
 import { RangeChip, ReviewGlyph } from './reviewChrome';
 import { getReviewButtonTone, type ReviewButtonIntent, type ReviewGlyphName } from './reviewChromeShared';
+import { MeasurementProbeRibbon } from './MeasurementProbeRibbon';
 import { RangeNoteEditor } from './RangeNoteEditor';
 import { InlineSessionControls, SessionControls } from './SessionControls';
 import { useReviewControlModel } from './useReviewControlModel';
@@ -26,6 +34,8 @@ const SAVED_RANGE_ROW_GAP_PX = 6;
 export function OverviewTransportStrip(): React.ReactElement {
   const audioEngine = useAudioEngine();
   const diagnosticsLog = useDiagnosticsLog();
+  const rangeIntelligence = useRangeIntelligenceStore();
+  const rangeIntelligenceVersion = useRangeIntelligenceSnapshot();
   const visualMode = useVisualMode();
   const review = useReviewControlModel();
   const transport = review.transport;
@@ -45,12 +55,11 @@ export function OverviewTransportStrip(): React.ReactElement {
   const inLabel = review.pendingRangeStartS !== null ? formatTransportTime(review.pendingRangeStartS) : '--:--.-';
   const activeLabel = review.selectedRange
     ? `${formatTransportTime(review.selectedRange.startS)} -> ${formatTransportTime(review.selectedRange.endS)}`
-    : 'NO RANGE';
-  const visibleRanges = review.rangeMarks.slice().reverse();
-  const featuredRange = review.selectedRange ?? visibleRanges[0] ?? null;
-  const overflowRanges = featuredRange
-    ? visibleRanges.filter((rangeMark) => rangeMark.id !== featuredRange.id)
-    : visibleRanges;
+    : '--';
+  const recentRanges = review.rangeMarks.slice().reverse();
+  const timelineRanges = review.rangeMarks.slice().sort((a, b) => a.startS - b.startS || a.endS - b.endS || a.id - b.id);
+  const savedRangesEmpty = review.rangeMarks.length === 0;
+  const collapsedFeaturedRange = review.selectedRange ?? recentRanges[0] ?? null;
   const singleRail = stripWidth >= SINGLE_RAIL_SPLIT_PX;
   const anchorTuningRight = stripWidth >= TUNING_POPOVER_RIGHT_SPLIT_PX;
   const tuningPopoverWidth = stripWidth >= TUNING_POPOVER_WIDE_PX
@@ -59,6 +68,18 @@ export function OverviewTransportStrip(): React.ReactElement {
   const savedRangesMaxHeight = SAVED_RANGE_VISIBLE_ROWS * SAVED_RANGE_ROW_HEIGHT_PX + (SAVED_RANGE_VISIBLE_ROWS - 1) * SAVED_RANGE_ROW_GAP_PX;
   const showInlineTuning = stripWidth >= INLINE_TUNING_MIN_PX;
   const compactTuningTrigger = stripWidth < INLINE_TUNING_MIN_PX;
+  const rangeSummaryById = useMemo(() => {
+    void rangeIntelligenceVersion;
+    const summaries = new Map<number, { readonly row: string; readonly active: string }>();
+    for (const rangeMark of review.rangeMarks) {
+      const summary = rangeIntelligence.summarizeRange(rangeMark);
+      summaries.set(rangeMark.id, {
+        row: formatRangeIntelligenceSummary(summary, 'row'),
+        active: formatRangeIntelligenceSummary(summary, 'active'),
+      });
+    }
+    return summaries;
+  }, [rangeIntelligence, rangeIntelligenceVersion, review.rangeMarks]);
 
   useEffect(() => {
     const node = stripRef.current;
@@ -200,12 +221,17 @@ export function OverviewTransportStrip(): React.ReactElement {
       {review.selectedRange ? (
         <>
           <RangeChip label={review.selectedRange.label} visualMode={visualMode} selected />
-          <span style={{ ...metricValueStyle, color: m.text }}>{activeLabel}</span>
+          <span style={{ ...metricValueStyle, color: m.text }}>
+            {rangeSummaryById.get(review.selectedRange.id)?.active ?? activeLabel}
+          </span>
         </>
       ) : (
         <span style={{ ...metricValueStyle, color: COLORS.textDim }}>{activeLabel}</span>
       )}
     </div>
+  );
+  const measurementProbe = (
+    <MeasurementProbeRibbon transportTimeS={hasFile ? transport.currentTime : null} />
   );
 
   function renderButtonLabel(
@@ -225,6 +251,7 @@ export function OverviewTransportStrip(): React.ReactElement {
   const renderSavedRangeRow = (rangeMark: RangeMark): React.ReactElement => {
     const selected = review.selectedRangeId === rangeMark.id;
     const isAuditioning = review.auditionActiveRangeId === rangeMark.id;
+    const rangeSummary = rangeSummaryById.get(rangeMark.id)?.row ?? '';
     return (
       <div
         key={rangeMark.id}
@@ -247,6 +274,9 @@ export function OverviewTransportStrip(): React.ReactElement {
             <RangeChip label={rangeMark.label} visualMode={visualMode} selected={selected || isAuditioning} />
             <span style={{ ...savedRangeDetailStyle, color: selected || isAuditioning ? m.text : COLORS.textDim }}>
               {formatTransportTime(rangeMark.startS)} {'->'} {formatTransportTime(rangeMark.endS)}
+            </span>
+            <span style={{ ...savedRangeMeasurementStyle, color: selected || isAuditioning ? m.category : COLORS.textDim }}>
+              {rangeSummary}
             </span>
           </button>
           <div style={savedRangeActionsStyle}>
@@ -430,16 +460,13 @@ export function OverviewTransportStrip(): React.ReactElement {
             ) : null}
           </div>
 
-          {singleRail ? actionCluster : null}
-          {singleRail ? activeReadout : null}
         </div>
 
-        {!singleRail ? (
-          <div style={secondaryRailStyle}>
-            {actionCluster}
-            {activeReadout}
-          </div>
-        ) : null}
+        <div style={secondaryRailStyle}>
+          {actionCluster}
+          {measurementProbe}
+          {activeReadout}
+        </div>
       </div>
 
       <div style={{ ...savedRangesSectionStyle, borderColor: m.chromeBorder }}>
@@ -454,6 +481,9 @@ export function OverviewTransportStrip(): React.ReactElement {
             <span style={{ ...savedRangesLabelStyle, color: m.category }}>SAVED RANGES</span>
           </div>
           <div style={savedRangesHeaderRightStyle}>
+            {savedRangesEmpty ? (
+              <span style={{ ...savedRangesHintStyle, color: COLORS.textDim }}>SET IN / SET OUT TO SAVE</span>
+            ) : null}
             <span style={{ ...savedRangesMetaStyle, color: m.category }}>{review.rangeMarks.length} TOTAL</span>
             <span
               style={{
@@ -467,18 +497,18 @@ export function OverviewTransportStrip(): React.ReactElement {
           </div>
         </button>
 
-        {featuredRange ? renderSavedRangeRow(featuredRange) : null}
+        {!savedRangesOpen && collapsedFeaturedRange ? renderSavedRangeRow(collapsedFeaturedRange) : null}
 
         {savedRangesOpen ? (
-          review.rangeMarks.length === 0 ? (
+          savedRangesEmpty ? (
             <div style={savedRangesEmptyStyle}>
               <span style={{ ...savedRangesEmptyTextStyle, color: COLORS.textDim }}>
-                SAVE A RANGE WITH SET IN / SET OUT OR FROM LOOP.
+                SET IN / SET OUT commits review ranges here.
               </span>
             </div>
-          ) : overflowRanges.length > 0 ? (
+          ) : timelineRanges.length > 0 ? (
             <div style={{ ...savedRangesListStyle, maxHeight: savedRangesMaxHeight }}>
-              {overflowRanges.map(renderSavedRangeRow)}
+              {timelineRanges.map(renderSavedRangeRow)}
             </div>
           ) : null
         ) : null}
@@ -511,7 +541,9 @@ const dualRailWrapStyle: React.CSSProperties = {
 };
 
 const singleRailWrapStyle: React.CSSProperties = {
-  display: 'block',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 6,
   minWidth: 0,
 };
 
@@ -532,7 +564,7 @@ const secondaryRailStyle: React.CSSProperties = {
   display: 'flex',
   alignItems: 'center',
   gap: 6,
-  flexWrap: 'wrap',
+  flexWrap: 'nowrap',
   minWidth: 0,
 };
 
@@ -656,6 +688,13 @@ const savedRangesMetaStyle: React.CSSProperties = {
   whiteSpace: 'nowrap',
 };
 
+const savedRangesHintStyle: React.CSSProperties = {
+  fontFamily: FONTS.mono,
+  fontSize: 9,
+  letterSpacing: '0.06em',
+  whiteSpace: 'nowrap',
+};
+
 const savedRangesChevronStyle: React.CSSProperties = {
   display: 'inline-flex',
   alignItems: 'center',
@@ -707,6 +746,18 @@ const savedRangeDetailStyle: React.CSSProperties = {
   fontFamily: FONTS.mono,
   fontSize: 9,
   letterSpacing: '0.05em',
+  flexShrink: 0,
+  minWidth: 0,
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+};
+
+const savedRangeMeasurementStyle: React.CSSProperties = {
+  fontFamily: FONTS.mono,
+  fontSize: 9,
+  letterSpacing: '0.04em',
+  flex: '1 1 auto',
   minWidth: 0,
   overflow: 'hidden',
   textOverflow: 'ellipsis',
@@ -754,7 +805,7 @@ const reviewActionClusterStyle: React.CSSProperties = {
   gap: 4,
   flexWrap: 'wrap',
   minWidth: 0,
-  flex: '1 1 500px',
+  flex: '0 1 auto',
   padding: '3px',
   borderWidth: 1,
   borderStyle: 'solid',
@@ -806,16 +857,16 @@ const pendingInValueStyle: React.CSSProperties = {
 const activeReadoutStyle: React.CSSProperties = {
   display: 'inline-flex',
   alignItems: 'center',
-  gap: 8,
-  minWidth: 132,
-  maxWidth: 260,
-  height: CONTROL_HEIGHT_PX + 8,
-  padding: '0 10px',
+  gap: 6,
+  minWidth: 74,
+  maxWidth: 220,
+  height: 24,
+  padding: '0 8px',
   borderWidth: 1,
   borderStyle: 'solid',
   borderRadius: 3,
   boxSizing: 'border-box',
-  flex: '1 1 220px',
+  flex: '0 0 auto',
 };
 
 const metricLabelStyle: React.CSSProperties = {

@@ -12,6 +12,7 @@ import { PerformanceProfileStore, type PerformanceProfileSnapshot } from '../run
 import { SpectralAnatomyStore } from '../runtime/spectralAnatomy';
 import { WaveformPyramidStore } from '../runtime/waveformPyramid';
 import { VideoSyncController } from '../runtime/videoSyncController';
+import { RangeIntelligenceStore } from '../runtime/rangeIntelligence';
 import { TheaterModeStore } from '../video/theaterMode';
 import type { AnalysisConfig, Marker, MediaJobRecord, RangeMark } from '../types';
 
@@ -25,6 +26,7 @@ export interface AppSession {
   performanceDiagnostics: PerformanceDiagnosticsStore;
   performanceProfile: PerformanceProfileStore;
   spectralAnatomy: SpectralAnatomyStore;
+  rangeIntelligence: RangeIntelligenceStore;
   waveformPyramid: WaveformPyramidStore;
   videoSyncController: VideoSyncController;
   theaterMode: TheaterModeStore;
@@ -95,6 +97,7 @@ export function createAppSession(): AppSession {
 
   const audioEngine = new AudioEngine(frameBus, performanceDiagnostics, analysisConfig.getSnapshot());
   const spectralAnatomy = new SpectralAnatomyStore(frameBus, audioEngine, scrollSpeed);
+  const rangeIntelligence = new RangeIntelligenceStore(frameBus, audioEngine, spectralAnatomy);
   const waveformPyramid = new WaveformPyramidStore(frameBus, audioEngine, performanceProfile);
 
   // Propagate analysis config changes to the engine's analyser nodes.
@@ -112,6 +115,7 @@ export function createAppSession(): AppSession {
     performanceDiagnostics,
     performanceProfile,
     spectralAnatomy,
+    rangeIntelligence,
     waveformPyramid,
     videoSyncController: new VideoSyncController(),
     theaterMode,
@@ -119,6 +123,7 @@ export function createAppSession(): AppSession {
     [APP_SESSION_INTERNAL]: {
       destroy: () => {
         unsubscribeAnalysisConfig();
+        rangeIntelligence.destroy();
         waveformPyramid.destroy();
         spectralAnatomy.destroy();
         audioEngine.dispose();
@@ -260,6 +265,19 @@ export function usePerformanceProfile(): PerformanceProfileSnapshot {
 
 export function useSpectralAnatomyStore(): SpectralAnatomyStore {
   return useAppSession().spectralAnatomy;
+}
+
+export function useRangeIntelligenceStore(): RangeIntelligenceStore {
+  return useAppSession().rangeIntelligence;
+}
+
+export function useRangeIntelligenceSnapshot(): number {
+  const rangeIntelligence = useRangeIntelligenceStore();
+  return useSyncExternalStore(
+    rangeIntelligence.subscribe,
+    rangeIntelligence.getSnapshot,
+    rangeIntelligence.getSnapshot,
+  );
 }
 
 export function useWaveformPyramidStore(): WaveformPyramidStore {

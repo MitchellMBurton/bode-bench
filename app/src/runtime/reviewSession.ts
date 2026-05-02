@@ -129,12 +129,15 @@ function normalizeRange(value: unknown): RangeMark | null {
   const startS = finiteNumberOrNull(value.startS);
   const endS = finiteNumberOrNull(value.endS);
   const label = stringOrNull(value.label);
-  if (id === null || id <= 0 || startS === null || endS === null || !label || startS === endS) return null;
+  if (id === null || id <= 0 || startS === null || endS === null || !label) return null;
+  const clampedStartS = Math.max(0, Math.min(startS, endS));
+  const clampedEndS = Math.max(0, Math.max(startS, endS));
+  if (clampedStartS === clampedEndS) return null;
   const note = normalizeRangeNote(value.note);
   return {
     id: Math.floor(id),
-    startS: Math.max(0, Math.min(startS, endS)),
-    endS: Math.max(0, Math.max(startS, endS)),
+    startS: clampedStartS,
+    endS: clampedEndS,
     label,
     ...(note ? { note } : {}),
   };

@@ -252,10 +252,41 @@ function levelColor(fraction: number, theme: SupportTheme): string {
   return theme.ok;
 }
 
-function frequencyBandLevels(frame: AudioFrame | null): readonly number[] {
-  if (!frame) return CANVAS.frequencyBands.map(() => 0);
+interface FrequencyBandMetric {
+  readonly fraction: number;
+  readonly avgDb: number;
+}
+
+function formatMiniDb(db: number): string {
+  if (!Number.isFinite(db)) return '--';
+  return `${Math.round(db)} dB`;
+}
+
+function formatMiniLevelDb(level: number | null | undefined): string {
+  if (level === null || level === undefined || level <= 0) return '--';
+  return formatMiniDb(levelToDb(level));
+}
+
+function formatMiniLevelAnchor(channel: string, level: number | null | undefined, includeUnit: boolean): string {
+  const db = formatMiniLevelDb(level);
+  if (db === '--') return `${channel} --`;
+  return includeUnit ? `${channel} ${db}` : `${channel} ${db.replace(' dB', '')}`;
+}
+
+function formatMiniCorrelation(correlation: number, longLabel: boolean): string {
+  const value = `${correlation >= 0 ? '+' : ''}${correlation.toFixed(2)}`;
+  return longLabel ? `CORR ${value}` : value;
+}
+
+function formatMiniF0(frame: AudioFrame | null): string {
+  if (!frame?.f0Hz || frame.f0Confidence <= 0.45) return 'F0 --';
+  return `F0 ${Math.round(frame.f0Hz)} Hz`;
+}
+
+function frequencyBandMetrics(frame: AudioFrame | null): readonly FrequencyBandMetric[] {
+  if (!frame) return CANVAS.frequencyBands.map(() => ({ fraction: 0, avgDb: CANVAS.dbMin }));
   const binCount = frame.frequencyDb.length;
-  const smoothed = CANVAS.frequencyBands.map((band) => {
+  return CANVAS.frequencyBands.map((band) => {
     const lowBin = Math.floor((band.lowHz / (frame.sampleRate / 2)) * binCount);
     const highBin = Math.min(Math.ceil((band.highHz / (frame.sampleRate / 2)) * binCount), binCount - 1);
     let sum = 0;
@@ -265,9 +296,23 @@ function frequencyBandLevels(frame: AudioFrame | null): readonly number[] {
       count++;
     }
     const avgDb = count > 0 ? sum / count : CANVAS.dbMin;
-    return Math.max(0, Math.min(1, (avgDb - CANVAS.dbMin) / (CANVAS.dbMax - CANVAS.dbMin)));
+    return {
+      fraction: Math.max(0, Math.min(1, (avgDb - CANVAS.dbMin) / (CANVAS.dbMax - CANVAS.dbMin))),
+      avgDb,
+    };
   });
-  return smoothed;
+}
+
+function strongestFrequencyBand(metrics: readonly FrequencyBandMetric[]): { readonly index: number; readonly avgDb: number } {
+  let bestIndex = 0;
+  let bestDb = metrics[0]?.avgDb ?? CANVAS.dbMin;
+  for (let i = 1; i < metrics.length; i++) {
+    if (metrics[i].avgDb > bestDb) {
+      bestIndex = i;
+      bestDb = metrics[i].avgDb;
+    }
+  }
+  return { index: bestIndex, avgDb: bestDb };
 }
 
 function partialDb(frequencyDb: Float32Array, f0Hz: number, partial: number, sampleRate: number): number {
@@ -639,6 +684,16 @@ function MiniLevelsPanel({ visualMode }: SupportVariantProps): React.ReactElemen
         theme,
       });
 
+      if (width >= 118 * dpr && height >= 40 * dpr) {
+        ctx.font = `${7 * dpr}px ${FONTS.mono}`;
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'top';
+        ctx.fillStyle = theme.label;
+        ctx.fillText(formatMiniLevelAnchor('L', frame?.peakLeft, false), width - pad, 4 * dpr);
+        ctx.fillStyle = theme.dim;
+        ctx.fillText(formatMiniLevelAnchor('R', frame?.peakRight, true), width - pad, height - 12 * dpr);
+      }
+
       dirtyRef.current = true;
     };
 
@@ -710,9 +765,12 @@ function MiniBandsPanel({ visualMode }: SupportVariantProps): React.ReactElement
       const width = canvas.width;
       const height = canvas.height;
       const theme = themeRef.current;
+      const frame = frameRef.current;
       drawCanvasBackdrop(ctx, width, height, theme);
 
-      const levels = frequencyBandLevels(frameRef.current);
+      const metrics = frequencyBandMetrics(frame);
+      const levels = metrics.map((metric) => metric.fraction);
+      const strongest = strongestFrequencyBand(metrics);
       const smoothed = smoothedRef.current;
       for (let i = 0; i < smoothed.length; i++) {
         smoothed[i] = smoothed[i] * 0.72 + levels[i] * 0.28;
@@ -742,6 +800,18 @@ function MiniBandsPanel({ visualMode }: SupportVariantProps): React.ReactElement
           ctx.fillStyle = i === 0 || i === n - 1 ? theme.label : theme.dim;
           ctx.fillText(CANVAS.frequencyBands[i].label, x + barW / 2, padY + barH + 2 * dpr);
         }
+      }
+
+      if (width >= 126 * dpr && height >= 42 * dpr) {
+        const band = CANVAS.frequencyBands[strongest.index];
+        const label = frame && band && strongest.avgDb > CANVAS.dbMin + 1
+          ? `${band.label.toUpperCase()} ${formatMiniDb(strongest.avgDb)}`
+          : 'BAND --';
+        ctx.font = `${7 * dpr}px ${FONTS.mono}`;
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'top';
+        ctx.fillStyle = theme.label;
+        ctx.fillText(label, width - 8 * dpr, 4 * dpr);
       }
 
       dirtyRef.current = true;
@@ -848,8 +918,8 @@ function MiniGoniometerPanel({ visualMode }: SupportVariantProps): React.ReactEl
       ctx.font = `${7 * dpr}px ${FONTS.mono}`;
       ctx.textAlign = 'right';
       ctx.textBaseline = 'top';
-      ctx.fillStyle = theme.label;
-      ctx.fillText(corr.toFixed(2), width - 8 * dpr, 4 * dpr);
+      ctx.fillStyle = corr < 0 ? theme.hot : theme.label;
+      ctx.fillText(formatMiniCorrelation(corr, width >= 86 * dpr), width - 8 * dpr, 4 * dpr);
 
       dirtyRef.current = true;
     };
@@ -942,8 +1012,9 @@ function MiniPartialsPanel({ visualMode }: SupportVariantProps): React.ReactElem
       let peakDb: number = CANVAS.dbMin;
       for (let i = 0; i < NUM_PARTIALS; i++) if (smoothed[i] > peakDb) peakDb = smoothed[i];
       const floorDb = peakDb - PARTIAL_DISPLAY_RANGE_DB;
+      const showReadout = width >= 86 * dpr && height >= 46 * dpr;
       const padX = 3 * dpr;
-      const padY = 6 * dpr;
+      const padY = showReadout ? 15 * dpr : 6 * dpr;
       const labelH = 9 * dpr;
       const gap = 2 * dpr;
       const barHMax = Math.max(8 * dpr, height - padY * 2 - labelH);
@@ -968,6 +1039,14 @@ function MiniPartialsPanel({ visualMode }: SupportVariantProps): React.ReactElem
         ctx.textBaseline = 'top';
         ctx.fillStyle = i === 0 ? theme.label : theme.dim;
         ctx.fillText(String(i + 1), x + barW / 2, padY + barHMax + 2 * dpr);
+      }
+
+      if (showReadout) {
+        ctx.font = `${7 * dpr}px ${FONTS.mono}`;
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'top';
+        ctx.fillStyle = frame?.f0Hz && frame.f0Confidence > 0.45 ? theme.label : theme.dim;
+        ctx.fillText(formatMiniF0(frame), 5 * dpr, 4 * dpr);
       }
 
       dirtyRef.current = true;
