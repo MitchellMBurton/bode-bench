@@ -11,9 +11,26 @@ declare global {
   }
 }
 
+export interface ExportToolFeatures {
+  readonly rubberbandFilter: boolean;
+  readonly volumeFilter: boolean;
+  readonly setptsFilter: boolean;
+  readonly libx264Encoder: boolean;
+  readonly aacEncoder: boolean;
+  readonly pcmS24leEncoder: boolean;
+}
+
+export interface ExportToolReport {
+  readonly ffmpegPath: string;
+  readonly ffmpegVersion: string;
+  readonly ffprobePath: string | null;
+  readonly features: ExportToolFeatures;
+  readonly warnings: readonly string[];
+}
+
 export type ExportToolStatus =
-  | { kind: 'ready' }
-  | { kind: 'missing'; reason: string };
+  | { kind: 'ready'; report: ExportToolReport }
+  | { kind: 'missing'; reason: string; report: ExportToolReport | null };
 
 export interface PickClipExportDestinationRequest {
   readonly defaultDirectory: string | null;
@@ -143,8 +160,55 @@ function normalizeClipExportStatus(raw: unknown): ClipExportStatus {
   }
 }
 
+function getBooleanValue(object: Record<string, unknown>, camelKey: string, snakeKey: string): boolean {
+  return (object[camelKey] ?? object[snakeKey]) === true;
+}
+
+function normalizeExportToolReport(raw: unknown): ExportToolReport {
+  const object = getObject(raw, 'desktop export tool report must be an object');
+  const featureObject = getObject(object.features, 'desktop export tool features must be an object');
+  const warnings = Array.isArray(object.warnings)
+    ? object.warnings.filter((warning): warning is string => typeof warning === 'string')
+    : [];
+
+  return {
+    ffmpegPath: getStringValue(object, 'ffmpegPath', 'ffmpeg_path') ?? '',
+    ffmpegVersion: getStringValue(object, 'ffmpegVersion', 'ffmpeg_version') ?? 'ffmpeg version unknown',
+    ffprobePath: getStringValue(object, 'ffprobePath', 'ffprobe_path'),
+    features: {
+      rubberbandFilter: getBooleanValue(featureObject, 'rubberbandFilter', 'rubberband_filter'),
+      volumeFilter: getBooleanValue(featureObject, 'volumeFilter', 'volume_filter'),
+      setptsFilter: getBooleanValue(featureObject, 'setptsFilter', 'setpts_filter'),
+      libx264Encoder: getBooleanValue(featureObject, 'libx264Encoder', 'libx264_encoder'),
+      aacEncoder: getBooleanValue(featureObject, 'aacEncoder', 'aac_encoder'),
+      pcmS24leEncoder: getBooleanValue(featureObject, 'pcmS24leEncoder', 'pcm_s24le_encoder'),
+    },
+    warnings,
+  };
+}
+
+function normalizeExportToolStatus(raw: unknown): ExportToolStatus {
+  const object = getObject(raw, 'desktop export tool status must be an object');
+  const kind = getStringValue(object, 'kind', 'kind');
+  assert(kind === 'ready' || kind === 'missing', 'desktop export tool status is not supported');
+  const report = object.report === null || object.report === undefined
+    ? null
+    : normalizeExportToolReport(object.report);
+
+  if (kind === 'ready') {
+    assert(report, 'desktop export tool ready status is missing its capability report');
+    return { kind, report };
+  }
+
+  return {
+    kind,
+    reason: getStringValue(object, 'reason', 'reason') ?? 'Export tools are unavailable.',
+    report,
+  };
+}
+
 export function probeExportTools(): Promise<ExportToolStatus> {
-  return invokeDesktop<ExportToolStatus>('probe_export_tools');
+  return invokeDesktop<unknown>('probe_export_tools').then(normalizeExportToolStatus);
 }
 
 export function pickClipExportDestination(

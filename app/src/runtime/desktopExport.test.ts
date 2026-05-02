@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   getClipExportStatus,
+  probeExportTools,
   resolveClipExportOutputPath,
   startClipExport,
   type StartClipExportRequest,
@@ -91,6 +92,81 @@ describe('desktopExport', () => {
       jobId: 'clip-export-8',
     });
     expect(invoke).toHaveBeenCalledWith('start_clip_export', { request: tunedRequest });
+  });
+
+  it('normalizes rich export tool capability reports', async () => {
+    invoke
+      .mockResolvedValueOnce({
+        kind: 'ready',
+        report: {
+          ffmpegPath: 'C:/app/resources/ffmpeg/ffmpeg.exe',
+          ffmpegVersion: 'ffmpeg version 8.1',
+          ffprobePath: 'C:/app/resources/ffmpeg/ffprobe.exe',
+          features: {
+            rubberbandFilter: true,
+            volumeFilter: true,
+            setptsFilter: true,
+            libx264Encoder: true,
+            aacEncoder: true,
+            pcmS24leEncoder: true,
+          },
+          warnings: [],
+        },
+      })
+      .mockResolvedValueOnce({
+        kind: 'missing',
+        reason: 'ffmpeg is missing required export support: rubberband filter.',
+        report: {
+          ffmpeg_path: 'C:/tools/ffmpeg.exe',
+          ffmpeg_version: 'ffmpeg version custom',
+          ffprobe_path: null,
+          features: {
+            rubberband_filter: false,
+            volume_filter: true,
+            setpts_filter: true,
+            libx264_encoder: true,
+            aac_encoder: true,
+            pcm_s24le_encoder: true,
+          },
+          warnings: ['ffprobe was not found'],
+        },
+      });
+
+    await expect(probeExportTools()).resolves.toEqual({
+      kind: 'ready',
+      report: {
+        ffmpegPath: 'C:/app/resources/ffmpeg/ffmpeg.exe',
+        ffmpegVersion: 'ffmpeg version 8.1',
+        ffprobePath: 'C:/app/resources/ffmpeg/ffprobe.exe',
+        features: {
+          rubberbandFilter: true,
+          volumeFilter: true,
+          setptsFilter: true,
+          libx264Encoder: true,
+          aacEncoder: true,
+          pcmS24leEncoder: true,
+        },
+        warnings: [],
+      },
+    });
+    await expect(probeExportTools()).resolves.toEqual({
+      kind: 'missing',
+      reason: 'ffmpeg is missing required export support: rubberband filter.',
+      report: {
+        ffmpegPath: 'C:/tools/ffmpeg.exe',
+        ffmpegVersion: 'ffmpeg version custom',
+        ffprobePath: null,
+        features: {
+          rubberbandFilter: false,
+          volumeFilter: true,
+          setptsFilter: true,
+          libx264Encoder: true,
+          aacEncoder: true,
+          pcmS24leEncoder: true,
+        },
+        warnings: ['ffprobe was not found'],
+      },
+    });
   });
 
   it('falls back to the chosen destination when completed status omits outputPath', async () => {

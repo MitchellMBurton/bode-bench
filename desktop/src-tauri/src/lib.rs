@@ -36,10 +36,36 @@ struct ExportTuning {
 }
 
 #[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ExportToolFeatures {
+  rubberband_filter: bool,
+  volume_filter: bool,
+  setpts_filter: bool,
+  libx264_encoder: bool,
+  aac_encoder: bool,
+  pcm_s24le_encoder: bool,
+}
+
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ExportToolReport {
+  ffmpeg_path: String,
+  ffmpeg_version: String,
+  ffprobe_path: Option<String>,
+  features: ExportToolFeatures,
+  warnings: Vec<String>,
+}
+
+#[derive(Clone, serde::Serialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 enum ExportToolStatus {
-  Ready,
-  Missing { reason: String },
+  Ready {
+    report: ExportToolReport,
+  },
+  Missing {
+    reason: String,
+    report: Option<ExportToolReport>,
+  },
 }
 
 #[derive(serde::Serialize)]
@@ -229,7 +255,10 @@ fn build_video_filter_chain(tuning: &ExportTuning) -> Option<String> {
   if (tuning.playback_rate - 1.0).abs() <= 0.0001 {
     return None;
   }
-  Some(format!("setpts=PTS/{}", format_ffmpeg_scalar(tuning.playback_rate)))
+  Some(format!(
+    "setpts=PTS/{}",
+    format_ffmpeg_scalar(tuning.playback_rate)
+  ))
 }
 
 fn parse_timecode_to_seconds(value: &str) -> Option<f64> {
@@ -245,10 +274,18 @@ fn parse_ffmpeg_progress_seconds(line: &str) -> Option<f64> {
     return parse_timecode_to_seconds(value);
   }
   if let Some(value) = line.strip_prefix("out_time_us=") {
-    return value.trim().parse::<f64>().ok().map(|microseconds| microseconds / 1_000_000.0);
+    return value
+      .trim()
+      .parse::<f64>()
+      .ok()
+      .map(|microseconds| microseconds / 1_000_000.0);
   }
   if let Some(value) = line.strip_prefix("out_time_ms=") {
-    return value.trim().parse::<f64>().ok().map(|microseconds| microseconds / 1_000_000.0);
+    return value
+      .trim()
+      .parse::<f64>()
+      .ok()
+      .map(|microseconds| microseconds / 1_000_000.0);
   }
   None
 }
@@ -256,8 +293,10 @@ fn parse_ffmpeg_progress_seconds(line: &str) -> Option<f64> {
 fn build_ffmpeg_args(request: &StartClipExportRequest) -> Result<Vec<OsString>, String> {
   let duration = clip_duration_seconds(request)?;
   validate_tuning(request.tuning.as_ref())?;
-  if matches!((request.source_kind, request.quality_mode), (SourceKind::Audio, QualityMode::CopyFast))
-    && request.tuning.is_some()
+  if matches!(
+    (request.source_kind, request.quality_mode),
+    (SourceKind::Audio, QualityMode::CopyFast)
+  ) && request.tuning.is_some()
   {
     return Err("FAST COPY is unavailable when Include current tuning is enabled. Use EXACT MASTER for tuned audio exports.".into());
   }
@@ -404,7 +443,11 @@ fn resolve_tool_path(app: &tauri::AppHandle, binary: &str) -> Option<PathBuf> {
     return Some(path);
   }
 
-  let finder = if cfg!(target_os = "windows") { "where" } else { "which" };
+  let finder = if cfg!(target_os = "windows") {
+    "where"
+  } else {
+    "which"
+  };
   let output = Command::new(finder).arg(binary).output().ok()?;
   if !output.status.success() {
     return None;
@@ -415,6 +458,125 @@ fn resolve_tool_path(app: &tauri::AppHandle, binary: &str) -> Option<PathBuf> {
     .map(str::trim)
     .find(|line| !line.is_empty())
     .map(PathBuf::from)
+}
+
+fn run_tool_capture(path: &Path, args: &[&str]) -> Result<String, String> {
+  let output = Command::new(path)
+    .args(args)
+    .output()
+    .map_err(|error| format!("Failed to run {}: {error}", path.display()))?;
+
+  if !output.status.success() {
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    return Err(if stderr.is_empty() {
+      format!("{} exited without diagnostic output.", path.display())
+    } else {
+      stderr
+    });
+  }
+
+  let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+  if stdout.trim().is_empty() {
+    Ok(String::from_utf8_lossy(&output.stderr).to_string())
+  } else {
+    Ok(stdout)
+  }
+}
+
+fn first_non_empty_line(value: &str) -> String {
+  value
+    .lines()
+    .map(str::trim)
+    .find(|line| !line.is_empty())
+    .unwrap_or("ffmpeg version unknown")
+    .to_string()
+}
+
+fn ffmpeg_listing_contains(output: &str, token: &str) -> bool {
+  output
+    .lines()
+    .any(|line| line.split_whitespace().any(|part| part == token))
+}
+
+fn missing_required_export_features(features: &ExportToolFeatures) -> Vec<&'static str> {
+  let mut missing = Vec::new();
+  if !features.rubberband_filter {
+    missing.push("rubberband filter");
+  }
+  if !features.volume_filter {
+    missing.push("volume filter");
+  }
+  if !features.setpts_filter {
+    missing.push("setpts filter");
+  }
+  if !features.libx264_encoder {
+    missing.push("libx264 encoder");
+  }
+  if !features.aac_encoder {
+    missing.push("aac encoder");
+  }
+  if !features.pcm_s24le_encoder {
+    missing.push("pcm_s24le encoder");
+  }
+  missing
+}
+
+fn build_export_tool_report(app: &tauri::AppHandle) -> Result<ExportToolReport, String> {
+  let ffmpeg_path = resolve_tool_path(app, "ffmpeg.exe")
+    .or_else(|| resolve_tool_path(app, "ffmpeg"))
+    .ok_or_else(|| "ffmpeg was not found in the app bundle or on this system.".to_string())?;
+  let ffprobe_path =
+    resolve_tool_path(app, "ffprobe.exe").or_else(|| resolve_tool_path(app, "ffprobe"));
+  let version = first_non_empty_line(&run_tool_capture(
+    &ffmpeg_path,
+    &["-hide_banner", "-version"],
+  )?);
+  let filters = run_tool_capture(&ffmpeg_path, &["-hide_banner", "-filters"])?;
+  let encoders = run_tool_capture(&ffmpeg_path, &["-hide_banner", "-encoders"])?;
+  let features = ExportToolFeatures {
+    rubberband_filter: ffmpeg_listing_contains(&filters, "rubberband"),
+    volume_filter: ffmpeg_listing_contains(&filters, "volume"),
+    setpts_filter: ffmpeg_listing_contains(&filters, "setpts"),
+    libx264_encoder: ffmpeg_listing_contains(&encoders, "libx264"),
+    aac_encoder: ffmpeg_listing_contains(&encoders, "aac"),
+    pcm_s24le_encoder: ffmpeg_listing_contains(&encoders, "pcm_s24le"),
+  };
+  let mut warnings = Vec::new();
+  if ffprobe_path.is_none() {
+    warnings
+      .push("ffprobe was not found; future source metadata checks will be unavailable.".into());
+  }
+
+  Ok(ExportToolReport {
+    ffmpeg_path: ffmpeg_path.display().to_string(),
+    ffmpeg_version: version,
+    ffprobe_path: ffprobe_path.map(|path| path.display().to_string()),
+    features,
+    warnings,
+  })
+}
+
+fn build_export_tool_status(app: &tauri::AppHandle) -> ExportToolStatus {
+  match build_export_tool_report(app) {
+    Ok(report) => {
+      let missing_features = missing_required_export_features(&report.features);
+      if missing_features.is_empty() {
+        ExportToolStatus::Ready { report }
+      } else {
+        ExportToolStatus::Missing {
+          reason: format!(
+            "ffmpeg is missing required export support: {}.",
+            missing_features.join(", ")
+          ),
+          report: Some(report),
+        }
+      }
+    }
+    Err(reason) => ExportToolStatus::Missing {
+      reason,
+      report: None,
+    },
+  }
 }
 
 fn ps_single_quote(value: &str) -> String {
@@ -484,8 +646,12 @@ fn open_save_as_dialog(
      $dialog = New-Object System.Windows.Forms.SaveFileDialog; \
      $dialog.Title = '",
   );
-  script.push_str(build_save_dialog_title(request.source_kind, request.quality_mode));
-  script.push_str("'; \
+  script.push_str(build_save_dialog_title(
+    request.source_kind,
+    request.quality_mode,
+  ));
+  script.push_str(
+    "'; \
      $dialog.OverwritePrompt = $true; \
      $dialog.RestoreDirectory = $true; \
      $dialog.CheckPathExists = $true; \
@@ -535,7 +701,9 @@ fn open_source_media_file(
      $dialog.Multiselect = $false; \
      $dialog.Filter = '",
   );
-  script.push_str(&ps_single_quote(build_source_file_filter(request.source_kind)));
+  script.push_str(&ps_single_quote(build_source_file_filter(
+    request.source_kind,
+  )));
   script.push_str("'; ");
   script.push_str("$dialog.FileName = '");
   script.push_str(&ps_single_quote(&request.filename));
@@ -562,7 +730,10 @@ fn set_job_status(job: &JobHandle, status: ClipExportStatus) {
 }
 
 fn get_job(state: &ClipExportManager, job_id: &str) -> Result<JobHandle, String> {
-  let jobs = state.jobs.lock().map_err(|_| "Export queue is unavailable.".to_string())?;
+  let jobs = state
+    .jobs
+    .lock()
+    .map_err(|_| "Export queue is unavailable.".to_string())?;
   jobs
     .get(job_id)
     .cloned()
@@ -570,9 +741,14 @@ fn get_job(state: &ClipExportManager, job_id: &str) -> Result<JobHandle, String>
 }
 
 fn has_active_export(state: &ClipExportManager) -> Result<bool, String> {
-  let jobs = state.jobs.lock().map_err(|_| "Export queue is unavailable.".to_string())?;
+  let jobs = state
+    .jobs
+    .lock()
+    .map_err(|_| "Export queue is unavailable.".to_string())?;
   for job in jobs.values() {
-    let guard = job.lock().map_err(|_| "Export job state is unavailable.".to_string())?;
+    let guard = job
+      .lock()
+      .map_err(|_| "Export job state is unavailable.".to_string())?;
     if guard.status.is_active() {
       return Ok(true);
     }
@@ -581,7 +757,10 @@ fn has_active_export(state: &ClipExportManager) -> Result<bool, String> {
 }
 
 fn insert_job(state: &ClipExportManager, job_id: String, job: JobHandle) -> Result<(), String> {
-  let mut jobs = state.jobs.lock().map_err(|_| "Export queue is unavailable.".to_string())?;
+  let mut jobs = state
+    .jobs
+    .lock()
+    .map_err(|_| "Export queue is unavailable.".to_string())?;
   jobs.insert(job_id, job);
   Ok(())
 }
@@ -597,7 +776,12 @@ fn run_clip_export(job: JobHandle, ffmpeg_path: PathBuf, request: StartClipExpor
 
   if let Some(parent) = Path::new(&request.destination_path).parent() {
     if let Err(error) = std::fs::create_dir_all(parent) {
-      set_job_status(&job, ClipExportStatus::Failed { error_text: error.to_string() });
+      set_job_status(
+        &job,
+        ClipExportStatus::Failed {
+          error_text: error.to_string(),
+        },
+      );
       return;
     }
   }
@@ -611,7 +795,12 @@ fn run_clip_export(job: JobHandle, ffmpeg_path: PathBuf, request: StartClipExpor
   {
     Ok(child) => child,
     Err(error) => {
-      set_job_status(&job, ClipExportStatus::Failed { error_text: error.to_string() });
+      set_job_status(
+        &job,
+        ClipExportStatus::Failed {
+          error_text: error.to_string(),
+        },
+      );
       return;
     }
   };
@@ -687,7 +876,12 @@ fn run_clip_export(job: JobHandle, ffmpeg_path: PathBuf, request: StartClipExpor
         return;
       }
       Ok(Some(_)) => {
-        set_job_status(&job, ClipExportStatus::Failed { error_text: last_error });
+        set_job_status(
+          &job,
+          ClipExportStatus::Failed {
+            error_text: last_error,
+          },
+        );
         return;
       }
       Ok(None) => {
@@ -705,7 +899,12 @@ fn run_clip_export(job: JobHandle, ffmpeg_path: PathBuf, request: StartClipExpor
         thread::sleep(Duration::from_millis(120));
       }
       Err(error) => {
-        set_job_status(&job, ClipExportStatus::Failed { error_text: error.to_string() });
+        set_job_status(
+          &job,
+          ClipExportStatus::Failed {
+            error_text: error.to_string(),
+          },
+        );
         return;
       }
     }
@@ -714,14 +913,21 @@ fn run_clip_export(job: JobHandle, ffmpeg_path: PathBuf, request: StartClipExpor
 
 #[tauri::command]
 fn probe_export_tools(app: tauri::AppHandle) -> ExportToolStatus {
-  if let Some(path) = resolve_tool_path(&app, "ffmpeg.exe").or_else(|| resolve_tool_path(&app, "ffmpeg")) {
-    log::info!("ffmpeg ready: {}", path.display());
-    return ExportToolStatus::Ready;
+  let status = build_export_tool_status(&app);
+  match &status {
+    ExportToolStatus::Ready { report } => {
+      log::info!(
+        "ffmpeg ready: {} ({}) ffprobe={}",
+        report.ffmpeg_path,
+        report.ffmpeg_version,
+        report.ffprobe_path.as_deref().unwrap_or("missing")
+      );
+    }
+    ExportToolStatus::Missing { reason, .. } => {
+      log::warn!("export tools unavailable: {reason}");
+    }
   }
-  log::warn!("ffmpeg not found in bundled resources or PATH");
-  ExportToolStatus::Missing {
-    reason: "ffmpeg was not found in the app bundle or on this system.".into(),
-  }
+  status
 }
 
 #[tauri::command]
@@ -754,9 +960,15 @@ fn start_clip_export(
     return Err("Only one clip export can run at a time in this simplified workflow.".into());
   }
 
-  let ffmpeg_path = resolve_tool_path(&app, "ffmpeg.exe")
-    .or_else(|| resolve_tool_path(&app, "ffmpeg"))
-    .ok_or_else(|| "ffmpeg was not found in the app bundle or on this system.".to_string())?;
+  let tool_report = build_export_tool_report(&app)?;
+  let missing_features = missing_required_export_features(&tool_report.features);
+  if !missing_features.is_empty() {
+    return Err(format!(
+      "ffmpeg is missing required export support: {}.",
+      missing_features.join(", ")
+    ));
+  }
+  let ffmpeg_path = PathBuf::from(&tool_report.ffmpeg_path);
   clip_duration_seconds(&request)?;
   if !Path::new(&request.source_path).is_file() {
     let message = format!("Source file was not found: {}", request.source_path);
@@ -767,10 +979,13 @@ fn start_clip_export(
     "export requested: source={} destination={} ffmpeg={}",
     request.source_path,
     request.destination_path,
-    ffmpeg_path.display()
+    tool_report.ffmpeg_path
   );
 
-  let job_id = format!("clip-export-{}", state.next_job.fetch_add(1, Ordering::SeqCst));
+  let job_id = format!(
+    "clip-export-{}",
+    state.next_job.fetch_add(1, Ordering::SeqCst)
+  );
   let job = Arc::new(Mutex::new(ClipExportJob {
     status: ClipExportStatus::Queued {
       progress_percent: 0.0,
@@ -793,17 +1008,18 @@ fn get_clip_export_status(
   job_id: String,
 ) -> Result<ClipExportStatus, String> {
   let job = get_job(&state, &job_id)?;
-  let guard = job.lock().map_err(|_| "Export job state is unavailable.".to_string())?;
+  let guard = job
+    .lock()
+    .map_err(|_| "Export job state is unavailable.".to_string())?;
   Ok(guard.status.clone())
 }
 
 #[tauri::command]
-fn cancel_clip_export(
-  state: State<'_, ClipExportManager>,
-  job_id: String,
-) -> Result<(), String> {
+fn cancel_clip_export(state: State<'_, ClipExportManager>, job_id: String) -> Result<(), String> {
   let job = get_job(&state, &job_id)?;
-  let guard = job.lock().map_err(|_| "Export job state is unavailable.".to_string())?;
+  let guard = job
+    .lock()
+    .map_err(|_| "Export job state is unavailable.".to_string())?;
   guard.cancel_flag.store(true, Ordering::SeqCst);
   Ok(())
 }
@@ -888,8 +1104,10 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
   use super::{
-    build_ffmpeg_args, build_save_dialog_filter, build_save_dialog_title, parse_ffmpeg_progress_seconds,
-    ClipExportStatus, ExportTuning, QualityMode, SourceKind, StartClipExportRequest, StartClipExportResponse,
+    build_ffmpeg_args, build_save_dialog_filter, build_save_dialog_title,
+    parse_ffmpeg_progress_seconds, ClipExportStatus, ExportToolFeatures, ExportToolReport,
+    ExportToolStatus, ExportTuning, QualityMode, SourceKind, StartClipExportRequest,
+    StartClipExportResponse,
   };
 
   fn args_as_strings(request: &StartClipExportRequest) -> Vec<String> {
@@ -928,13 +1146,24 @@ mod tests {
     assert!(video.windows(2).any(|pair| pair == ["-crf", "22"]));
     assert!(video.windows(2).any(|pair| pair == ["-c:a", "aac"]));
     assert!(video.windows(2).any(|pair| pair == ["-b:a", "192k"]));
-    assert!(video.windows(2).any(|pair| pair == ["-movflags", "+faststart"]));
+    assert!(video
+      .windows(2)
+      .any(|pair| pair == ["-movflags", "+faststart"]));
     assert!(!video.windows(2).any(|pair| pair == ["-c", "copy"]));
     assert!(video.iter().any(|arg| arg == "C:/exports/clip.mp4"));
 
-    let input_index = video.iter().position(|arg| arg == "-i").expect("video fast args include input");
-    let seek_index = video.iter().position(|arg| arg == "-ss").expect("video fast args include seek");
-    assert!(input_index < seek_index, "video fast export should decode before seeking for exact boundaries");
+    let input_index = video
+      .iter()
+      .position(|arg| arg == "-i")
+      .expect("video fast args include input");
+    let seek_index = video
+      .iter()
+      .position(|arg| arg == "-ss")
+      .expect("video fast args include seek");
+    assert!(
+      input_index < seek_index,
+      "video fast export should decode before seeking for exact boundaries"
+    );
   }
 
   #[test]
@@ -980,16 +1209,24 @@ mod tests {
     };
 
     let fast = args_as_strings(&request);
-    assert!(fast.windows(2).any(|pair| pair == ["-vf", "setpts=PTS/1.150000"]));
-    assert!(fast.iter().any(|arg| arg.contains("rubberband=tempo=1.150000:pitch=1.122462:formant=preserved")));
+    assert!(fast
+      .windows(2)
+      .any(|pair| pair == ["-vf", "setpts=PTS/1.150000"]));
+    assert!(fast
+      .iter()
+      .any(|arg| arg.contains("rubberband=tempo=1.150000:pitch=1.122462:formant=preserved")));
     assert!(fast.iter().any(|arg| arg.contains("volume=0.660000")));
 
     let master = args_as_strings(&StartClipExportRequest {
       quality_mode: QualityMode::ExactMaster,
       ..request
     });
-    assert!(master.windows(2).any(|pair| pair == ["-vf", "setpts=PTS/1.150000"]));
-    assert!(master.iter().any(|arg| arg.contains("rubberband=tempo=1.150000:pitch=1.122462:formant=preserved")));
+    assert!(master
+      .windows(2)
+      .any(|pair| pair == ["-vf", "setpts=PTS/1.150000"]));
+    assert!(master
+      .iter()
+      .any(|arg| arg.contains("rubberband=tempo=1.150000:pitch=1.122462:formant=preserved")));
     assert!(master.iter().any(|arg| arg.contains("volume=0.660000")));
     assert!(master.windows(2).any(|pair| pair == ["-preset", "slow"]));
   }
@@ -1011,7 +1248,9 @@ mod tests {
     };
 
     let master = args_as_strings(&request);
-    assert!(master.iter().any(|arg| arg.contains("rubberband=tempo=0.900000:pitch=0.943874:formant=preserved")));
+    assert!(master
+      .iter()
+      .any(|arg| arg.contains("rubberband=tempo=0.900000:pitch=0.943874:formant=preserved")));
     assert!(master.iter().any(|arg| arg.contains("volume=0.750000")));
     assert!(master.windows(2).any(|pair| pair == ["-c:a", "pcm_s24le"]));
 
@@ -1019,30 +1258,55 @@ mod tests {
       quality_mode: QualityMode::CopyFast,
       destination_path: "C:/exports/clip.flac".into(),
       ..request
-    }).expect_err("tuned audio fast copy should fail");
+    })
+    .expect_err("tuned audio fast copy should fail");
     assert!(fast_error.contains("FAST COPY is unavailable"));
   }
 
   #[test]
   fn parses_ffmpeg_progress_lines() {
-    assert_eq!(parse_ffmpeg_progress_seconds("out_time=00:00:12.340000"), Some(12.34));
-    assert_eq!(parse_ffmpeg_progress_seconds("out_time_us=8000000"), Some(8.0));
+    assert_eq!(
+      parse_ffmpeg_progress_seconds("out_time=00:00:12.340000"),
+      Some(12.34)
+    );
+    assert_eq!(
+      parse_ffmpeg_progress_seconds("out_time_us=8000000"),
+      Some(8.0)
+    );
     assert_eq!(parse_ffmpeg_progress_seconds("progress=continue"), None);
   }
 
   #[test]
   fn builds_save_dialog_filters_for_fast_and_master_modes() {
-    assert!(build_save_dialog_filter(SourceKind::Audio, QualityMode::CopyFast).contains("Audio source containers"));
-    assert!(build_save_dialog_filter(SourceKind::Audio, QualityMode::ExactMaster).contains("WAV master"));
-    assert!(build_save_dialog_filter(SourceKind::Video, QualityMode::CopyFast).contains("MP4 review"));
-    assert!(build_save_dialog_filter(SourceKind::Video, QualityMode::ExactMaster).contains("MP4 master"));
+    assert!(
+      build_save_dialog_filter(SourceKind::Audio, QualityMode::CopyFast)
+        .contains("Audio source containers")
+    );
+    assert!(
+      build_save_dialog_filter(SourceKind::Audio, QualityMode::ExactMaster).contains("WAV master")
+    );
+    assert!(
+      build_save_dialog_filter(SourceKind::Video, QualityMode::CopyFast).contains("MP4 review")
+    );
+    assert!(
+      build_save_dialog_filter(SourceKind::Video, QualityMode::ExactMaster).contains("MP4 master")
+    );
   }
 
   #[test]
   fn builds_clear_save_dialog_titles() {
-    assert_eq!(build_save_dialog_title(SourceKind::Audio, QualityMode::CopyFast), "Save Fast Copy");
-    assert_eq!(build_save_dialog_title(SourceKind::Video, QualityMode::CopyFast), "Save Fast Review");
-    assert_eq!(build_save_dialog_title(SourceKind::Video, QualityMode::ExactMaster), "Save Exact Master");
+    assert_eq!(
+      build_save_dialog_title(SourceKind::Audio, QualityMode::CopyFast),
+      "Save Fast Copy"
+    );
+    assert_eq!(
+      build_save_dialog_title(SourceKind::Video, QualityMode::CopyFast),
+      "Save Fast Review"
+    );
+    assert_eq!(
+      build_save_dialog_title(SourceKind::Video, QualityMode::ExactMaster),
+      "Save Exact Master"
+    );
   }
 
   #[test]
@@ -1050,28 +1314,53 @@ mod tests {
     let running = serde_json::to_value(ClipExportStatus::Running {
       progress_percent: 48.0,
       message: "Exporting 48%".into(),
-    }).expect("running status serializes");
+    })
+    .expect("running status serializes");
     assert_eq!(running["status"], "running");
     assert_eq!(running["progressPercent"], 48.0);
     assert!(running.get("progress_percent").is_none());
 
     let completed = serde_json::to_value(ClipExportStatus::Completed {
       output_path: "C:/exports/clip.mp4".into(),
-    }).expect("completed status serializes");
+    })
+    .expect("completed status serializes");
     assert_eq!(completed["status"], "completed");
     assert_eq!(completed["outputPath"], "C:/exports/clip.mp4");
     assert!(completed.get("output_path").is_none());
 
     let failed = serde_json::to_value(ClipExportStatus::Failed {
       error_text: "boom".into(),
-    }).expect("failed status serializes");
+    })
+    .expect("failed status serializes");
     assert_eq!(failed["errorText"], "boom");
     assert!(failed.get("error_text").is_none());
 
     let response = serde_json::to_value(StartClipExportResponse {
       job_id: "clip-export-7".into(),
-    }).expect("start response serializes");
+    })
+    .expect("start response serializes");
     assert_eq!(response["jobId"], "clip-export-7");
     assert!(response.get("job_id").is_none());
+
+    let tools = serde_json::to_value(ExportToolStatus::Ready {
+      report: ExportToolReport {
+        ffmpeg_path: "C:/app/ffmpeg.exe".into(),
+        ffmpeg_version: "ffmpeg version 8.1".into(),
+        ffprobe_path: Some("C:/app/ffprobe.exe".into()),
+        features: ExportToolFeatures {
+          rubberband_filter: true,
+          volume_filter: true,
+          setpts_filter: true,
+          libx264_encoder: true,
+          aac_encoder: true,
+          pcm_s24le_encoder: true,
+        },
+        warnings: vec![],
+      },
+    })
+    .expect("tool status serializes");
+    assert_eq!(tools["kind"], "ready");
+    assert_eq!(tools["report"]["ffmpegPath"], "C:/app/ffmpeg.exe");
+    assert_eq!(tools["report"]["features"]["pcmS24leEncoder"], true);
   }
 }

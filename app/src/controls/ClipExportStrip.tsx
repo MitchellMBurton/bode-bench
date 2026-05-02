@@ -381,12 +381,19 @@ export function ClipExportStrip({
     void probeExportTools().then((nextTools) => {
       if (!cancelled) {
         setTools(nextTools);
+        if (nextTools.kind === 'ready') {
+          const ffprobe = nextTools.report.ffprobePath ? 'ffprobe ready' : 'ffprobe missing';
+          diagnosticsLog.push(`export tools ready ${nextTools.report.ffmpegVersion} / ${ffprobe}`, 'dim', 'transport');
+        } else if (nextTools.report) {
+          diagnosticsLog.push(`export tools incomplete ${nextTools.reason}`, 'warn', 'transport');
+        }
       }
     }).catch((error: unknown) => {
       if (!cancelled) {
         setTools({
           kind: 'missing',
           reason: readError(error),
+          report: null,
         });
       }
     });
@@ -394,7 +401,7 @@ export function ClipExportStrip({
     return () => {
       cancelled = true;
     };
-  }, [desktopRuntime]);
+  }, [desktopRuntime, diagnosticsLog]);
 
   useEffect(() => {
     return audioEngine.onTransport((state) => {
