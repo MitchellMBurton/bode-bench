@@ -224,13 +224,17 @@ export function OverviewTransportStrip(): React.ReactElement {
 
   const renderSavedRangeRow = (rangeMark: RangeMark): React.ReactElement => {
     const selected = review.selectedRangeId === rangeMark.id;
+    const isAuditioning = review.auditionActiveRangeId === rangeMark.id;
     return (
       <div
         key={rangeMark.id}
         style={{
           ...savedRangeRowStyle,
-          borderColor: selected ? m.chromeBorderActive : m.chromeBorder,
-          background: selected ? m.bg2 : 'transparent',
+          borderColor: isAuditioning || selected ? m.chromeBorderActive : m.chromeBorder,
+          background: isAuditioning ? m.bg2 : selected ? m.bg2 : 'transparent',
+          borderLeftWidth: isAuditioning ? 3 : 1,
+          borderLeftColor: isAuditioning ? m.trace : (selected ? m.chromeBorderActive : m.chromeBorder),
+          paddingLeft: isAuditioning ? 4 : 6,
         }}
       >
         <div style={savedRangeTopLineStyle}>
@@ -240,19 +244,24 @@ export function OverviewTransportStrip(): React.ReactElement {
             onClick={() => review.selectRange(rangeMark.id)}
             title={`Select ${rangeMark.label}`}
           >
-            <RangeChip label={rangeMark.label} visualMode={visualMode} selected={selected} />
-            <span style={{ ...savedRangeDetailStyle, color: selected ? m.text : COLORS.textDim }}>
+            <RangeChip label={rangeMark.label} visualMode={visualMode} selected={selected || isAuditioning} />
+            <span style={{ ...savedRangeDetailStyle, color: selected || isAuditioning ? m.text : COLORS.textDim }}>
               {formatTransportTime(rangeMark.startS)} {'->'} {formatTransportTime(rangeMark.endS)}
             </span>
           </button>
           <div style={savedRangeActionsStyle}>
             <button
               type="button"
-              style={{ ...miniButtonStyle, color: m.text, borderColor: m.chromeBorder }}
-              onClick={() => review.auditionRange(rangeMark)}
-              title="Loop-audition this range"
+              style={{
+                ...miniButtonStyle,
+                color: isAuditioning ? m.text : m.text,
+                borderColor: isAuditioning ? m.chromeBorderActive : m.chromeBorder,
+                background: isAuditioning ? m.bg2 : 'transparent',
+              }}
+              onClick={() => review.toggleAudition(rangeMark)}
+              title={isAuditioning ? 'Stop auditioning this range' : 'Loop-audition this range'}
             >
-              AUDITION
+              {isAuditioning ? 'STOP' : 'AUDITION'}
             </button>
             <button
               type="button"

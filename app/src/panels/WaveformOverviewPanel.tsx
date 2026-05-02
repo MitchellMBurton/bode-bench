@@ -816,7 +816,7 @@ export function WaveformOverviewPanel({
       const waveformStroke = nge ? CANVAS.nge.trace : amber ? CANVAS.amber.trace : hyper ? CANVAS.hyper.trace : optic ? CANVAS.optic.trace : red ? CANVAS.red.trace : eva ? CANVAS.eva.trace : COLORS.waveform;
       const waveformShadow = nge ? 'rgba(160,216,64,0.35)' : amber ? 'rgba(255,176,48,0.30)' : hyper ? 'rgba(255,92,188,0.32)' : optic ? 'rgba(18,124,173,0.18)' : red ? 'rgba(255,90,74,0.26)' : eva ? 'rgba(255,123,0,0.35)' : 'rgba(200, 146, 42, 0.35)';
       const playFillWave = nge ? 'rgba(80, 160, 50, 0.07)' : amber ? 'rgba(255,176,48,0.07)' : hyper ? 'rgba(98,232,255,0.07)' : optic ? 'rgba(18,118,164,0.05)' : red ? 'rgba(156,40,32,0.10)' : eva ? 'rgba(255,123,0,0.07)' : 'rgba(80, 96, 192, 0.07)';
-      const playCursor = amber ? 'rgba(255,196,92,0.92)' : hyper ? 'rgba(255,92,188,0.92)' : optic ? 'rgba(29,169,199,0.90)' : red ? 'rgba(255,110,92,0.92)' : eva ? 'rgba(255,123,0,0.92)' : COLORS.accent;
+      const playCursor = amber ? 'rgba(255,196,92,0.92)' : hyper ? 'rgba(255,92,188,0.92)' : optic ? 'rgba(11,30,46,0.96)' : red ? 'rgba(255,110,92,0.92)' : eva ? 'rgba(255,123,0,0.92)' : COLORS.accent;
       const learnedWaveHint = nge ? 'rgba(160,216,64,0.12)' : amber ? 'rgba(255,176,48,0.10)' : hyper ? 'rgba(98,232,255,0.10)' : optic ? 'rgba(89,129,153,0.06)' : red ? 'rgba(255,90,74,0.08)' : eva ? 'rgba(255,123,0,0.10)' : 'rgba(160, 170, 240, 0.10)';
       const learnedWaveLine = nge ? 'rgba(160,216,64,0.32)' : amber ? 'rgba(255,196,92,0.24)' : hyper ? 'rgba(255,92,188,0.32)' : optic ? 'rgba(89,129,153,0.16)' : red ? 'rgba(255,90,74,0.22)' : eva ? 'rgba(255,123,0,0.32)' : 'rgba(200, 210, 255, 0.26)';
       const controlFill = nge ? 'rgba(12,20,12,0.96)' : amber ? 'rgba(18,12,4,0.98)' : hyper ? 'rgba(10,14,28,0.96)' : optic ? 'rgba(242,247,250,0.98)' : red ? 'rgba(20,8,9,0.98)' : eva ? 'rgba(8,4,26,0.96)' : 'rgba(14,16,25,0.98)';
@@ -932,8 +932,8 @@ export function WaveformOverviewPanel({
           ctx.fillRect(rect.x, rect.y, playX - rect.x, rect.h);
         }
 
-        ctx.strokeStyle = hyper ? 'rgba(16, 22, 36, 0.92)' : red ? 'rgba(22, 6, 7, 0.96)' : eva ? 'rgba(22, 12, 48, 0.92)' : 'rgba(12, 12, 18, 0.92)';
-        ctx.lineWidth = Math.max(2 * dpr, 1.5);
+        ctx.strokeStyle = optic ? 'rgba(244, 248, 251, 0.86)' : hyper ? 'rgba(16, 22, 36, 0.92)' : red ? 'rgba(22, 6, 7, 0.96)' : eva ? 'rgba(22, 12, 48, 0.92)' : 'rgba(12, 12, 18, 0.92)';
+        ctx.lineWidth = Math.max(optic ? 3 * dpr : 2 * dpr, optic ? 2 : 1.5);
         ctx.beginPath();
         ctx.moveTo(playX, rect.y);
         ctx.lineTo(playX, rect.y + rect.h);

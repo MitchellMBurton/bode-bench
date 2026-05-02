@@ -34,6 +34,7 @@ interface SupportTheme {
   readonly bg: string;
   readonly track: string;
   readonly label: string;
+  readonly category: string;
   readonly dim: string;
   readonly accent: string;
   readonly ok: string;
@@ -142,6 +143,7 @@ function buildSupportTheme(visualMode: VisualMode): SupportTheme {
         bg: CANVAS.amber.bg2,
         track: '#140d03',
         label: CANVAS.amber.label,
+        category: CANVAS.amber.category,
         dim: 'rgba(176,126,44,0.48)',
         accent: CANVAS.amber.trace,
         ok: '#ffb020',
@@ -156,6 +158,7 @@ function buildSupportTheme(visualMode: VisualMode): SupportTheme {
         bg: CANVAS.nge.bg2,
         track: '#030a03',
         label: CANVAS.nge.label,
+        category: CANVAS.nge.category,
         dim: 'rgba(80,160,50,0.44)',
         accent: CANVAS.nge.trace,
         ok: '#70c018',
@@ -169,8 +172,9 @@ function buildSupportTheme(visualMode: VisualMode): SupportTheme {
       return {
         bg: CANVAS.hyper.bg2,
         track: '#030918',
-        label: CANVAS.hyper.label,
-        dim: 'rgba(84,132,255,0.42)',
+        label: 'rgba(178,222,255,0.94)',
+        category: 'rgba(150,200,245,0.88)',
+        dim: 'rgba(140,178,225,0.74)',
         accent: CANVAS.hyper.trace,
         ok: '#28b0c8',
         warn: COLORS.levelYellow,
@@ -184,6 +188,7 @@ function buildSupportTheme(visualMode: VisualMode): SupportTheme {
         bg: CANVAS.eva.bg2,
         track: '#08041a',
         label: CANVAS.eva.label,
+        category: CANVAS.eva.category,
         dim: 'rgba(170,90,255,0.42)',
         accent: CANVAS.eva.trace,
         ok: '#ff7b00',
@@ -198,6 +203,7 @@ function buildSupportTheme(visualMode: VisualMode): SupportTheme {
         bg: CANVAS.red.bg2,
         track: '#120405',
         label: CANVAS.red.label,
+        category: CANVAS.red.category,
         dim: 'rgba(214,92,82,0.44)',
         accent: CANVAS.red.trace,
         ok: '#ff6e5c',
@@ -212,6 +218,7 @@ function buildSupportTheme(visualMode: VisualMode): SupportTheme {
         bg: CANVAS.optic.bg2,
         track: '#d8e6ef',
         label: CANVAS.optic.label,
+        category: CANVAS.optic.category,
         dim: 'rgba(92,132,156,0.50)',
         accent: CANVAS.optic.trace,
         ok: '#47b4cf',
@@ -226,6 +233,7 @@ function buildSupportTheme(visualMode: VisualMode): SupportTheme {
         bg: COLORS.bg2,
         track: COLORS.levelTrack,
         label: COLORS.textSecondary,
+        category: COLORS.textCategory,
         dim: COLORS.textDim,
         accent: COLORS.waveform,
         ok: COLORS.levelGreen,
@@ -285,6 +293,7 @@ function drawCanvasBackdrop(ctx: CanvasRenderingContext2D, width: number, height
 export function SupportInstrumentationRack(): React.ReactElement {
   const visualMode = useVisualMode();
   const mode = MODES[visualMode];
+  const theme = useMemo(() => buildSupportTheme(visualMode), [visualMode]);
   const wrapRef = useRef<HTMLDivElement>(null);
   const [height, setHeight] = useState(0);
   const [activeId, setActiveId] = useState<SupportInstrumentId>('gonio');
@@ -332,7 +341,7 @@ export function SupportInstrumentationRack(): React.ReactElement {
   return (
     <div ref={wrapRef} style={{ ...rackStyle, background: mode.bg }}>
       <div style={{ ...focusRailStyle, borderColor: mode.chromeBorder }}>
-        <span style={{ ...focusLabelStyle, color: mode.category }}>FOCUS</span>
+        <span style={{ ...focusLabelStyle, color: theme.category }}>FOCUS</span>
         <div style={tabRowStyle}>
           {SUPPORT_INSTRUMENTS.map((instrument) => {
             const activeTab = instrument.id === activeId;
@@ -343,7 +352,7 @@ export function SupportInstrumentationRack(): React.ReactElement {
                 onClick={() => setActiveId(instrument.id)}
                 style={{
                   ...tabButtonStyle,
-                  color: activeTab ? mode.text : mode.category,
+                  color: activeTab ? mode.text : theme.category,
                   borderColor: activeTab ? mode.chromeBorderActive : mode.chromeBorder,
                   background: activeTab ? mode.bg2 : 'transparent',
                 }}
@@ -1037,6 +1046,7 @@ function InstrumentBay({
   readonly visualMode: VisualMode;
 }): React.ReactElement {
   const mode = MODES[visualMode];
+  const theme = buildSupportTheme(visualMode);
   return (
     <div
       style={{
@@ -1045,7 +1055,7 @@ function InstrumentBay({
         background: visualMode === 'optic' ? 'rgba(232,240,246,0.72)' : 'rgba(0,0,0,0.08)',
       }}
     >
-      {compact ? <span style={{ ...bayLabelStyle, color: mode.category }}>{label}</span> : null}
+      {compact ? <span style={{ ...bayLabelStyle, color: theme.category }}>{label}</span> : null}
       <div style={bayContentStyle}>{children}</div>
     </div>
   );

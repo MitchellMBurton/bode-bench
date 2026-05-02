@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import {
   useAudioEngine,
@@ -39,6 +39,7 @@ export interface ReviewControlModel {
   readonly markersCount: number;
   readonly canCommitRange: boolean;
   readonly loopReady: boolean;
+  readonly auditionActiveRangeId: number | null;
   readonly setIn: () => void;
   readonly setOut: () => void;
   readonly captureLoop: () => void;
@@ -46,9 +47,12 @@ export interface ReviewControlModel {
   readonly clearRanges: () => void;
   readonly selectRange: (rangeId: number) => void;
   readonly auditionRange: (rangeMark: RangeMark) => void;
+  readonly toggleAudition: (rangeMark: RangeMark) => void;
   readonly deleteRange: (rangeId: number) => void;
   readonly updateRangeNote: (rangeId: number, note: string) => void;
 }
+
+const AUDITION_LOOP_EPSILON_S = 0.001;
 
 export function useReviewControlModel(): ReviewControlModel {
   const audioEngine = useAudioEngine();
@@ -71,6 +75,21 @@ export function useReviewControlModel(): ReviewControlModel {
   const pendingRangeStartS = snapshot.pendingRangeStartS;
   const loopReady = transport.loopStart !== null && transport.loopEnd !== null;
   const canCommitRange = pendingRangeStartS !== null && Math.abs(transport.currentTime - pendingRangeStartS) >= 0.01;
+
+  const loopStart = transport.loopStart;
+  const loopEnd = transport.loopEnd;
+  const auditionActiveRangeId = useMemo<number | null>(() => {
+    if (loopStart === null || loopEnd === null) return null;
+    for (const rangeMark of snapshot.rangeMarks) {
+      if (
+        Math.abs(rangeMark.startS - loopStart) < AUDITION_LOOP_EPSILON_S &&
+        Math.abs(rangeMark.endS - loopEnd) < AUDITION_LOOP_EPSILON_S
+      ) {
+        return rangeMark.id;
+      }
+    }
+    return null;
+  }, [loopStart, loopEnd, snapshot.rangeMarks]);
 
   const setIn = useCallback((): void => {
     const startS = derivedMedia.setPendingRangeStart(transport.currentTime);
@@ -106,9 +125,12 @@ export function useReviewControlModel(): ReviewControlModel {
 
   const clearRanges = useCallback((): void => {
     if (snapshot.rangeMarks.length === 0) return;
+    if (auditionActiveRangeId !== null) {
+      audioEngine.clearLoop();
+    }
     derivedMedia.clearRanges();
     diagnosticsLog.push('ranges cleared', 'info', 'transport');
-  }, [derivedMedia, diagnosticsLog, snapshot.rangeMarks.length]);
+  }, [audioEngine, auditionActiveRangeId, derivedMedia, diagnosticsLog, snapshot.rangeMarks.length]);
 
   const selectRange = useCallback((rangeId: number): void => {
     derivedMedia.selectRange(rangeId);
@@ -125,12 +147,31 @@ export function useReviewControlModel(): ReviewControlModel {
     );
   }, [audioEngine, derivedMedia, diagnosticsLog]);
 
+  const toggleAudition = useCallback((rangeMark: RangeMark): void => {
+    if (auditionActiveRangeId === rangeMark.id) {
+      audioEngine.clearLoop();
+      diagnosticsLog.push(`loop audition ${rangeMark.label} stopped`, 'dim', 'transport');
+      return;
+    }
+    derivedMedia.selectRange(rangeMark.id);
+    audioEngine.setLoop(rangeMark.startS, rangeMark.endS);
+    audioEngine.seek(rangeMark.startS);
+    diagnosticsLog.push(
+      `loop audition ${rangeMark.label} ${formatTransportTime(rangeMark.startS)} -> ${formatTransportTime(rangeMark.endS)}`,
+      'info',
+      'transport',
+    );
+  }, [audioEngine, auditionActiveRangeId, derivedMedia, diagnosticsLog]);
+
   const deleteRange = useCallback((rangeId: number): void => {
     const rangeMark = snapshot.rangeMarks.find((entry) => entry.id === rangeId);
     assert(rangeMark, 'range to delete is missing');
+    if (auditionActiveRangeId === rangeId) {
+      audioEngine.clearLoop();
+    }
     derivedMedia.deleteRange(rangeId);
     diagnosticsLog.push(`range ${rangeMark.label} removed`, 'dim', 'transport');
-  }, [derivedMedia, diagnosticsLog, snapshot.rangeMarks]);
+  }, [audioEngine, auditionActiveRangeId, derivedMedia, diagnosticsLog, snapshot.rangeMarks]);
 
   const updateRangeNote = useCallback((rangeId: number, note: string): void => {
     derivedMedia.updateRangeNote(rangeId, note);
@@ -145,6 +186,7 @@ export function useReviewControlModel(): ReviewControlModel {
     markersCount: snapshot.markers.length,
     canCommitRange,
     loopReady,
+    auditionActiveRangeId,
     setIn,
     setOut,
     captureLoop,
@@ -152,6 +194,7 @@ export function useReviewControlModel(): ReviewControlModel {
     clearRanges,
     selectRange,
     auditionRange,
+    toggleAudition,
     deleteRange,
     updateRangeNote,
   };
