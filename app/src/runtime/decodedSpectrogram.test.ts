@@ -5,6 +5,7 @@ import {
   canBuildDecodedSpectrogramOverview,
   pickDecodedSpectrogramColumnCount,
   projectDecodedSpectrogramHistory,
+  resolveDecodedSpectrogramPlaybackRatio,
 } from './decodedSpectrogram';
 
 function createBuffer(samples: Float32Array, sampleRate = 1024): AudioBuffer {
@@ -62,5 +63,12 @@ describe('decoded spectrogram overview', () => {
       sampleRate: 48_000,
     } as AudioBuffer;
     expect(canBuildDecodedSpectrogramOverview(large)).toBe(false);
+  });
+
+  it('maps playback into full and window scan-line ratios', () => {
+    expect(resolveDecodedSpectrogramPlaybackRatio('full', 25, 100, { start: 20, end: 40 })).toBe(0.25);
+    expect(resolveDecodedSpectrogramPlaybackRatio('window', 25, 100, { start: 20, end: 40 })).toBe(0.25);
+    expect(resolveDecodedSpectrogramPlaybackRatio('window', 10, 100, { start: 20, end: 40 })).toBeNull();
+    expect(resolveDecodedSpectrogramPlaybackRatio('live', 25, 100, { start: 20, end: 40 })).toBeNull();
   });
 });

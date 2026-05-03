@@ -14,6 +14,7 @@ import {
   canBuildDecodedSpectrogramOverview,
   pickDecodedSpectrogramColumnCount,
   projectDecodedSpectrogramHistory,
+  resolveDecodedSpectrogramPlaybackRatio,
   type SpectrogramRowBand,
 } from '../runtime/decodedSpectrogram';
 import type { VisualMode } from '../audio/displayMode';
@@ -385,6 +386,37 @@ function appendSpectrogramSlice(
   }
 }
 
+function drawDecodedPlaybackScanLine(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  top: number,
+  height: number,
+  dpr: number,
+  color: string,
+): void {
+  const lineX = Math.round(x) + 0.5;
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = Math.max(1, dpr);
+  ctx.globalAlpha = 0.92;
+  ctx.beginPath();
+  ctx.moveTo(lineX, top);
+  ctx.lineTo(lineX, top + height);
+  ctx.stroke();
+
+  ctx.globalAlpha = 0.26;
+  ctx.lineWidth = Math.max(3, 3 * dpr);
+  ctx.beginPath();
+  ctx.moveTo(lineX, top);
+  ctx.lineTo(lineX, top + height);
+  ctx.stroke();
+
+  ctx.globalAlpha = 0.95;
+  ctx.fillStyle = color;
+  ctx.fillRect(lineX - Math.round(3 * dpr), top, Math.round(6 * dpr), Math.max(1, Math.round(2 * dpr)));
+  ctx.restore();
+}
+
 export function SpectrogramPanel(): React.ReactElement {
   const displayMode = useDisplayMode();
   const analysisConfig = useAnalysisConfig();
@@ -493,7 +525,7 @@ export function SpectrogramPanel(): React.ReactElement {
 
   useEffect(() => {
     dirtyRef.current = true;
-  }, [activeViewMode, waveformPyramidVersion]);
+  }, [activeViewMode, transport?.currentTime, waveformPyramidVersion]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -716,6 +748,25 @@ export function SpectrogramPanel(): React.ReactElement {
         }
       }
 
+      if (activeViewMode !== 'live' && buffer && decodedOverviewAvailable) {
+        const playbackRatio = resolveDecodedSpectrogramPlaybackRatio(
+          activeViewMode,
+          audioEngine.currentTime,
+          Math.max(0.001, buffer.duration),
+          waveformPyramid.currentViewRange,
+        );
+        if (playbackRatio !== null) {
+          drawDecodedPlaybackScanLine(
+            ctx,
+            spectroX + playbackRatio * spectroW,
+            padY,
+            spectroH,
+            dpr,
+            theme.label,
+          );
+        }
+      }
+
       ctx.font = `${8 * dpr}px ${FONTS.mono}`;
       ctx.fillStyle = theme.label;
       ctx.textAlign = 'right';
@@ -756,6 +807,7 @@ export function SpectrogramPanel(): React.ReactElement {
     ensureRowBands,
     spectralAnatomy,
     theaterMode,
+    transport?.currentTime,
     transport?.filename,
     waveformPyramid,
     waveformPyramidVersion,

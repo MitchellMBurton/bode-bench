@@ -1,3 +1,5 @@
+import type { SpectrogramViewMode } from '../types';
+
 export interface SpectrogramRowBand {
   readonly lowBin: number;
   readonly highBin: number;
@@ -10,6 +12,11 @@ export interface DecodedSpectrogramInput {
   readonly rowBands: readonly SpectrogramRowBand[];
   readonly dbMin: number;
   readonly dbMax: number;
+}
+
+export interface DecodedSpectrogramViewRange {
+  readonly start: number;
+  readonly end: number;
 }
 
 const HISTORY_EMPTY = -1;
@@ -106,6 +113,23 @@ export function projectDecodedSpectrogramHistory(
   }
 
   return projected;
+}
+
+export function resolveDecodedSpectrogramPlaybackRatio(
+  viewMode: SpectrogramViewMode,
+  currentTimeS: number,
+  durationS: number,
+  viewRange: DecodedSpectrogramViewRange,
+): number | null {
+  if (viewMode === 'live' || durationS <= 0 || !Number.isFinite(currentTimeS)) return null;
+
+  if (viewMode === 'full') {
+    return clamp(currentTimeS / durationS, 0, 1);
+  }
+
+  const span = viewRange.end - viewRange.start;
+  if (span <= 0 || currentTimeS < viewRange.start || currentTimeS > viewRange.end) return null;
+  return clamp((currentTimeS - viewRange.start) / span, 0, 1);
 }
 
 function nearestPowerOfTwo(value: number): number {
