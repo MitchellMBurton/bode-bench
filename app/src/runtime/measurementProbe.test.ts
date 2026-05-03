@@ -39,7 +39,7 @@ describe('buildLiveMeasurementProbe', () => {
     expect(probe.levels).toBe('L/R --/--');
     expect(probe.momentaryLufs).toBe('M --');
     expect(probe.f0).toBe('F0 --');
-    expect(probe.centroid).toBe('CENT --');
+    expect(probe.centroid).toBe('CTR --');
     expect(probe.band).toBe('BAND --');
     expect(probe.correlation).toBe('CORR --');
   });
@@ -67,7 +67,7 @@ describe('buildLiveMeasurementProbe', () => {
     expect(probe.levels).toBe('L/R -12/-18 dB');
     expect(probe.momentaryLufs).toBe('M -12.7 LUFS');
     expect(probe.f0).toBe('F0 88 Hz');
-    expect(probe.centroid).toBe('CENT 211 Hz');
+    expect(probe.centroid).toBe('CTR 211 Hz');
     expect(probe.correlation).toBe('CORR +0.90');
   });
 

@@ -1,10 +1,17 @@
 import { useCallback, useEffect, useRef } from 'react';
-import { useAnalysisConfig, useDisplayMode, useSpectralAnatomyStore, useTheaterMode } from '../core/session';
+import {
+  useAnalysisConfig,
+  useAnalysisConfigStore,
+  useDisplayMode,
+  useSpectralAnatomyStore,
+  useTheaterMode,
+} from '../core/session';
 import type { VisualMode } from '../audio/displayMode';
 import { COLORS, FONTS, CANVAS, SPACING } from '../theme';
 import { formatHz, hexToRgb, spectroColor } from '../utils/canvas';
 import { shouldSkipFrame } from '../utils/rafGuard';
 import { useMeasurementCursor, type CursorMapFn } from './useMeasurementCursor';
+import type { SpectrogramViewMode } from '../types';
 
 const FREQ_AXIS_W = CANVAS.spectroFreqAxisWidth;
 const PAD_Y = SPACING.panelPad;
@@ -48,6 +55,17 @@ const GRID_HZ = [50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000];
 const AXIS_HZ = [50, 100, 200, 500, '1k', '2k', '5k', '10k', '20k'] as const;
 const AXIS_HZ_VALUES = [50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000];
 const MINOR_GRID_HZ = [30, 40, 70, 80, 150, 300, 700, 800, 1500, 3000, 7000, 8000, 15000];
+const SPECTROGRAM_VIEW_MODES = ['live', 'window', 'full'] as const satisfies readonly SpectrogramViewMode[];
+const SPECTROGRAM_VIEW_MODE_LABELS: Record<SpectrogramViewMode, string> = {
+  live: 'LIVE',
+  window: 'WIN',
+  full: 'FULL',
+};
+const SPECTROGRAM_VIEW_MODE_TITLES: Record<SpectrogramViewMode, string> = {
+  live: 'Live scrolling spectrogram',
+  window: 'Unavailable: window view needs time-indexed spectrogram history',
+  full: 'Unavailable: full overview needs worker-backed full-source spectrogram data',
+};
 
 type Rgb = readonly [number, number, number];
 
@@ -360,6 +378,7 @@ function appendSpectrogramSlice(
 export function SpectrogramPanel(): React.ReactElement {
   const displayMode = useDisplayMode();
   const analysisConfig = useAnalysisConfig();
+  const analysisConfigStore = useAnalysisConfigStore();
   const spectralAnatomy = useSpectralAnatomyStore();
   const theaterMode = useTheaterMode();
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -627,12 +646,6 @@ export function SpectrogramPanel(): React.ReactElement {
         ctx.fillText(label, axisW - 4 * dpr, yTick);
       }
 
-      ctx.font = `${9 * dpr}px ${FONTS.mono}`;
-      ctx.fillStyle = theme.label;
-      ctx.textAlign = 'right';
-      ctx.textBaseline = 'top';
-      ctx.fillText('SPECTROGRAM', W - 8 * dpr, 6 * dpr);
-
       dirtyRef.current = false;
     };
 
@@ -653,6 +666,36 @@ export function SpectrogramPanel(): React.ReactElement {
 
   return (
     <div style={{ ...panelStyle, background: SPECTROGRAM_THEMES[displayMode.mode].panelBackground }}>
+      <div style={viewChromeStyle}>
+        <div style={viewChipGroupStyle}>
+          {SPECTROGRAM_VIEW_MODES.map((viewMode) => {
+            const active = analysisConfig.spectrogram.viewMode === viewMode;
+            const available = viewMode === 'live';
+            return (
+              <button
+                key={viewMode}
+                type="button"
+                aria-disabled={!available}
+                tabIndex={available ? 0 : -1}
+                onClick={() => {
+                  if (available) analysisConfigStore.setSpectrogramViewMode(viewMode);
+                }}
+                title={SPECTROGRAM_VIEW_MODE_TITLES[viewMode]}
+                style={{
+                  ...viewChipStyle,
+                  color: active ? SPECTROGRAM_THEMES[displayMode.mode].label : SPECTROGRAM_THEMES[displayMode.mode].axis,
+                  borderColor: active ? SPECTROGRAM_THEMES[displayMode.mode].label : SPECTROGRAM_THEMES[displayMode.mode].axis,
+                  opacity: available ? 0.9 : 0.42,
+                  cursor: available ? 'pointer' : 'not-allowed',
+                }}
+              >
+                {SPECTROGRAM_VIEW_MODE_LABELS[viewMode]}
+              </button>
+            );
+          })}
+        </div>
+        <span style={{ ...viewTitleStyle, color: SPECTROGRAM_THEMES[displayMode.mode].label }}>SPECTROGRAM</span>
+      </div>
       <canvas
         ref={canvasRef}
         style={canvasStyle}
@@ -672,6 +715,44 @@ const panelStyle: React.CSSProperties = {
   height: '100%',
   background: SPECTRO_BG,
   overflow: 'hidden',
+};
+
+const viewChromeStyle: React.CSSProperties = {
+  position: 'absolute',
+  top: 5,
+  right: 8,
+  zIndex: 2,
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 6,
+  pointerEvents: 'auto',
+};
+
+const viewChipGroupStyle: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 2,
+};
+
+const viewChipStyle: React.CSSProperties = {
+  height: 17,
+  padding: '0 5px',
+  borderWidth: 1,
+  borderStyle: 'solid',
+  borderRadius: 2,
+  background: 'rgba(0,0,0,0.28)',
+  fontFamily: FONTS.mono,
+  fontSize: 8,
+  letterSpacing: '0.08em',
+  outline: 'none',
+};
+
+const viewTitleStyle: React.CSSProperties = {
+  fontFamily: FONTS.mono,
+  fontSize: 9,
+  letterSpacing: '0.06em',
+  lineHeight: 1,
+  textTransform: 'uppercase',
 };
 
 const canvasStyle: React.CSSProperties = {

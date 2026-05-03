@@ -64,6 +64,7 @@ describe('AnalysisConfigStore', () => {
         dbMin: -92,
         dbMax: -6,
         gridDensity: 'major+minor',
+        viewMode: 'live',
       },
       loudness: {
         targetPreset: 'stream',
@@ -88,6 +89,7 @@ describe('AnalysisConfigStore', () => {
         dbMin: -200,
         dbMax: 12,
         gridDensity: 'noise',
+        viewMode: 'sideways',
       },
       loudness: {
         targetPreset: 'tv',
@@ -111,6 +113,7 @@ describe('AnalysisConfigStore', () => {
         dbMin: -120,
         dbMax: 0,
         gridDensity: 'major+minor',
+        viewMode: 'live',
       },
       loudness: {
         targetPreset: 'stream',
@@ -130,6 +133,7 @@ describe('AnalysisConfigStore', () => {
     store.setFrequencyResponseDbSpan(72);
     store.setSpectroDbRange(-48, -72);
     store.setSpectrogramGridDensity('major-only');
+    store.setSpectrogramViewMode('window');
     store.setLoudnessTargetPreset('cinema');
     store.setLoudnessReferenceMode('target-only');
     store.setShowRmsGuides(false);
@@ -147,6 +151,7 @@ describe('AnalysisConfigStore', () => {
         dbMin: -48,
         dbMax: -10,
         gridDensity: 'major-only',
+        viewMode: 'window',
       },
       loudness: {
         targetPreset: 'cinema',

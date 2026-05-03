@@ -274,6 +274,7 @@ export type FftSizeOption = 2048 | 4096 | 8192 | 16384;
 export type FreqResponseBandwidth = '1/12-oct' | '1/6-oct' | '1/3-oct' | '1-oct';
 export type FreqResponseDbSpan = 36 | 54 | 72;
 export type SpectrogramGridDensity = 'off' | 'major-only' | 'major+minor';
+export type SpectrogramViewMode = 'live' | 'window' | 'full';
 export type LoudnessTargetPreset = 'stream' | 'apple' | 'ebu' | 'cinema';
 export type LoudnessReferenceMode = 'all' | 'target-only';
 
@@ -298,6 +299,8 @@ export interface AnalysisConfig {
     readonly dbMax: number;
     /** Grid overlay density for the spectrogram display. */
     readonly gridDensity: SpectrogramGridDensity;
+    /** Time-domain view mode. Only live rendering is active until time-indexed/full-source data lands. */
+    readonly viewMode: SpectrogramViewMode;
   };
   readonly loudness: {
     /** Highlighted loudness target preset. */

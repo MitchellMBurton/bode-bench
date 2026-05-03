@@ -13,6 +13,7 @@ import type {
   LoudnessReferenceMode,
   LoudnessTargetPreset,
   SpectrogramGridDensity,
+  SpectrogramViewMode,
 } from '../types';
 
 const STORAGE_KEY = 'console:analysis-config';
@@ -21,6 +22,7 @@ export const FFT_SIZE_OPTIONS = [2048, 4096, 8192, 16384] as const satisfies rea
 export const FREQ_RESPONSE_BANDWIDTH_OPTIONS = ['1/12-oct', '1/6-oct', '1/3-oct', '1-oct'] as const satisfies readonly FreqResponseBandwidth[];
 export const FREQ_RESPONSE_DB_SPAN_OPTIONS = [36, 54, 72] as const satisfies readonly FreqResponseDbSpan[];
 export const SPECTROGRAM_GRID_DENSITY_OPTIONS = ['off', 'major-only', 'major+minor'] as const satisfies readonly SpectrogramGridDensity[];
+export const SPECTROGRAM_VIEW_MODE_OPTIONS = ['live', 'window', 'full'] as const satisfies readonly SpectrogramViewMode[];
 export const LOUDNESS_TARGET_PRESET_OPTIONS = ['stream', 'apple', 'ebu', 'cinema'] as const satisfies readonly LoudnessTargetPreset[];
 export const LOUDNESS_REFERENCE_MODE_OPTIONS = ['all', 'target-only'] as const satisfies readonly LoudnessReferenceMode[];
 
@@ -37,6 +39,7 @@ export const DEFAULT_ANALYSIS_CONFIG: AnalysisConfig = {
     dbMin: -80,
     dbMax: 0,
     gridDensity: 'major+minor',
+    viewMode: 'live',
   },
   loudness: {
     targetPreset: 'stream',
@@ -125,12 +128,17 @@ export function normalizeAnalysisConfig(raw: unknown): AnalysisConfig {
     spectrogram: {
       dbMin: Math.min(dbMin, dbMax),
       dbMax: Math.max(dbMin, dbMax),
-      gridDensity: coerceOption(
-        spectrogram.gridDensity,
-        SPECTROGRAM_GRID_DENSITY_OPTIONS,
-        DEFAULT_ANALYSIS_CONFIG.spectrogram.gridDensity,
-      ),
-    },
+        gridDensity: coerceOption(
+          spectrogram.gridDensity,
+          SPECTROGRAM_GRID_DENSITY_OPTIONS,
+          DEFAULT_ANALYSIS_CONFIG.spectrogram.gridDensity,
+        ),
+        viewMode: coerceOption(
+          spectrogram.viewMode,
+          SPECTROGRAM_VIEW_MODE_OPTIONS,
+          DEFAULT_ANALYSIS_CONFIG.spectrogram.viewMode,
+        ),
+      },
     loudness: {
       targetPreset: coerceOption(
         loudness.targetPreset,
@@ -227,6 +235,14 @@ export class AnalysisConfigStore {
     this.replace({
       ...this.config,
       spectrogram: { ...this.config.spectrogram, gridDensity },
+    });
+  }
+
+  setSpectrogramViewMode(viewMode: SpectrogramViewMode): void {
+    if (this.config.spectrogram.viewMode === viewMode) return;
+    this.replace({
+      ...this.config,
+      spectrogram: { ...this.config.spectrogram, viewMode },
     });
   }
 

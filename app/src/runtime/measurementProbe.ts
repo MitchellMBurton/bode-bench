@@ -86,8 +86,8 @@ function formatF0(frame: AudioFrame | null, density: 'full' | 'compact'): string
 }
 
 function formatCentroid(frame: AudioFrame | null, density: 'full' | 'compact'): string {
-  if (!frame || !Number.isFinite(frame.spectralCentroid) || frame.spectralCentroid <= 0) return 'CENT --';
-  return `CENT ${formatHzNumber(frame.spectralCentroid, density)}`;
+  if (!frame || !Number.isFinite(frame.spectralCentroid) || frame.spectralCentroid <= 0) return 'CTR --';
+  return `CTR ${formatHzNumber(frame.spectralCentroid, density)}`;
 }
 
 function formatStrongestBand(frame: AudioFrame | null, density: 'full' | 'compact'): string {

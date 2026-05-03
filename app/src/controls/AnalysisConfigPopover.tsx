@@ -13,6 +13,7 @@ import {
   LOUDNESS_REFERENCE_MODE_OPTIONS,
   LOUDNESS_TARGET_PRESET_OPTIONS,
   SPECTROGRAM_GRID_DENSITY_OPTIONS,
+  SPECTROGRAM_VIEW_MODE_OPTIONS,
 } from '../audio/analysisConfig';
 import { useAnalysisConfig, useAnalysisConfigStore } from '../core/session';
 import { FONTS, MODES, SPACING } from '../theme';
@@ -23,6 +24,7 @@ import type {
   LoudnessReferenceMode,
   LoudnessTargetPreset,
   SpectrogramGridDensity,
+  SpectrogramViewMode,
 } from '../types';
 
 interface Props {
@@ -37,6 +39,16 @@ const GRID_DENSITY_LABELS: Record<SpectrogramGridDensity, string> = {
   off: 'OFF',
   'major-only': 'MAJOR',
   'major+minor': 'FULL',
+};
+const SPECTROGRAM_VIEW_MODE_LABELS: Record<SpectrogramViewMode, string> = {
+  live: 'LIVE',
+  window: 'WIN',
+  full: 'FULL',
+};
+const SPECTROGRAM_VIEW_MODE_TITLES: Record<SpectrogramViewMode, string> = {
+  live: 'Live scrolling spectrogram',
+  window: 'Unavailable: window view needs time-indexed spectrogram history',
+  full: 'Unavailable: full overview needs worker-backed full-source spectrogram data',
 };
 const TARGET_PRESET_LABELS: Record<LoudnessTargetPreset, string> = {
   stream: 'STREAM',
@@ -106,6 +118,18 @@ export function AnalysisConfigPopover({ visualMode, onClose }: Props): React.Rea
     minWidth: 42,
   });
 
+  const spectrogramViewBtn = (mode: SpectrogramViewMode): React.CSSProperties => {
+    const active = config.spectrogram.viewMode === mode;
+    const available = mode === 'live';
+    return {
+      ...segBtn(active),
+      color: available ? (active ? m.text : m.category) : m.category,
+      opacity: available ? 1 : 0.42,
+      cursor: available ? 'pointer' : 'not-allowed',
+      filter: available ? 'none' : 'saturate(0.5)',
+    };
+  };
+
   return (
     <div
       ref={popoverRef}
@@ -144,6 +168,25 @@ export function AnalysisConfigPopover({ visualMode, onClose }: Props): React.Rea
         </ConfigSection>
 
         <ConfigSection title="SPECTROGRAM" labelColor={m.category}>
+          <ConfigRow label="VIEW" labelColor={m.category}>
+            <div style={segGroupStyle}>
+              {SPECTROGRAM_VIEW_MODE_OPTIONS.map((viewMode) => (
+                <button
+                  key={viewMode}
+                  style={spectrogramViewBtn(viewMode)}
+                  onClick={() => {
+                    if (viewMode === 'live') store.setSpectrogramViewMode(viewMode);
+                  }}
+                  aria-disabled={viewMode !== 'live'}
+                  tabIndex={viewMode === 'live' ? 0 : -1}
+                  title={SPECTROGRAM_VIEW_MODE_TITLES[viewMode]}
+                >
+                  {SPECTROGRAM_VIEW_MODE_LABELS[viewMode]}
+                </button>
+              ))}
+            </div>
+          </ConfigRow>
+
           <ConfigRow label="dB RANGE" labelColor={m.category}>
             <input
               type="number"
