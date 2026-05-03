@@ -4,6 +4,7 @@ import { RANGE_NOTE_MAX_LENGTH, type AnalysisConfig, type Marker, type RangeMark
 
 export const REVIEW_SESSION_SCHEMA = 'bode-bench.review-session';
 export const REVIEW_SESSION_VERSION = 1;
+export const REVIEW_SESSION_V2_VERSION = 2;
 const SESSION_SOURCE_DURATION_TOLERANCE_S = 1;
 
 export interface ReviewSessionSource {
@@ -40,6 +41,20 @@ export interface ReviewSessionV1 {
   readonly workspace: ReviewSessionWorkspace;
 }
 
+export interface ReviewSessionSourcesV2 {
+  readonly primary: ReviewSessionSource;
+  readonly reference: ReviewSessionSource | null;
+}
+
+export interface ReviewSessionV2 {
+  readonly schema: typeof REVIEW_SESSION_SCHEMA;
+  readonly version: typeof REVIEW_SESSION_V2_VERSION;
+  readonly metadata: ReviewSessionV1['metadata'];
+  readonly sources: ReviewSessionSourcesV2;
+  readonly review: ReviewSessionV1['review'];
+  readonly workspace: ReviewSessionWorkspace;
+}
+
 export type ReviewSessionParseResult =
   | { readonly kind: 'ok'; readonly session: ReviewSessionV1 }
   | { readonly kind: 'error'; readonly message: string };
@@ -54,6 +69,9 @@ export interface CurrentSessionSourceIdentity {
   readonly kind: 'audio' | 'video' | null;
   readonly durationS: number | null;
   readonly mediaKey: string | null;
+  readonly size: number | null;
+  readonly lastModified: number | null;
+  readonly sourcePath: string | null;
 }
 
 export interface BuildReviewSessionInput {
@@ -73,6 +91,20 @@ export function buildReviewSession(input: BuildReviewSessionInput): ReviewSessio
     source: input.source,
     review: input.review,
     workspace: input.workspace,
+  };
+}
+
+export function migrateReviewSessionV1ToV2(session: ReviewSessionV1): ReviewSessionV2 {
+  return {
+    schema: REVIEW_SESSION_SCHEMA,
+    version: REVIEW_SESSION_V2_VERSION,
+    metadata: session.metadata,
+    sources: {
+      primary: session.source,
+      reference: null,
+    },
+    review: session.review,
+    workspace: session.workspace,
   };
 }
 

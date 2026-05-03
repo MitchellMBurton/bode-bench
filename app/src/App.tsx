@@ -27,7 +27,11 @@ import { PRODUCT_NAME } from './constants';
 import { COLORS, FONTS, MODES, SPACING } from './theme';
 import { formatRuntimeMs } from './utils/format';
 import { SessionDeck, type SessionStatus } from './controls/SessionDeck';
-import { matchReviewSessionSource, type ReviewSessionV1 } from './runtime/reviewSession';
+import {
+  matchReviewSessionSource,
+  type CurrentSessionSourceIdentity,
+  type ReviewSessionV1,
+} from './runtime/reviewSession';
 
 function getRuntimeStatus(snapshot: PerformanceDiagnosticsSnapshot): string {
   if (snapshot.videoRecoveryCount > 0 || snapshot.videoStallCount > 0) return 'VIDEO PRESSURE';
@@ -40,6 +44,18 @@ function buildTransportMediaKey(filename: string | null, duration: number): stri
   if (!filename) return null;
   const safeDuration = Number.isFinite(duration) && duration > 0 ? duration : 0;
   return `${filename}:${safeDuration.toFixed(3)}`;
+}
+
+function createEmptySessionSource(): CurrentSessionSourceIdentity {
+  return {
+    filename: null,
+    kind: null,
+    durationS: null,
+    mediaKey: null,
+    size: null,
+    lastModified: null,
+    sourcePath: null,
+  };
 }
 
 export default function App(): React.ReactElement {
@@ -60,11 +76,7 @@ export default function App(): React.ReactElement {
   );
   const theaterMode = useTheaterMode();
   const [transportFilename, setTransportFilename] = useState<string | null>(null);
-  const [sessionMedia, setSessionMedia] = useState<{ filename: string | null; mediaKey: string | null; kind: 'audio' | 'video' | null }>({
-    filename: null,
-    mediaKey: null,
-    kind: null,
-  });
+  const [sessionMedia, setSessionMedia] = useState<CurrentSessionSourceIdentity>(() => createEmptySessionSource());
   const [performanceLabOpen, setPerformanceLabOpen] = useState(false);
   const [grayscale, setGrayscale] = useState(false);
   const [layoutResetToken, setLayoutResetToken] = useState(0);
@@ -101,8 +113,11 @@ export default function App(): React.ReactElement {
       const currentIdentity = {
         filename: sessionMedia.filename ?? state.filename,
         kind: sessionMedia.kind,
-        durationS: state.duration > 0 ? state.duration : null,
+        durationS: sessionMedia.durationS ?? (state.duration > 0 ? state.duration : null),
         mediaKey: nextMediaKey,
+        size: sessionMedia.size,
+        lastModified: sessionMedia.lastModified,
+        sourcePath: sessionMedia.sourcePath,
       };
       const match = matchReviewSessionSource(pendingSession.source, currentIdentity);
       if (match.kind !== 'match') return;
@@ -110,10 +125,23 @@ export default function App(): React.ReactElement {
       setPendingSession(null);
       setSessionStatus({ text: 'Session restored.', tone: 'ok' });
     });
-  }, [audioEngine, derivedMedia, pendingSession, performanceDiagnostics, restoreReviewSession, sessionMedia.filename, sessionMedia.kind, sessionMedia.mediaKey]);
+  }, [
+    audioEngine,
+    derivedMedia,
+    pendingSession,
+    performanceDiagnostics,
+    restoreReviewSession,
+    sessionMedia.durationS,
+    sessionMedia.filename,
+    sessionMedia.kind,
+    sessionMedia.lastModified,
+    sessionMedia.mediaKey,
+    sessionMedia.size,
+    sessionMedia.sourcePath,
+  ]);
 
   useEffect(() => audioEngine.onReset(() => {
-    setSessionMedia({ filename: null, mediaKey: null, kind: null });
+    setSessionMedia(createEmptySessionSource());
     derivedMedia.reset();
   }), [audioEngine, derivedMedia]);
 
@@ -161,8 +189,11 @@ export default function App(): React.ReactElement {
       source={{
         filename: sessionMedia.filename ?? transportFilename,
         kind: sessionMedia.kind,
-        durationS: audioEngine.duration > 0 ? audioEngine.duration : null,
+        durationS: sessionMedia.durationS ?? (audioEngine.duration > 0 ? audioEngine.duration : null),
         mediaKey: sessionMedia.mediaKey,
+        size: sessionMedia.size,
+        lastModified: sessionMedia.lastModified,
+        sourcePath: sessionMedia.sourcePath,
       }}
       currentTimeS={audioEngine.currentTime}
       grayscale={grayscale}

@@ -17,8 +17,8 @@ Validated end-to-end with two saved ranges and a downloaded markdown report.
 - [x] "Generate Report" action in the Session Console
 - [x] Markdown report: source metadata, ranges with timestamps and notes, summary loudness
 - [ ] Optional per-range panel screenshot embed (opt-in checkbox) — deferred polish
-- [x] Desktop write-to-disk path; browser download path (browser shipped; desktop dialog deferred)
-- [ ] "Scrub identifying paths" toggle for shared reports — deferred polish
+- [x] Browser download path with truthful loudness summary; desktop dialog deferred
+- [x] "Scrub identifying paths" toggle for shared reports
 - [x] Tests for range schema migration and report generation
 
 ### Track 2 — Reproducible Session Artifact (v0.3.0) — ✅ SHIPPED
@@ -30,7 +30,7 @@ Validated end-to-end with a save / refresh / load round trip; "Session restored.
 - [x] Implement load with relink prompt for moved sources
 - [x] Pending-session relink: applies automatically when matching media arrives
 - [x] Mismatch protection: refuses to apply ranges to wrong media
-- [x] Schema migration seam (no `migrateSession` body yet — written when v2 exists)
+- [x] Schema migration seam (`migrateReviewSessionV1ToV2` maps current source to primary)
 - [ ] Template support (session with `media: null`) — deferred until a real workflow asks for it
 - [x] Runtime validation at load boundary (CORE_HARDENING P3 + P4 land here)
 - [ ] Cross-platform path tolerance — works in browser (no absolute paths), desktop dialog deferred
@@ -66,7 +66,7 @@ The defining feature of the comparative bench. Depends on Tracks 2 and 3.
 - [ ] Panel dual-rendering opt-in: waveform overview, spectrogram, loudness, freq response
 - [ ] Persistent visual indicator of current audible source
 - [ ] Hotkey for monitor swap
-- [ ] A-B sessions extend the `.review-session.json` schema (Track 2 already accommodates two-source field)
+- [ ] A-B sessions emit `.review-session.json` v2 (`sources.primary`, optional `sources.reference`; v1 migration maps current `source` to primary)
 
 ### Track 5 — Differential Analysis / Null Test (v0.4.1)
 

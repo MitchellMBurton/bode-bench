@@ -58,7 +58,19 @@ Core file:
 - Unknown versions must fail closed until a migration exists.
 - Units must remain explicit: seconds, Hz, dB, normalized 0-1, bytes, milliseconds.
 - Session files reference media; they do not bundle media.
+- Source identity should include the browser-safe `mediaKey` plus explicit `size`, `lastModified`, and desktop `sourcePath` when available.
 - Layout and analysis config can be restored, but ephemeral playback state should not define the artifact.
+
+### A-B Session V2 Contract
+
+Production save/load still emits and accepts v1 until Track 4 writes two-source sessions.
+
+- v2 keeps `schema: "bode-bench.review-session"` and uses `version: 2`.
+- v2 replaces top-level `source` with `sources`.
+- `sources.primary` is required and uses the current source identity shape: `filename`, `kind`, `durationS`, `mediaKey`, `size`, `lastModified`, and `sourcePath`.
+- `sources.reference` is optional and is either the same source identity shape or `null`.
+- v1 migration maps `source` to `sources.primary` and initializes `sources.reference` as `null`.
+- Parser behavior must remain fail-closed for unknown versions until the Track 4 writer and reader are implemented together.
 
 Core files:
 

@@ -15,13 +15,20 @@ import type { VisualMode } from '../audio/displayMode';
 import {
   useAnalysisConfig,
   useDerivedMediaSnapshot,
+  useRangeIntelligenceStore,
+  useSpectralAnatomyStore,
 } from '../core/session';
 import {
   CONSOLE_SPLIT_PANE_KEYS,
   readRuntimeTrayHeight,
 } from '../layout/consoleLayoutWorkspace';
 import { readSplitPaneFractions } from '../layout/splitPanePersistence';
-import { buildReviewReportFilename, buildReviewReportMarkdown, downloadReviewReport } from '../runtime/reviewReport';
+import {
+  buildReviewReportFilename,
+  buildReviewReportMarkdown,
+  buildReviewReportRangeMeasurement,
+  downloadReviewReport,
+} from '../runtime/reviewReport';
 import {
   buildReviewSession,
   buildReviewSessionFilename,
@@ -80,9 +87,12 @@ export function SessionDeck({
   onStatusChange,
 }: SessionDeckProps): React.ReactElement {
   const derivedSnapshot = useDerivedMediaSnapshot();
+  const rangeIntelligence = useRangeIntelligenceStore();
+  const spectralAnatomy = useSpectralAnatomyStore();
   const analysisConfig = useAnalysisConfig();
   const inputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
+  const [scrubIdentifyingInfo, setScrubIdentifyingInfo] = useState(false);
 
   const mode = MODES[visualMode];
   const themedBorder = mode.chromeBorderActive;
@@ -98,9 +108,9 @@ export function SessionDeck({
         kind: source.kind,
         durationS: source.durationS,
         mediaKey: source.mediaKey,
-        size: null,
-        lastModified: null,
-        sourcePath: null,
+        size: source.size,
+        lastModified: source.lastModified,
+        sourcePath: source.sourcePath,
       },
       review: {
         markers: derivedSnapshot.markers,
@@ -126,7 +136,17 @@ export function SessionDeck({
       filename: source.filename,
       durationS: source.durationS ?? 0,
       currentTimeS,
+      loudnessSummary: {
+        momentaryLufs: spectralAnatomy.getLatestMomentaryLufs(),
+        integratedLufs: spectralAnatomy.hasIntegratedValue ? spectralAnatomy.integratedValueLufs : null,
+        hasIntegratedLufs: spectralAnatomy.hasIntegratedValue,
+        truePeakDb: spectralAnatomy.frameCount > 0 ? spectralAnatomy.truePeakHoldDb : null,
+      },
+      scrubIdentifyingInfo,
       rangeMarks: derivedSnapshot.rangeMarks,
+      rangeMeasurements: derivedSnapshot.rangeMarks.map((rangeMark) =>
+        buildReviewReportRangeMeasurement(rangeMark.id, rangeIntelligence.summarizeRange(rangeMark)),
+      ),
       selectedRangeId: derivedSnapshot.selectedRangeId,
     });
     downloadReviewReport(markdown, buildReviewReportFilename(source.filename));
@@ -213,6 +233,19 @@ export function SessionDeck({
         {renderButton('LOAD SESSION', () => inputRef.current?.click(), false, 'Load a previously saved review session')}
         {renderButton('GENERATE REPORT', handleReport, !canReport, 'Download a markdown report of saved review ranges')}
       </div>
+      <button
+        type="button"
+        style={{
+          ...scrubToggleStyle,
+          color: scrubIdentifyingInfo ? mode.text : mode.category,
+          borderColor: scrubIdentifyingInfo ? themedBorder : themedSubtle,
+          background: scrubIdentifyingInfo ? sessionDeckBg(visualMode) : 'transparent',
+        }}
+        onClick={() => setScrubIdentifyingInfo((enabled) => !enabled)}
+        title="Replace the source filename inside generated markdown reports"
+      >
+        {scrubIdentifyingInfo ? 'SCRUB ID ON' : 'SCRUB ID OFF'}
+      </button>
       {pendingLabel ? (
         <span style={{ ...pendingStyle, color: getToneColor(visualMode, 'info') }}>{pendingLabel}</span>
       ) : null}
@@ -265,6 +298,22 @@ const buttonStyle: React.CSSProperties = {
   transition: 'background 0.1s, border-color 0.1s',
   textAlign: 'center',
   whiteSpace: 'nowrap',
+};
+
+const scrubToggleStyle: React.CSSProperties = {
+  height: 24,
+  display: 'inline-flex',
+  alignItems: 'center',
+  padding: `0 ${SPACING.xs}px`,
+  borderWidth: 1,
+  borderStyle: 'solid',
+  borderRadius: 2,
+  fontFamily: FONTS.mono,
+  fontSize: FONTS.sizeXs,
+  letterSpacing: '0.06em',
+  whiteSpace: 'nowrap',
+  cursor: 'pointer',
+  outline: 'none',
 };
 
 const pendingStyle: React.CSSProperties = {

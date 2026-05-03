@@ -7,6 +7,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { useAudioEngine, useDiagnosticsLog, useDisplayMode, usePerformanceDiagnosticsStore, useTheaterModeStore, useVideoSyncController } from '../core/session';
 import { ClipExportStrip } from './ClipExportStrip';
 import { DiagnosticsLog } from './DiagnosticsLog';
+import { SelectedRangeFocusStrip } from './SelectedRangeFocusStrip';
 import {
   decideVideoSyncDecision,
   getAdaptiveVideoSyncProfile,
@@ -260,6 +261,10 @@ interface SessionMediaIdentity {
   readonly filename: string | null;
   readonly mediaKey: string | null;
   readonly kind: 'audio' | 'video' | null;
+  readonly durationS: number | null;
+  readonly size: number | null;
+  readonly lastModified: number | null;
+  readonly sourcePath: string | null;
 }
 
 type LoadedLayoutMode = 'empty' | 'audio' | 'video';
@@ -922,6 +927,10 @@ export function TransportControls({
       filename: nextMedia?.filename ?? null,
       mediaKey: nextMedia?.mediaKey ?? null,
       kind: nextMedia?.kind ?? null,
+      durationS: nextMedia?.durationS ?? null,
+      size: nextMedia?.file.size ?? null,
+      lastModified: nextMedia?.file.lastModified ?? null,
+      sourcePath: nextMedia?.sourcePath ?? null,
     });
   }, [onSessionMediaChange]);
 
@@ -1771,7 +1780,7 @@ export function TransportControls({
     <div style={wrapStyle}>
       <div style={{ ...deckStyle, borderColor: tt.btnBorder, background: tt.panelBg }}>
         <div style={deckHeaderStyle}>
-          <span style={{ ...deckEyebrowStyle, color: tt.panelLabel }}>TOP CONTROL DECK</span>
+            <span style={{ ...deckEyebrowStyle, color: tt.panelLabel }}>SOURCE</span>
           <div style={deckHeaderActionsStyle}>
             <span style={{ ...deckMetaStyle, color: sessionFilename ? tt.btnColor : tt.mutedText }}>
               {transportStatusLabel}
@@ -1884,19 +1893,19 @@ export function TransportControls({
         {sessionStatusSlot}
 
         <div style={topStatusGridStyle} aria-label="Source routing status">
-          <div style={{ ...topStatusCellStyle, borderColor: tt.btnBorder, background: tt.btnBg }}>
+          <div style={{ ...topStatusCellStyle, borderColor: tt.btnBorder }}>
             <span style={{ ...topStatusLabelStyle, color: tt.panelLabel }}>AUDIO</span>
             <span style={{ ...topStatusValueStyle, color: primaryMedia ? tt.btnColor : tt.mutedText }}>
               {audioStatusText}
             </span>
           </div>
-          <div style={{ ...topStatusCellStyle, borderColor: tt.btnBorder, background: tt.btnBg }}>
+          <div style={{ ...topStatusCellStyle, borderColor: tt.btnBorder }}>
             <span style={{ ...topStatusLabelStyle, color: tt.panelLabel }}>SUBS</span>
             <span style={{ ...topStatusValueStyle, color: subtitleTrack || canAttachLinkedTracks ? tt.btnColor : tt.mutedText }}>
               {subtitleStatusText}
             </span>
           </div>
-          <div style={{ ...topStatusCellStyle, borderColor: tt.btnBorder, background: tt.btnBg }}>
+          <div style={{ ...topStatusCellStyle, borderColor: tt.btnBorder }}>
             <span style={{ ...topStatusLabelStyle, color: tt.panelLabel }}>VIEW</span>
             <span style={{ ...topStatusValueStyle, color: videoUrl || loadedLayoutMode === 'audio' ? tt.btnColor : tt.mutedText }}>
               {viewStatusText}
@@ -2242,6 +2251,10 @@ export function TransportControls({
           </div>
         ) : null}
       </div>
+
+      {sessionFilename ? (
+        <SelectedRangeFocusStrip visualMode={visualMode} />
+      ) : null}
 
       {sessionFilename ? (
         <ClipExportStrip
@@ -2834,8 +2847,8 @@ const topStatusCellStyle: React.CSSProperties = {
   borderWidth: 1,
   borderStyle: 'solid',
   borderRadius: 2,
-  background: COLORS.bg1,
-  opacity: 0.86,
+  background: 'transparent',
+  opacity: 0.72,
 };
 
 const topStatusLabelStyle: React.CSSProperties = {

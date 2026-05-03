@@ -5,6 +5,7 @@ import { RANGE_NOTE_MAX_LENGTH } from '../types';
 import {
   buildReviewSessionFilename,
   matchReviewSessionSource,
+  migrateReviewSessionV1ToV2,
   parseReviewSession,
   REVIEW_SESSION_SCHEMA,
   REVIEW_SESSION_VERSION,
@@ -21,6 +22,9 @@ describe('review session helpers', () => {
         kind: 'video',
         durationS: 120,
         mediaKey: 'episode.mkv:100:1',
+        size: 100,
+        lastModified: 1,
+        sourcePath: 'C:\\media\\episode.mkv',
       },
       review: {
         markers: [{ id: 2, time: 8, label: 'M2' }],
@@ -46,6 +50,11 @@ describe('review session helpers', () => {
     });
     expect(result.session.workspace.visualMode).toBe('optic');
     expect(result.session.workspace.layout['console:root']).toEqual([0.7, 0.3]);
+    expect(result.session.source).toMatchObject({
+      size: 100,
+      lastModified: 1,
+      sourcePath: 'C:\\media\\episode.mkv',
+    });
   });
 
   it('rejects unsupported versions', () => {
@@ -123,27 +132,58 @@ describe('review session helpers', () => {
   it('matches by exact media key or filename with duration tolerance', () => {
     expect(matchReviewSessionSource(
       { filename: 'a.wav', kind: 'audio', durationS: 10, mediaKey: 'key', size: null, lastModified: null, sourcePath: null },
-      { filename: 'b.wav', kind: 'audio', durationS: 9, mediaKey: 'key' },
+      { filename: 'b.wav', kind: 'audio', durationS: 9, mediaKey: 'key', size: 10, lastModified: 1, sourcePath: 'C:\\media\\b.wav' },
     ).kind).toBe('match');
 
     expect(matchReviewSessionSource(
       { filename: 'a.wav', kind: 'audio', durationS: 10, mediaKey: null, size: null, lastModified: null, sourcePath: null },
-      { filename: 'a.wav', kind: 'audio', durationS: 10.5, mediaKey: null },
+      { filename: 'a.wav', kind: 'audio', durationS: 10.5, mediaKey: null, size: null, lastModified: null, sourcePath: null },
     ).kind).toBe('match');
 
     expect(matchReviewSessionSource(
       { filename: 'a.wav', kind: 'audio', durationS: 10, mediaKey: 'a.wav:100:1', size: null, lastModified: null, sourcePath: null },
-      { filename: 'a.wav', kind: 'audio', durationS: 10, mediaKey: 'a.wav:200:2' },
+      { filename: 'a.wav', kind: 'audio', durationS: 10, mediaKey: 'a.wav:200:2', size: 200, lastModified: 2, sourcePath: 'C:\\media\\a.wav' },
     ).kind).toBe('mismatch');
 
     expect(matchReviewSessionSource(
       { filename: 'a.wav', kind: 'audio', durationS: 10, mediaKey: null, size: null, lastModified: null, sourcePath: null },
-      { filename: 'b.wav', kind: 'audio', durationS: 10, mediaKey: null },
+      { filename: 'b.wav', kind: 'audio', durationS: 10, mediaKey: null, size: null, lastModified: null, sourcePath: null },
     ).kind).toBe('mismatch');
 
     expect(matchReviewSessionSource(
       { filename: 'a.wav', kind: 'audio', durationS: 10, mediaKey: 'same-key', size: null, lastModified: null, sourcePath: null },
-      { filename: 'a.wav', kind: 'video', durationS: 10, mediaKey: 'same-key' },
+      { filename: 'a.wav', kind: 'video', durationS: 10, mediaKey: 'same-key', size: null, lastModified: null, sourcePath: null },
     ).kind).toBe('mismatch');
+  });
+
+  it('migrates v1 source identity into v2 primary source', () => {
+    const parsed = parseReviewSession({
+      schema: REVIEW_SESSION_SCHEMA,
+      version: REVIEW_SESSION_VERSION,
+      metadata: { savedAt: '2026-04-26T00:00:00.000Z' },
+      source: {
+        filename: 'primary.wav',
+        kind: 'audio',
+        durationS: 90,
+        mediaKey: 'primary.wav:100:1',
+        size: 100,
+        lastModified: 1,
+        sourcePath: 'C:\\media\\primary.wav',
+      },
+      review: {
+        markers: [],
+        rangeMarks: [],
+      },
+      workspace: {},
+    });
+
+    expect(parsed.kind).toBe('ok');
+    if (parsed.kind !== 'ok') return;
+
+    const migrated = migrateReviewSessionV1ToV2(parsed.session);
+
+    expect(migrated.version).toBe(2);
+    expect(migrated.sources.primary).toEqual(parsed.session.source);
+    expect(migrated.sources.reference).toBeNull();
   });
 });
