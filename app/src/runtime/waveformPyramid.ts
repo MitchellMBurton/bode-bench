@@ -365,6 +365,10 @@ export class WaveformPyramidStore {
     return this.peakNormalizer;
   }
 
+  get currentViewRange(): ViewRange {
+    return this.currentView;
+  }
+
   setViewRange(range: ViewRange): void {
     if (this.transport.duration <= 0) {
       this.currentView = { start: 0, end: 0 };
@@ -380,6 +384,7 @@ export class WaveformPyramidStore {
     } else {
       this.scheduleStreamedScout();
     }
+    this.emit();
   }
 
   setSelectedRange(range: ViewRange | null): void {

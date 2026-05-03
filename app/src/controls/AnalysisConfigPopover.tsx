@@ -15,7 +15,8 @@ import {
   SPECTROGRAM_GRID_DENSITY_OPTIONS,
   SPECTROGRAM_VIEW_MODE_OPTIONS,
 } from '../audio/analysisConfig';
-import { useAnalysisConfig, useAnalysisConfigStore } from '../core/session';
+import { useAnalysisConfig, useAnalysisConfigStore, useAudioEngine } from '../core/session';
+import { canBuildDecodedSpectrogramOverview } from '../runtime/decodedSpectrogram';
 import { FONTS, MODES, SPACING } from '../theme';
 import type {
   FftSizeOption,
@@ -25,6 +26,7 @@ import type {
   LoudnessTargetPreset,
   SpectrogramGridDensity,
   SpectrogramViewMode,
+  TransportState,
 } from '../types';
 
 interface Props {
@@ -47,8 +49,13 @@ const SPECTROGRAM_VIEW_MODE_LABELS: Record<SpectrogramViewMode, string> = {
 };
 const SPECTROGRAM_VIEW_MODE_TITLES: Record<SpectrogramViewMode, string> = {
   live: 'Live scrolling spectrogram',
-  window: 'Unavailable: window view needs time-indexed spectrogram history',
-  full: 'Unavailable: full overview needs worker-backed full-source spectrogram data',
+  window: 'Unavailable: window view needs a decoded browser-safe source',
+  full: 'Unavailable: full overview needs a decoded browser-safe source',
+};
+const DECODED_SPECTROGRAM_VIEW_MODE_TITLES: Record<SpectrogramViewMode, string> = {
+  live: 'Live scrolling spectrogram',
+  window: 'Decoded source window spectrogram',
+  full: 'Decoded source full overview spectrogram',
 };
 const TARGET_PRESET_LABELS: Record<LoudnessTargetPreset, string> = {
   stream: 'STREAM',
@@ -62,10 +69,14 @@ const REFERENCE_MODE_LABELS: Record<LoudnessReferenceMode, string> = {
 };
 
 export function AnalysisConfigPopover({ visualMode, onClose }: Props): React.ReactElement {
+  const audioEngine = useAudioEngine();
   const store = useAnalysisConfigStore();
   const config = useAnalysisConfig();
   const m = MODES[visualMode];
   const popoverRef = useRef<HTMLDivElement>(null);
+  const [transport, setTransport] = useState<TransportState | null>(null);
+
+  useEffect(() => audioEngine.onTransport(setTransport), [audioEngine]);
 
   useEffect(() => {
     const handler = (event: MouseEvent) => {
@@ -118,9 +129,12 @@ export function AnalysisConfigPopover({ visualMode, onClose }: Props): React.Rea
     minWidth: 42,
   });
 
+  const decodedSpectrogramViewAvailable = transport?.playbackBackend === 'decoded'
+    && canBuildDecodedSpectrogramOverview(audioEngine.audioBuffer);
+
   const spectrogramViewBtn = (mode: SpectrogramViewMode): React.CSSProperties => {
     const active = config.spectrogram.viewMode === mode;
-    const available = mode === 'live';
+    const available = mode === 'live' || decodedSpectrogramViewAvailable;
     return {
       ...segBtn(active),
       color: available ? (active ? m.text : m.category) : m.category,
@@ -175,11 +189,16 @@ export function AnalysisConfigPopover({ visualMode, onClose }: Props): React.Rea
                   key={viewMode}
                   style={spectrogramViewBtn(viewMode)}
                   onClick={() => {
-                    if (viewMode === 'live') store.setSpectrogramViewMode(viewMode);
+                    const available = viewMode === 'live' || decodedSpectrogramViewAvailable;
+                    if (available) store.setSpectrogramViewMode(viewMode);
                   }}
-                  aria-disabled={viewMode !== 'live'}
-                  tabIndex={viewMode === 'live' ? 0 : -1}
-                  title={SPECTROGRAM_VIEW_MODE_TITLES[viewMode]}
+                  aria-disabled={!(viewMode === 'live' || decodedSpectrogramViewAvailable)}
+                  tabIndex={viewMode === 'live' || decodedSpectrogramViewAvailable ? 0 : -1}
+                  title={
+                    viewMode === 'live' || decodedSpectrogramViewAvailable
+                      ? DECODED_SPECTROGRAM_VIEW_MODE_TITLES[viewMode]
+                      : SPECTROGRAM_VIEW_MODE_TITLES[viewMode]
+                  }
                 >
                   {SPECTROGRAM_VIEW_MODE_LABELS[viewMode]}
                 </button>
