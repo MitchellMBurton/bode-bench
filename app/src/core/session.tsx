@@ -86,8 +86,13 @@ function releaseAppSession(session: AppSession): void {
 }
 
 export function createAppSession(): AppSession {
-  const frameBus = new FrameBus();
   const diagnosticsLog = new DiagnosticsLogStore();
+  const frameBus = new FrameBus({
+    onListenerError: (error) => {
+      const message = error instanceof Error ? error.message : String(error);
+      diagnosticsLog.push(`frame listener failed ${message}`, 'warn', 'system');
+    },
+  });
   const performanceDiagnostics = new PerformanceDiagnosticsStore();
   const performanceProfile = new PerformanceProfileStore();
   const scrollSpeed = new ScrollSpeedStore();

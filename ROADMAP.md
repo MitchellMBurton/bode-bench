@@ -2,25 +2,25 @@
 
 ## Purpose
 
-Phase-level structure for the v0.3+ direction. Tracks live in `TASKS.md`; raw idea pool lives in `FUTURE_PLANS_AND_IDEAS.md`. This doc names the phases, their dependencies, and what success looks like.
+Phase-level structure for the v0.3+ direction. Tracks live in `TASKS.md`; runtime contracts live in `RUNTIME_CONTRACTS.md`; raw idea pool lives in `FUTURE_PLANS_AND_IDEAS.md`. This doc names the phases, their dependencies, and what success looks like.
 
 ## Phase Map
 
-```
-v0.2-final ──► v0.3 ──► v0.4 ──► v0.5
-              (deliverable     (comparative      (null test
-               artifact)        bench)            confidence)
+```text
+v0.2-final -> v0.3 -> v0.4 -> v0.5
+              deliverable artifact
+                       comparative bench
+                                  confidence and polish
 ```
 
 ### v0.3 — Deliverable Artifact
 
 The phase that turns review work into things you can hand to other people.
 
-- **v0.3.0** — Notes on ranges + markdown session report (Track 1)
-- **v0.3.1** — Reproducible session artifact `.review-session.json` (Track 2)
-- **v0.3.2** — Worker-based analysis core (Track 3)
+- **v0.3.0** — Notes, markdown reports, and reproducible `.review-session.json` artifacts (Tracks 1 + 2)
+- **v0.3.2** — Worker-based analysis core and retained live-frame contracts (Track 3)
 
-**Phase done when:** a reviewer can mark, annotate, save, reopen, and report on a session without anything ephemeral being lost, and analysis runs off the main thread.
+**Phase done when:** a reviewer can mark, annotate, save, reopen, and report on a session without anything ephemeral being lost, and the live analysis path can run through the worker without breaking frame ownership or UI responsiveness.
 
 ### v0.4 — Comparative Bench
 
@@ -44,17 +44,24 @@ Candidate moves:
 
 ## Dependency Chain
 
-```
-Track 1 (Notes + Report) ─────────────► independent, ships first
-                                          │
-Track 2 (Session Artifact) ──────────────┤ extends notes to whole session
-                                          │
-Track 3 (Worker Core) ────────────────────┤ independent, parallel-able with Track 2
-                                          │
-Track 4 (A-B Workspace) ──────── needs ───┴ Track 2 (session schema for two sources)
-                                  needs    Track 3 (perf headroom for two pipelines)
-                                          │
-Track 5 (Null Test) ────────── needs ─────┘ Track 4's alignment machinery
+```text
+Track 1 (Notes + Report)
+  -> shipped with Track 2 in v0.3.0
+
+Track 2 (Session Artifact)
+  -> shipped with Track 1 in v0.3.0
+  -> provides the migration-aware session substrate for Track 4
+
+Track 3 (Worker Core)
+  -> active v0.3.2 infrastructure
+  -> provides performance headroom and frame ownership contracts for two-source pipelines
+
+Track 4 (A-B Workspace)
+  -> needs Track 2 session schema discipline
+  -> needs Track 3 worker/runtime headroom
+
+Track 5 (Null Test)
+  -> needs Track 4 alignment machinery
 ```
 
 ## Graduation From `FUTURE_PLANS_AND_IDEAS.md` to `TASKS.md`

@@ -44,6 +44,15 @@ Controls should live in the highest layer that makes sense.
 
 If a command can live one layer higher without becoming confusing, it usually should.
 
+## Command Availability
+
+High-frequency controls must stay reachable under normal desktop resizing.
+
+- Primary transport and review controls belong in the Live Diagnostic command surface.
+- `VOL` and `RATE` are primary playback tuning controls; they should remain visible or immediately reachable in the command surface.
+- Popovers may add depth, but they should not become the only access path for routine tuning.
+- Responsive wrapping is preferable to hiding key options.
+
 ## Session Console Rule
 
 The left pane is a workbench, not a second dashboard.

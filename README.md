@@ -2,7 +2,7 @@
 
 Local-first, desktop-grade media analysis console for close listening, technical review, clip export, and presentation-safe diagnostics.
 
-This repo is the active continuation of the Scientific Listening Instrument. It opens at the v0.2-final state (forked from `bach-cello-console`, tagged for reference) and turns toward v0.3 — the comparative measurement bench. See `ROADMAP.md` for phase boundaries, `TASKS.md` for the live work order, and `FUTURE_PLANS_AND_IDEAS.md` for the broader idea pool.
+This repo is the active continuation of the Scientific Listening Instrument. It opened at the v0.2-final state (forked from `bach-cello-console`, tagged for reference) and now moves through the v0.3/v0.4 path toward a comparative measurement bench. See `ROADMAP.md` for phase boundaries, `TASKS.md` for the live work order, and `FUTURE_PLANS_AND_IDEAS.md` for the broader idea pool.
 
 Legacy Bach naming still appears in sample data and installer compatibility hooks; the product itself is general-purpose.
 
@@ -36,6 +36,8 @@ Legacy Bach naming still appears in sample data and installer compatibility hook
 
 - decoded and streamed playback backends
 - large-media fallback path with honest coarse session maps
+- reproducible `.review-session.json` artifacts with source-mismatch protection
+- worker-backed live analysis frame path with retained dispatch snapshots
 - docked, windowed, theater, and in-console fullscreen video modes
 - routed session controls with cleaner command hierarchy
 - current desktop export seam with bundled ffmpeg support
@@ -139,7 +141,7 @@ python probe_audio.py path/to/file
 ## Project Layout
 
 ```text
-av_project_claude_2/
+bode-bench/
   app/                        # React + Vite frontend
   desktop/                    # Tauri desktop wrapper and share scripts
   scripts/                    # Optional preprocessing and probing tools
@@ -147,6 +149,7 @@ av_project_claude_2/
   README.md
   PROJECT.md
   ARCHITECTURE.md
+  RUNTIME_CONTRACTS.md
   TASKS.md
   HANDOFF.md
   MEMORY.md
@@ -158,16 +161,39 @@ av_project_claude_2/
 
 ## Project Documents
 
+Use the docs in layers. Canonical doctrine changes slowly; live work docs move with the project; reference docs preserve useful history without owning current truth.
+
+### Canonical Doctrine
+
 | Document | Purpose |
 |---|---|
 | `PROJECT.md` | Product definition, scope, and quality bar |
 | `ARCHITECTURE.md` | Current technical seams and system structure |
-| `TASKS.md` | Active work order and milestone status |
-| `HANDOFF.md` | Practical continuation notes for the next work session |
-| `STARTUP_RUNBOOK.md` | Daily startup, build, share, and verification procedure |
-| `MEMORY.md` | Durable accepted decisions and recent context |
+| `RUNTIME_CONTRACTS.md` | Runtime, session, worker, dispatch, and export contracts |
 | `UX_PRINCIPLES.md` | Interface doctrine |
 | `POWER_USER_UX.md` | Expert workflow and workspace direction |
+| `DECISION_RULES.md` | How to choose between valid alternatives |
+
+### Live Work Docs
+
+| Document | Purpose |
+|---|---|
+| `TASKS.md` | Active work order and milestone status |
+| `HANDOFF.md` | Practical continuation notes for the next work session |
+| `ROADMAP.md` | Phase boundaries and graduation criteria |
+| `STARTUP_RUNBOOK.md` | Daily startup, build, share, and verification procedure |
+| `MEMORY.md` | Durable accepted decisions and recent context |
+
+### Agent and Reference Docs
+
+| Document | Purpose |
+|---|---|
+| `AGENT_BRIEF.md` | Ideation brief for external agents |
+| `CLAUDE.md` | Compact contributor instructions for Claude-style agents |
+| `CORE_HARDENING.md` | Earlier hardening thesis; still useful as architecture pressure map |
+| `PLAN_NOTES_AND_SESSIONS.md` | Historical plan for shipped Tracks 1 and 2 |
+| `REVIEW_BRIEF.md` | Historical v0.3.0 review brief |
+| `FUTURE_PLANS_AND_IDEAS.md` | Raw idea pool that has not necessarily graduated |
 
 ## Current Reality
 

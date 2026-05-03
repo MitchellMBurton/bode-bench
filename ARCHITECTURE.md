@@ -16,6 +16,7 @@ Owns:
 - streamed fallback behavior
 - seek, loop, scrub, rate, and pitch
 - analyzer frame extraction
+- retained analysis frame dispatch
 - waveform, pitch, oscilloscope, loudness, and response data
 - transport diagnostics
 - video preview state and presentation modes
@@ -23,8 +24,10 @@ Owns:
 Core files:
 
 - `app/src/audio/engine.ts`
+- `app/src/audio/frameBus.ts`
 - `app/src/core/session.ts`
 - `app/src/runtime/`
+- `RUNTIME_CONTRACTS.md`
 
 ### 2. Session Workbench Domain
 
@@ -109,6 +112,8 @@ Structural overlays tell us what it may mean.
 Derived media tells us what we intentionally produced.
 
 Do not collapse those into one vague subsystem.
+
+Runtime contracts that cross these domains live in `RUNTIME_CONTRACTS.md`. Treat that file as the review checklist for frame ownership, worker boundaries, session source matching, export artifacts, and command availability.
 
 ## Current UI Strata
 

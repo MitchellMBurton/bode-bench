@@ -1,12 +1,30 @@
 # Global Memory
 
+## 2026-05-03
+
+### Accepted Runtime Hardening
+
+- Track 3 worker-backed live frame analysis remains the active infrastructure path.
+- Published analysis frames now have an explicit retained-snapshot contract so async panels can paint safely after worker buffers are recycled internally.
+- `FrameBus.publish()` isolates subscriber failures and reports them through diagnostics instead of letting one panel stop the dispatch path.
+- Review-session source matching treats conflicting saved/current media keys as a hard mismatch before filename and duration fallback.
+- Live Diagnostic chrome keeps `VOL` and `RATE` available under normal desktop resizing; tuning popovers supplement rather than replace primary access.
+- `RUNTIME_CONTRACTS.md` is now the contract reference for frame dispatch, worker boundaries, session source matching, export artifacts, and command availability.
+
+### Current Documentation Direction
+
+- `README.md` owns the document map.
+- Canonical doctrine remains in `PROJECT.md`, `ARCHITECTURE.md`, `RUNTIME_CONTRACTS.md`, `UX_PRINCIPLES.md`, `POWER_USER_UX.md`, and `DECISION_RULES.md`.
+- `TASKS.md` and `HANDOFF.md` own live continuation state.
+- `PLAN_NOTES_AND_SESSIONS.md` and `REVIEW_BRIEF.md` are historical references, not current work owners.
+
 ## 2026-04-25
 
 ### Accepted Baseline
 
 - Current accepted baseline is commit `c3112b9` on `main`.
 - The baseline adds shared waveform pyramid ownership, recovered export/source-path storage, explicit app-session teardown, Amber theme coverage, and refreshed tests.
-- The product chrome should present the work as active v0.2 refinement, not a v0.1 alpha artifact.
+- At that point, the product chrome needed to present the work as an active instrument, not a v0.1 alpha artifact.
 
 ## 2026-03-21
 

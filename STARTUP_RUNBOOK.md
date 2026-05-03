@@ -46,6 +46,7 @@ Quick orientation pass:
 
 - `HANDOFF.md`
 - `TASKS.md`
+- `RUNTIME_CONTRACTS.md`
 - `UX_PRINCIPLES.md`
 - `AGENT_BRIEF.md`
 
@@ -259,6 +260,7 @@ npm run serve-share
 - `AGENT_BRIEF.md`
 - `TASKS.md`
 - `HANDOFF.md`
+- `RUNTIME_CONTRACTS.md`
 - `UX_PRINCIPLES.md`
 - `desktop/share/latest.json`
 

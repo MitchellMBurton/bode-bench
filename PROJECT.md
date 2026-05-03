@@ -52,7 +52,7 @@ Five direction-defining moves, in dependency order:
 4. **Reference / A-B comparison workspace** — second source slot with locked transport, audible-monitor switch, panel opt-in dual rendering. The feature that defines what the instrument is *for*.
 5. **Differential analysis (null test)** — sample-aligned A−B residual as audible monitor and visualised on every analysis surface. The capability that hardest-defines the product as a scientific instrument rather than a media app with graphs.
 
-See `ROADMAP.md` for phase boundaries and graduation criteria, `FUTURE_PLANS_AND_IDEAS.md` for the broader idea pool, and `TASKS.md` for live work order.
+See `ROADMAP.md` for phase boundaries and graduation criteria, `RUNTIME_CONTRACTS.md` for runtime ownership rules, `FUTURE_PLANS_AND_IDEAS.md` for the broader idea pool, and `TASKS.md` for live work order.
 
 ## Included
 

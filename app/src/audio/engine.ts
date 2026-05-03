@@ -1870,10 +1870,8 @@ export class AudioEngine {
     };
     this.publishAnalysisDiagnostics(this.mainThreadAnalysisDiagnostics);
 
-    // Zero-copy: pass pre-allocated analyser buffers directly.
-    // Safe because frameBus.publish() is synchronous — all subscribers
-    // read array data during the callback, before the next extractFrame()
-    // overwrites these buffers. Do NOT store these arrays across frames.
+    // The frame bus retains a snapshot before dispatch, so these borrowed
+    // analyser buffers can be safely reused by the next extraction.
     const frame: AudioFrame = {
       currentTime: this.currentTime,
       timeDomain: tdL,

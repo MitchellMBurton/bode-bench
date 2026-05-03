@@ -257,8 +257,14 @@ export function matchReviewSessionSource(
       message: `Session expects ${saved.kind} source ${saved.filename ?? 'media'}. Open the matching media file to apply it.`,
     };
   }
-  if (saved.mediaKey && current.mediaKey && saved.mediaKey === current.mediaKey) {
-    return { kind: 'match' };
+  if (saved.mediaKey && current.mediaKey) {
+    if (saved.mediaKey === current.mediaKey) {
+      return { kind: 'match' };
+    }
+    return {
+      kind: 'mismatch',
+      message: `Session expects ${saved.filename ?? 'a different source'}. Open the matching media file to apply it.`,
+    };
   }
   if (
     saved.filename &&

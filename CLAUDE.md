@@ -4,11 +4,11 @@
 
 A local-first, desktop-grade scientific listening instrument and media analysis console. Real-time diagnostics, disciplined transport control, and optional structural overlays live together in a four-quadrant workspace.
 
-**This repo is active.** It is no longer a preserved v0.1 alpha artifact. The current work is v0.2 refinement toward a trustworthy desktop-first media instrument for arbitrary local audio and video.
+**This repo is active.** It is no longer a preserved v0.1 alpha artifact or a Bach-specific console. The current work is v0.3/v0.4 refinement toward a trustworthy desktop-first comparative media instrument for arbitrary local audio and video.
 
 Legacy Bach-specific sample data and repository history still exist, but they do not define the product. Treat structural overlays as optional, not as the main runtime identity.
 
-Read the full project definition in `PROJECT.md`. Read UX doctrine in `UX_PRINCIPLES.md`. Read technical structure in `ARCHITECTURE.md`. Read decision logic in `DECISION_RULES.md`. Read current work in `TASKS.md`.
+Read the full project definition in `PROJECT.md`. Read UX doctrine in `UX_PRINCIPLES.md`. Read runtime contracts in `RUNTIME_CONTRACTS.md`. Read technical structure in `ARCHITECTURE.md`. Read decision logic in `DECISION_RULES.md`. Read current work in `TASKS.md`.
 
 ## Stack
 
@@ -22,12 +22,13 @@ Read the full project definition in `PROJECT.md`. Read UX doctrine in `UX_PRINCI
 ## Repo Structure
 
 ```text
-av_project_claude_2/
+bode-bench/
   CLAUDE.md
   README.md
   PROJECT.md
   UX_PRINCIPLES.md
   ARCHITECTURE.md
+  RUNTIME_CONTRACTS.md
   DECISION_RULES.md
   TASKS.md
   MEMORY.md
@@ -86,6 +87,14 @@ Do not bake repertoire-specific assumptions into transport, panels, or shell beh
 
 All data crossing a subsystem boundary should have explicit TypeScript contracts. No `any`, no shape guessing, no ambiguous units.
 
+### Check the mounted surface before adding UI
+
+Before adding a visible control, confirm which component is actually mounted in the live layout. Registry membership or a plausible component name is not enough. For transport, review, and tuning controls, check the Session Console and Live Diagnostic chrome paths directly.
+
+### Keep key controls reachable
+
+Primary transport, review, volume, rate, and tuning controls should remain available in the Live Diagnostic command surface as viewport geometry changes. Popovers can supplement the rail, but they should not become the only access path for high-frequency controls.
+
 ### Preprocessing stays outside runtime
 
 Scripts in `scripts/` generate optional artifacts. They do not belong in the live UI path.
@@ -96,7 +105,7 @@ Prefer fixes in the shared frontend. Keep the Tauri wrapper thin unless there is
 
 ## Current Milestone
 
-**v0.3 Direction Begins.** Forked from `bach-cello-console` at tag `v0.2-final`. The instrument is moving from single-source review to two-source comparison with reproducible session state. Five tracks in dependency order: notes + report, session artifact, worker-based analysis core, A-B workspace, differential null test. See `ROADMAP.md` for phases, `TASKS.md` for the live work order, `HANDOFF.md` for continuation context.
+**v0.3/v0.4 Direction.** Forked from `bach-cello-console` at tag `v0.2-final`. Tracks 1 and 2 shipped reproducible review artifacts and reports. Track 3 is hardening the worker-backed analysis core. Tracks 4 and 5 turn the instrument into a two-source comparative bench with defensible null testing. See `ROADMAP.md` for phases, `TASKS.md` for the live work order, `HANDOFF.md` for continuation context.
 
 ## Style Notes
 

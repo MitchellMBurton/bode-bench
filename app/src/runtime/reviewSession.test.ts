@@ -132,6 +132,11 @@ describe('review session helpers', () => {
     ).kind).toBe('match');
 
     expect(matchReviewSessionSource(
+      { filename: 'a.wav', kind: 'audio', durationS: 10, mediaKey: 'a.wav:100:1', size: null, lastModified: null, sourcePath: null },
+      { filename: 'a.wav', kind: 'audio', durationS: 10, mediaKey: 'a.wav:200:2' },
+    ).kind).toBe('mismatch');
+
+    expect(matchReviewSessionSource(
       { filename: 'a.wav', kind: 'audio', durationS: 10, mediaKey: null, size: null, lastModified: null, sourcePath: null },
       { filename: 'b.wav', kind: 'audio', durationS: 10, mediaKey: null },
     ).kind).toBe('mismatch');

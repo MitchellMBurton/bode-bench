@@ -24,6 +24,7 @@ Read these first; do not infer their content from memory.
 |---|---|
 | Product identity, scope, quality bar | `PROJECT.md` |
 | Architectural domains, timeline model, desktop seam | `ARCHITECTURE.md` |
+| Runtime ownership, dispatch, session matching, export contracts | `RUNTIME_CONTRACTS.md` |
 | Interface doctrine, command strata, anti-patterns | `UX_PRINCIPLES.md` |
 | Power-user workspace direction | `POWER_USER_UX.md` |
 | Decision hierarchy and trade-offs | `DECISION_RULES.md` |

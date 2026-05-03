@@ -15,6 +15,8 @@ are validated end-to-end.
 
 Track 3 (worker-based analysis core) is underway: live frame feature analysis is worker-backed, and the remaining work moves heavier history/offline analysis behind the same boundary. See `REVIEW_BRIEF.md` for the v0.3.0 baseline context.
 
+Latest hardening added an explicit retained-frame contract for the frame bus, diagnostics-backed listener failure isolation, strict conflicting-media-key mismatch behavior for review sessions, and always-available `VOL` / `RATE` tuning in the Live Diagnostic command surface. See `RUNTIME_CONTRACTS.md`.
+
 ## What Already Exists (v0.2 state)
 
 ### Product shape
@@ -35,6 +37,7 @@ Track 3 (worker-based analysis core) is underway: live frame feature analysis is
 - `app/src/audio/analysisRuntime.ts` — main-thread-compatible analysis adapter used as the fallback/parity seam
 - `app/src/core/session.tsx` — shared session wiring (extended for restore methods in v0.3.0)
 - `app/src/audio/frameBus.ts` — frame dispatch (live feature producer is worker-backed; consumers stay stable)
+- `RUNTIME_CONTRACTS.md` — retained frame ownership, worker boundary, session matching, export, and command availability contracts
 - `app/src/runtime/waveformPyramid.ts` — shared waveform confidence and refinement
 - `app/src/runtime/reviewSession.ts` — versioned session schema, parse, build, source-match
 - `app/src/runtime/reviewReport.ts` — markdown report generator
@@ -77,8 +80,11 @@ See `TASKS.md` for per-track checklists and `ROADMAP.md` for phase boundaries.
 
 - the audible-monitor switch (A / B / null) must be unmistakable at all times
 - session schema changes must be migration-aware from schema v1
-- worker boundaries must use transferable buffers, not copies
+- worker boundaries may use transferable buffers internally, but published frames must be retained snapshots for async subscribers
+- frame-bus subscriber failures must not stop the instrument
+- conflicting saved/current media keys must be treated as source mismatches
 - alignment confidence must be visible before any null result is presented as meaningful
+- high-frequency tuning controls (`VOL`, `RATE`) must remain available during normal desktop resizing
 
 ## Known Rough Edges
 

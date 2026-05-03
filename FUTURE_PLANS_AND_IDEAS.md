@@ -11,7 +11,7 @@ This file is allowed to be opinionated. It is not allowed to drift the product i
 Three sections:
 
 - **Seed Categories** — broad areas where the product could grow without leaving its identity. One-line entries; the goal is recognition, not commitment.
-- **Deep Dives** — ideas I (Claude) find genuinely interesting and would want to explore further with you. These are framed with a why, a sketch, and dependencies.
+- **Deep Dives** — ideas that remain genuinely interesting and worth exploring further. These are framed with a why, a sketch, and dependencies.
 - **Ideas I'd Skip** — proposals that look attractive but would push the product in a direction the doctrine already rejects.
 
 ## Seed Categories

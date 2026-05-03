@@ -21,7 +21,6 @@ import { useReviewControlModel } from './useReviewControlModel';
 const SEEK_STEP_S = 5;
 const CONTROL_HEIGHT_PX = 20;
 const SINGLE_RAIL_SPLIT_PX = 1500;
-const INLINE_TUNING_MIN_PX = 1180;
 const TUNING_POPOVER_RIGHT_SPLIT_PX = 980;
 const TUNING_POPOVER_WIDE_PX = 1480;
 const TUNING_POPOVER_NORMAL_WIDTH = 360;
@@ -66,8 +65,7 @@ export function OverviewTransportStrip(): React.ReactElement {
     ? TUNING_POPOVER_WIDE_WIDTH
     : TUNING_POPOVER_NORMAL_WIDTH;
   const savedRangesMaxHeight = SAVED_RANGE_VISIBLE_ROWS * SAVED_RANGE_ROW_HEIGHT_PX + (SAVED_RANGE_VISIBLE_ROWS - 1) * SAVED_RANGE_ROW_GAP_PX;
-  const showInlineTuning = stripWidth >= INLINE_TUNING_MIN_PX;
-  const compactTuningTrigger = stripWidth < INLINE_TUNING_MIN_PX;
+  const compactTuningTrigger = stripWidth < TUNING_POPOVER_WIDE_PX;
   const rangeSummaryById = useMemo(() => {
     void rangeIntelligenceVersion;
     const summaries = new Map<number, { readonly row: string; readonly active: string }>();
@@ -405,17 +403,15 @@ export function OverviewTransportStrip(): React.ReactElement {
             </div>
           </div>
 
-          {showInlineTuning ? (
-            <div
-              style={{
-                ...inlineTuningRailStyle,
-                borderColor: m.chromeBorder,
-                background: m.bg,
-              }}
-            >
-              <InlineSessionControls />
-            </div>
-          ) : null}
+          <div
+            style={{
+              ...inlineTuningRailStyle,
+              borderColor: m.chromeBorder,
+              background: m.bg,
+            }}
+          >
+            <InlineSessionControls />
+          </div>
 
           <div ref={tuningOverlayRef} style={tuningTriggerWrapStyle}>
             <button
@@ -580,8 +576,8 @@ const transportRailStyle: React.CSSProperties = {
 const inlineTuningRailStyle: React.CSSProperties = {
   display: 'flex',
   alignItems: 'center',
-  minWidth: 216,
-  flex: '1 1 300px',
+  minWidth: 190,
+  flex: '1 1 260px',
   padding: '4px 8px',
   borderWidth: 1,
   borderStyle: 'solid',
