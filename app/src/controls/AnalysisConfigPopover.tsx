@@ -74,9 +74,25 @@ export function AnalysisConfigPopover({ visualMode, onClose }: Props): React.Rea
   const config = useAnalysisConfig();
   const m = MODES[visualMode];
   const popoverRef = useRef<HTMLDivElement>(null);
-  const [transport, setTransport] = useState<TransportState | null>(null);
+  const [transportSummary, setTransportSummary] = useState<Pick<TransportState, 'duration' | 'filename' | 'playbackBackend'> | null>(null);
 
-  useEffect(() => audioEngine.onTransport(setTransport), [audioEngine]);
+  useEffect(() => audioEngine.onTransport((nextTransport) => {
+    setTransportSummary((previous) => {
+      if (
+        previous
+        && previous.duration === nextTransport.duration
+        && previous.filename === nextTransport.filename
+        && previous.playbackBackend === nextTransport.playbackBackend
+      ) {
+        return previous;
+      }
+      return {
+        duration: nextTransport.duration,
+        filename: nextTransport.filename,
+        playbackBackend: nextTransport.playbackBackend,
+      };
+    });
+  }), [audioEngine]);
 
   useEffect(() => {
     const handler = (event: MouseEvent) => {
@@ -129,7 +145,7 @@ export function AnalysisConfigPopover({ visualMode, onClose }: Props): React.Rea
     minWidth: 42,
   });
 
-  const decodedSpectrogramViewAvailable = transport?.playbackBackend === 'decoded'
+  const decodedSpectrogramViewAvailable = transportSummary?.playbackBackend === 'decoded'
     && canBuildDecodedSpectrogramOverview(audioEngine.audioBuffer);
 
   const spectrogramViewBtn = (mode: SpectrogramViewMode): React.CSSProperties => {

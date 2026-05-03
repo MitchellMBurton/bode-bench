@@ -14,6 +14,25 @@ export interface DecodedSpectrogramInput {
   readonly dbMax: number;
 }
 
+export interface DecodedSpectrogramColumnRange {
+  readonly startColumn: number;
+  readonly endColumn: number;
+}
+
+export interface DecodedSpectrogramBuildResult {
+  readonly completedColumns: number;
+  readonly builtRanges: readonly DecodedSpectrogramColumnRange[];
+}
+
+export interface DecodedSpectrogramBuilder {
+  readonly history: Int16Array;
+  readonly width: number;
+  readonly height: number;
+  readonly completedColumns: number;
+  readonly done: boolean;
+  advance(maxMs: number, priorityRange?: DecodedSpectrogramColumnRange | null): DecodedSpectrogramBuildResult;
+}
+
 export interface DecodedSpectrogramViewRange {
   readonly start: number;
   readonly end: number;
@@ -21,8 +40,15 @@ export interface DecodedSpectrogramViewRange {
 
 const HISTORY_EMPTY = -1;
 const HISTORY_LEVELS = 256;
-const MAX_BROWSER_OVERVIEW_PCM_BYTES = 96 * 1024 * 1024;
-const MAX_BROWSER_OVERVIEW_COLUMNS = 720;
+const MAX_BROWSER_OVERVIEW_PCM_BYTES = 384 * 1024 * 1024;
+const MAX_BROWSER_OVERVIEW_COLUMNS = 24_576;
+const OVERVIEW_COLUMN_DENSITY = 1.25;
+const WINDOW_DETAIL_TARGET_SECONDS = 12;
+const SHORT_SOURCE_DETAIL_SECONDS = 8;
+const SHORT_SOURCE_COLUMNS_PER_SECOND = 1_600;
+const SHORT_SOURCE_MIN_COLUMNS = 4_096;
+const SHORT_SOURCE_TEMPORAL_WINDOWS = 48;
+const MIN_DECODED_FFT_SIZE = 1_024;
 
 interface FftPlan {
   readonly size: number;
@@ -39,17 +65,66 @@ export function canBuildDecodedSpectrogramOverview(buffer: AudioBuffer | null): 
   return estimateDecodedPcmBytes(buffer) <= MAX_BROWSER_OVERVIEW_PCM_BYTES;
 }
 
-export function pickDecodedSpectrogramColumnCount(pixelWidth: number): number {
-  return Math.max(1, Math.min(MAX_BROWSER_OVERVIEW_COLUMNS, Math.round(pixelWidth)));
+export function pickDecodedSpectrogramColumnCount(pixelWidth: number, durationS?: number): number {
+  const safePixelWidth = Math.max(1, Math.round(pixelWidth));
+  const safeDurationS = typeof durationS === 'number' && Number.isFinite(durationS) && durationS > 0
+    ? durationS
+    : null;
+  const overviewColumns = safePixelWidth * OVERVIEW_COLUMN_DENSITY;
+  const windowInspectionColumns = safeDurationS !== null
+    ? safePixelWidth * (safeDurationS / WINDOW_DETAIL_TARGET_SECONDS)
+    : 0;
+  const shortSourceColumns = safeDurationS !== null && safeDurationS <= SHORT_SOURCE_DETAIL_SECONDS
+    ? Math.max(SHORT_SOURCE_MIN_COLUMNS, safeDurationS * SHORT_SOURCE_COLUMNS_PER_SECOND)
+    : 0;
+  return Math.max(
+    1,
+    Math.min(
+      MAX_BROWSER_OVERVIEW_COLUMNS,
+      Math.round(Math.max(overviewColumns, windowInspectionColumns, shortSourceColumns)),
+    ),
+  );
+}
+
+export function pickDecodedSpectrogramFftSize(requestedFftSize: number, durationS: number, sampleRate: number): number {
+  const requested = nearestPowerOfTwo(requestedFftSize);
+  if (
+    !Number.isFinite(durationS)
+    || durationS <= 0
+    || durationS > SHORT_SOURCE_DETAIL_SECONDS
+    || !Number.isFinite(sampleRate)
+    || sampleRate <= 0
+  ) {
+    return requested;
+  }
+
+  const maxWindowSamples = (sampleRate * durationS) / SHORT_SOURCE_TEMPORAL_WINDOWS;
+  const shortFft = nearestPowerOfTwoAtMost(maxWindowSamples);
+  return Math.min(requested, Math.max(MIN_DECODED_FFT_SIZE, shortFft));
 }
 
 export function buildDecodedSpectrogramHistory(input: DecodedSpectrogramInput): Int16Array {
+  const builder = createDecodedSpectrogramBuilder(input);
+  builder.advance(Number.POSITIVE_INFINITY);
+  return builder.history;
+}
+
+export function createDecodedSpectrogramBuilder(input: DecodedSpectrogramInput): DecodedSpectrogramBuilder {
   const width = Math.max(1, Math.round(input.width));
   const height = input.rowBands.length;
   const history = new Int16Array(width * height);
   history.fill(HISTORY_EMPTY);
 
-  if (height <= 0 || input.buffer.length <= 0) return history;
+  if (height <= 0 || input.buffer.length <= 0) {
+    return {
+      history,
+      width,
+      height,
+      completedColumns: width,
+      done: true,
+      advance: () => ({ completedColumns: width, builtRanges: [] }),
+    };
+  }
 
   const fftSize = nearestPowerOfTwo(input.fftSize);
   const plan = createFftPlan(fftSize);
@@ -58,8 +133,13 @@ export function buildDecodedSpectrogramHistory(input: DecodedSpectrogramInput): 
   const left = input.buffer.getChannelData(0);
   const right = input.buffer.numberOfChannels > 1 ? input.buffer.getChannelData(1) : left;
   const fftBinCount = fftSize / 2;
+  let completedColumns = 0;
+  let nextSequentialColumn = 0;
+  let priorityKey = '';
+  let priorityCursor = 0;
+  const builtColumns = new Uint8Array(width);
 
-  for (let x = 0; x < width; x++) {
+  const buildColumn = (x: number): void => {
     real.fill(0);
     imag.fill(0);
     const centerSample = Math.round(((x + 0.5) / width) * input.buffer.length);
@@ -81,9 +161,95 @@ export function buildDecodedSpectrogramHistory(input: DecodedSpectrogramInput): 
         input.dbMax,
       );
     }
-  }
+  };
 
-  return history;
+  const findPriorityColumn = (priorityRange?: DecodedSpectrogramColumnRange | null): number | null => {
+    if (!priorityRange) return null;
+    const start = Math.max(0, Math.min(width, Math.floor(priorityRange.startColumn)));
+    const end = Math.max(start, Math.min(width, Math.ceil(priorityRange.endColumn)));
+    if (start >= end) return null;
+
+    const key = `${start}:${end}`;
+    if (key !== priorityKey) {
+      priorityKey = key;
+      priorityCursor = start;
+    }
+
+    for (let column = priorityCursor; column < end; column++) {
+      if (builtColumns[column] === 0) {
+        priorityCursor = column + 1;
+        return column;
+      }
+    }
+
+    for (let column = start; column < Math.min(priorityCursor, end); column++) {
+      if (builtColumns[column] === 0) {
+        priorityCursor = column + 1;
+        return column;
+      }
+    }
+
+    return null;
+  };
+
+  const findSequentialColumn = (): number | null => {
+    while (nextSequentialColumn < width && builtColumns[nextSequentialColumn] !== 0) {
+      nextSequentialColumn++;
+    }
+    return nextSequentialColumn < width ? nextSequentialColumn : null;
+  };
+
+  const addBuiltRange = (ranges: DecodedSpectrogramColumnRange[], column: number): void => {
+    const lastRange = ranges[ranges.length - 1];
+    if (lastRange && lastRange.endColumn === column) {
+      ranges[ranges.length - 1] = {
+        startColumn: lastRange.startColumn,
+        endColumn: column + 1,
+      };
+      return;
+    }
+    ranges.push({ startColumn: column, endColumn: column + 1 });
+  };
+
+  return {
+    history,
+    width,
+    height,
+    get completedColumns() {
+      return completedColumns;
+    },
+    get done() {
+      return completedColumns >= width;
+    },
+    advance(maxMs: number, priorityRange?: DecodedSpectrogramColumnRange | null): DecodedSpectrogramBuildResult {
+      const builtRanges: DecodedSpectrogramColumnRange[] = [];
+      if (completedColumns >= width) return { completedColumns, builtRanges };
+
+      if (!Number.isFinite(maxMs)) {
+        while (completedColumns < width) {
+          const column = findSequentialColumn();
+          if (column === null) break;
+          buildColumn(column);
+          builtColumns[column] = 1;
+          completedColumns++;
+          addBuiltRange(builtRanges, column);
+        }
+        return { completedColumns, builtRanges };
+      }
+
+      const deadline = nowMs() + Math.max(0, maxMs);
+      do {
+        const column = findPriorityColumn(priorityRange) ?? findSequentialColumn();
+        if (column === null) break;
+        buildColumn(column);
+        builtColumns[column] = 1;
+        completedColumns++;
+        addBuiltRange(builtRanges, column);
+      } while (completedColumns < width && nowMs() < deadline);
+
+      return { completedColumns, builtRanges };
+    },
+  };
 }
 
 export function projectDecodedSpectrogramHistory(
@@ -135,6 +301,11 @@ export function resolveDecodedSpectrogramPlaybackRatio(
 function nearestPowerOfTwo(value: number): number {
   const safe = Math.max(2, Math.round(value));
   return 2 ** Math.round(Math.log2(safe));
+}
+
+function nearestPowerOfTwoAtMost(value: number): number {
+  if (!Number.isFinite(value) || value <= 2) return 2;
+  return 2 ** Math.floor(Math.log2(value));
 }
 
 function createFftPlan(size: number): FftPlan {
@@ -223,4 +394,8 @@ function dbToHistoryLevel(db: number, dbMin: number, dbMax: number): number {
 function clamp(value: number, min: number, max: number): number {
   if (!Number.isFinite(value)) return min;
   return Math.max(min, Math.min(max, value));
+}
+
+function nowMs(): number {
+  return typeof performance !== 'undefined' ? performance.now() : Date.now();
 }

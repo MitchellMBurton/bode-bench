@@ -3,7 +3,9 @@ import { describe, expect, it } from 'vitest';
 import {
   buildDecodedSpectrogramHistory,
   canBuildDecodedSpectrogramOverview,
+  createDecodedSpectrogramBuilder,
   pickDecodedSpectrogramColumnCount,
+  pickDecodedSpectrogramFftSize,
   projectDecodedSpectrogramHistory,
   resolveDecodedSpectrogramPlaybackRatio,
 } from './decodedSpectrogram';
@@ -41,6 +43,29 @@ describe('decoded spectrogram overview', () => {
     expect(Math.max(...history)).toBeGreaterThan(0);
   });
 
+  it('can progressively prioritize visible window columns', () => {
+    const samples = new Float32Array(4096);
+    for (let index = 0; index < samples.length; index++) {
+      samples[index] = Math.sin((2 * Math.PI * 96 * index) / 1024);
+    }
+
+    const builder = createDecodedSpectrogramBuilder({
+      buffer: createBuffer(samples),
+      fftSize: 256,
+      width: 24,
+      rowBands: [{ lowBin: 1, highBin: 12 }],
+      dbMin: -90,
+      dbMax: 0,
+    });
+
+    const result = builder.advance(0, { startColumn: 10, endColumn: 14 });
+
+    expect(result.completedColumns).toBeGreaterThan(0);
+    expect(result.builtRanges[0]).toEqual({ startColumn: 10, endColumn: 11 });
+    expect(builder.history[10]).toBeGreaterThanOrEqual(0);
+    expect(builder.history[0]).toBe(-1);
+  });
+
   it('projects full-source columns into a visible window', () => {
     const source = Int16Array.from([
       1, 2, 3, 4,
@@ -54,15 +79,32 @@ describe('decoded spectrogram overview', () => {
   });
 
   it('keeps browser overview work bounded to decoded-safe sources', () => {
-    expect(pickDecodedSpectrogramColumnCount(2000)).toBe(720);
+    expect(pickDecodedSpectrogramColumnCount(100)).toBe(125);
+    expect(pickDecodedSpectrogramColumnCount(1000, 2.6)).toBe(4160);
+    expect(pickDecodedSpectrogramColumnCount(1000, 168)).toBe(14000);
+    expect(pickDecodedSpectrogramColumnCount(30_000, 168)).toBe(24576);
     expect(canBuildDecodedSpectrogramOverview(createBuffer(new Float32Array(256)))).toBe(true);
 
-    const large = {
-      length: (97 * 1024 * 1024) / Float32Array.BYTES_PER_ELEMENT,
-      numberOfChannels: 1,
+    const thirteenMinuteStereo = {
+      length: 796 * 44_100,
+      numberOfChannels: 2,
+      sampleRate: 44_100,
+    } as AudioBuffer;
+    expect(canBuildDecodedSpectrogramOverview(thirteenMinuteStereo)).toBe(true);
+
+    const tooLarge = {
+      length: (385 * 1024 * 1024) / (2 * Float32Array.BYTES_PER_ELEMENT),
+      numberOfChannels: 2,
       sampleRate: 48_000,
     } as AudioBuffer;
-    expect(canBuildDecodedSpectrogramOverview(large)).toBe(false);
+    expect(canBuildDecodedSpectrogramOverview(tooLarge)).toBe(false);
+  });
+
+  it('uses shorter decoded display windows for very short sources', () => {
+    expect(pickDecodedSpectrogramFftSize(8192, 2.6, 48_000)).toBe(2048);
+    expect(pickDecodedSpectrogramFftSize(8192, 8, 48_000)).toBe(4096);
+    expect(pickDecodedSpectrogramFftSize(2048, 2.6, 48_000)).toBe(2048);
+    expect(pickDecodedSpectrogramFftSize(8192, 30, 48_000)).toBe(8192);
   });
 
   it('maps playback into full and window scan-line ratios', () => {

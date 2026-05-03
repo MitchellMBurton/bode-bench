@@ -10,11 +10,13 @@ import {
   useWaveformPyramidStore,
 } from '../core/session';
 import {
-  buildDecodedSpectrogramHistory,
   canBuildDecodedSpectrogramOverview,
+  createDecodedSpectrogramBuilder,
   pickDecodedSpectrogramColumnCount,
-  projectDecodedSpectrogramHistory,
+  pickDecodedSpectrogramFftSize,
   resolveDecodedSpectrogramPlaybackRatio,
+  type DecodedSpectrogramBuilder,
+  type DecodedSpectrogramColumnRange,
   type SpectrogramRowBand,
 } from '../runtime/decodedSpectrogram';
 import type { VisualMode } from '../audio/displayMode';
@@ -54,6 +56,11 @@ const EVA_AXIS = CANVAS.eva.spectroAxis;
 const EVA_SPECTRO_PALETTE = CANVAS.eva.spectroPalette;
 const HISTORY_EMPTY = -1;
 const HISTORY_LEVELS = 256;
+const DECODED_ACTIVE_BUILD_BUDGET_MS = 7;
+const DECODED_IDLE_BUILD_BUDGET_MS = 14;
+const DECODED_CANVAS_REPAINT_BUDGET_COLUMNS = 1536;
+const DECODED_MIN_SOURCE_ROWS = 180;
+const DECODED_RESIZE_UPGRADE_RATIO = 1.18;
 const SPECTRO_BG_RGB = hexToRgb(SPECTRO_BG);
 const NGE_BG_RGB = hexToRgb(NGE_BG);
 const AMBER_BG_RGB = hexToRgb(AMBER_BG);
@@ -246,6 +253,15 @@ function createHistoryBuffer(width: number, height: number): Int16Array {
   return history;
 }
 
+function pickDecodedSpectrogramRowCount(pixelHeight: number): number {
+  return Math.max(DECODED_MIN_SOURCE_ROWS, Math.round(pixelHeight));
+}
+
+function clampNumber(value: number, min: number, max: number): number {
+  if (!Number.isFinite(value)) return min;
+  return Math.max(min, Math.min(max, value));
+}
+
 function paintHistoryToCanvas(
   ctx: CanvasRenderingContext2D,
   history: Int16Array,
@@ -272,6 +288,43 @@ function paintHistoryToCanvas(
   }
 
   ctx.putImageData(image, 0, 0);
+}
+
+function paintHistoryColumnsToCanvas(
+  ctx: CanvasRenderingContext2D,
+  history: Int16Array,
+  width: number,
+  height: number,
+  mode: VisualMode,
+  startColumn: number,
+  endColumn: number,
+): void {
+  const start = Math.max(0, Math.min(width, Math.floor(startColumn)));
+  const end = Math.max(start, Math.min(width, Math.ceil(endColumn)));
+  const columnCount = end - start;
+  if (columnCount <= 0 || height <= 0) return;
+
+  const theme = SPECTROGRAM_THEMES[mode];
+  const palette = SPECTROGRAM_PALETTES[mode];
+  const [bgR, bgG, bgB] = theme.bgRgb;
+  const image = ctx.createImageData(columnCount, height);
+  const { data } = image;
+
+  for (let y = 0; y < height; y++) {
+    const sourceRow = y * width;
+    const targetRow = y * columnCount;
+    for (let x = 0; x < columnCount; x++) {
+      const level = history[sourceRow + start + x];
+      const pixelIndex = (targetRow + x) * 4;
+      const [r, g, b] = level === HISTORY_EMPTY ? [bgR, bgG, bgB] : palette[level];
+      data[pixelIndex] = r;
+      data[pixelIndex + 1] = g;
+      data[pixelIndex + 2] = b;
+      data[pixelIndex + 3] = 255;
+    }
+  }
+
+  ctx.putImageData(image, start, 0);
 }
 
 function bandAverageDbByBins(data: Float32Array, lowBin: number, highBin: number): number {
@@ -371,6 +424,7 @@ function appendSpectrogramSlice(
   if (!offscreenCtx) return;
 
   const stripStartX = width - scrollPx;
+  offscreenCtx.imageSmoothingEnabled = false;
   offscreenCtx.drawImage(offscreen, -scrollPx, 0);
   offscreenCtx.fillStyle = backgroundFill;
   offscreenCtx.fillRect(stripStartX, 0, scrollPx, height);
@@ -417,6 +471,25 @@ function drawDecodedPlaybackScanLine(
   ctx.restore();
 }
 
+function drawDecodedBuildStatus(
+  ctx: CanvasRenderingContext2D,
+  progress: number,
+  right: number,
+  top: number,
+  dpr: number,
+  color: string,
+): void {
+  const label = `BUILD ${Math.max(1, Math.min(99, Math.round(progress * 100)))}%`;
+  ctx.save();
+  ctx.font = `${8 * dpr}px ${FONTS.mono}`;
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'top';
+  ctx.globalAlpha = 0.82;
+  ctx.fillStyle = color;
+  ctx.fillText(label, right - 6 * dpr, top + 5 * dpr);
+  ctx.restore();
+}
+
 export function SpectrogramPanel(): React.ReactElement {
   const displayMode = useDisplayMode();
   const analysisConfig = useAnalysisConfig();
@@ -426,7 +499,8 @@ export function SpectrogramPanel(): React.ReactElement {
   const waveformPyramid = useWaveformPyramidStore();
   const waveformPyramidVersion = useWaveformPyramidSnapshot();
   const theaterMode = useTheaterMode();
-  const [transport, setTransport] = useState<TransportState | null>(null);
+  const [transportSummary, setTransportSummary] = useState<Pick<TransportState, 'duration' | 'filename' | 'playbackBackend'> | null>(null);
+  const transportRef = useRef<TransportState | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const offscreenRef = useRef<HTMLCanvasElement | null>(null);
   const historyRef = useRef<Int16Array | null>(null);
@@ -434,8 +508,22 @@ export function SpectrogramPanel(): React.ReactElement {
     key: string;
     width: number;
     height: number;
-    history: Int16Array;
+    builder: DecodedSpectrogramBuilder;
+    canvas: HTMLCanvasElement | null;
+    canvasKey: string | null;
+    paintedColumns: number;
+    pendingPaintRanges: DecodedSpectrogramColumnRange[];
   } | null>(null);
+  const decodedViewRef = useRef<{
+    startRatio: number;
+    endRatio: number;
+    width: number;
+    height: number;
+  } | null>(null);
+  const decodedPriorityRangeRef = useRef<DecodedSpectrogramColumnRange | null>(null);
+  const decodedIdlePumpRef = useRef<number | ReturnType<typeof globalThis.setTimeout> | null>(null);
+  const scrubGestureRef = useRef<{ pointerId: number; moved: boolean } | null>(null);
+  const suppressNextClickRef = useRef(false);
   const dirtyRef = useRef(true);
   const rafRef = useRef<number | null>(null);
   const dimRef = useRef({ W: 0, H: 0, axisW: 0, spectroW: 0, spectroH: 0, padY: 0 });
@@ -451,10 +539,68 @@ export function SpectrogramPanel(): React.ReactElement {
   const dbRangeRef = useRef({ dbMin: analysisConfig.spectrogram.dbMin, dbMax: analysisConfig.spectrogram.dbMax });
   const rowBandsRef = useRef<readonly SpectrogramRowBand[]>([]);
   const rowBandMetaRef = useRef({ height: 0, sampleRate: 0, fftBinCount: 0 });
-  const decodedOverviewAvailable = transport?.playbackBackend === 'decoded' && canBuildDecodedSpectrogramOverview(audioEngine.audioBuffer);
+  const decodedOverviewAvailable = transportSummary?.playbackBackend === 'decoded' && canBuildDecodedSpectrogramOverview(audioEngine.audioBuffer);
   const activeViewMode = decodedOverviewAvailable ? analysisConfig.spectrogram.viewMode : 'live';
 
-  useEffect(() => audioEngine.onTransport(setTransport), [audioEngine]);
+  const scheduleDecodedIdlePump = useCallback(() => {
+    if (decodedIdlePumpRef.current !== null) return;
+
+    const schedule = (callback: () => void): void => {
+      if (typeof window.requestIdleCallback === 'function') {
+        decodedIdlePumpRef.current = window.requestIdleCallback(callback, { timeout: 120 });
+      } else {
+        decodedIdlePumpRef.current = globalThis.setTimeout(callback, 0);
+      }
+    };
+
+    const pump = () => {
+      decodedIdlePumpRef.current = null;
+      const decodedBuild = decodedFullHistoryRef.current;
+      if (!decodedBuild || decodedBuild.builder.done) return;
+
+      const result = decodedBuild.builder.advance(DECODED_IDLE_BUILD_BUDGET_MS, decodedPriorityRangeRef.current);
+      if (result.builtRanges.length > 0) {
+        decodedBuild.pendingPaintRanges.push(...result.builtRanges);
+        dirtyRef.current = true;
+      }
+      if (!decodedBuild.builder.done) {
+        schedule(pump);
+      }
+    };
+
+    schedule(pump);
+  }, []);
+
+  const cancelDecodedIdlePump = useCallback(() => {
+    const scheduled = decodedIdlePumpRef.current;
+    if (scheduled === null) return;
+    if (typeof window.cancelIdleCallback === 'function') {
+      window.cancelIdleCallback(scheduled as number);
+    } else {
+      globalThis.clearTimeout(scheduled as ReturnType<typeof globalThis.setTimeout>);
+    }
+    decodedIdlePumpRef.current = null;
+  }, []);
+
+  useEffect(() => audioEngine.onTransport((nextTransport) => {
+    transportRef.current = nextTransport;
+    setTransportSummary((previous) => {
+      if (
+        previous
+        && previous.duration === nextTransport.duration
+        && previous.filename === nextTransport.filename
+        && previous.playbackBackend === nextTransport.playbackBackend
+      ) {
+        return previous;
+      }
+      dirtyRef.current = true;
+      return {
+        duration: nextTransport.duration,
+        filename: nextTransport.filename,
+        playbackBackend: nextTransport.playbackBackend,
+      };
+    });
+  }), [audioEngine]);
 
   useEffect(() => {
     if (analysisConfig.spectrogram.viewMode !== 'live' && !decodedOverviewAvailable) {
@@ -485,8 +631,21 @@ export function SpectrogramPanel(): React.ReactElement {
     const hz = 20 * Math.pow(1000, tY);
 
     let db = NaN;
-    const history = historyRef.current;
-    if (history) {
+    const decodedView = decodedViewRef.current;
+    const decodedHistory = decodedFullHistoryRef.current;
+    if (decodedView && decodedHistory) {
+      const visibleRatio = Math.max(0, Math.min(1, (devX - axisW) / spectroW));
+      const sourceSpan = Math.max(0.000001, decodedView.endRatio - decodedView.startRatio);
+      const sourceRatio = Math.max(0, Math.min(1, decodedView.startRatio + visibleRatio * sourceSpan));
+      const col = Math.max(0, Math.min(decodedHistory.width - 1, Math.floor(sourceRatio * decodedHistory.width)));
+      const row = Math.max(0, Math.min(decodedHistory.height - 1, Math.floor((devY - padY) * (decodedHistory.height / spectroH))));
+      const level = decodedHistory.builder.history[row * decodedHistory.width + col];
+      if (level >= 0) {
+        const { dbMin, dbMax } = dbRangeRef.current;
+        db = dbMin + (level / (HISTORY_LEVELS - 1)) * (dbMax - dbMin);
+      }
+    } else if (historyRef.current) {
+      const history = historyRef.current;
       const col = Math.max(0, Math.min(spectroW - 1, Math.floor(devX - axisW)));
       const row = Math.max(0, Math.min(spectroH - 1, Math.floor(devY - padY)));
       const level = history[row * spectroW + col];
@@ -513,6 +672,87 @@ export function SpectrogramPanel(): React.ReactElement {
     visualMode: displayMode.mode,
   });
 
+  const mapSpectrogramPointerToTime = useCallback((clientX: number, clientY: number): number | null => {
+    const canvas = canvasRef.current;
+    const buffer = audioEngine.audioBuffer;
+    if (!canvas || !buffer || !decodedOverviewAvailable || activeViewMode === 'live') return null;
+
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return null;
+
+    const devX = ((clientX - rect.left) / rect.width) * canvas.width;
+    const devY = ((clientY - rect.top) / rect.height) * canvas.height;
+    const { axisW, spectroW, spectroH, padY } = dimRef.current;
+    if (spectroW <= 0 || spectroH <= 0) return null;
+    if (devX < axisW || devX > axisW + spectroW || devY < padY || devY > padY + spectroH) return null;
+
+    const duration = Math.max(0, buffer.duration);
+    if (duration <= 0) return null;
+
+    const visibleRatio = clampNumber((devX - axisW) / spectroW, 0, 1);
+    if (activeViewMode === 'full') {
+      return visibleRatio * duration;
+    }
+
+    const decodedView = decodedViewRef.current;
+    const startRatio = decodedView?.startRatio ?? clampNumber(waveformPyramid.currentViewRange.start / duration, 0, 1);
+    const endRatio = decodedView?.endRatio ?? clampNumber(waveformPyramid.currentViewRange.end / duration, startRatio, 1);
+    const spanRatio = Math.max(0.000001, endRatio - startRatio);
+    return clampNumber((startRatio + visibleRatio * spanRatio) * duration, 0, duration);
+  }, [activeViewMode, audioEngine, decodedOverviewAvailable, waveformPyramid]);
+
+  const scrubSpectrogramToPointer = useCallback((event: React.PointerEvent<HTMLCanvasElement>): boolean => {
+    const targetTime = mapSpectrogramPointerToTime(event.clientX, event.clientY);
+    if (targetTime === null) return false;
+    audioEngine.scrubTo(targetTime);
+    dirtyRef.current = true;
+    return true;
+  }, [audioEngine, mapSpectrogramPointerToTime]);
+
+  const handleSpectrogramPointerDown = useCallback((event: React.PointerEvent<HTMLCanvasElement>) => {
+    if (event.button !== 0) return;
+    const targetTime = mapSpectrogramPointerToTime(event.clientX, event.clientY);
+    if (targetTime === null) return;
+
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    scrubGestureRef.current = { pointerId: event.pointerId, moved: false };
+    suppressNextClickRef.current = true;
+    audioEngine.beginScrub();
+    audioEngine.scrubTo(targetTime);
+    dirtyRef.current = true;
+  }, [audioEngine, mapSpectrogramPointerToTime]);
+
+  const handleSpectrogramPointerMove = useCallback((event: React.PointerEvent<HTMLCanvasElement>) => {
+    const gesture = scrubGestureRef.current;
+    if (!gesture || gesture.pointerId !== event.pointerId) return;
+    event.preventDefault();
+    gesture.moved = true;
+    scrubSpectrogramToPointer(event);
+  }, [scrubSpectrogramToPointer]);
+
+  const finishSpectrogramScrub = useCallback((event: React.PointerEvent<HTMLCanvasElement>) => {
+    const gesture = scrubGestureRef.current;
+    if (!gesture || gesture.pointerId !== event.pointerId) return;
+    scrubSpectrogramToPointer(event);
+    audioEngine.endScrub();
+    scrubGestureRef.current = null;
+    dirtyRef.current = true;
+    try {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    } catch {
+      // Pointer capture can already be gone if the browser cancelled the gesture.
+    }
+  }, [audioEngine, scrubSpectrogramToPointer]);
+
+  const handleSpectrogramClick = useCallback((event: React.MouseEvent<HTMLCanvasElement>) => {
+    if (suppressNextClickRef.current) {
+      suppressNextClickRef.current = false;
+      return;
+    }
+    handleClick(event);
+  }, [handleClick]);
+
   useEffect(() => {
     return spectralAnatomy.subscribe(() => {
       dirtyRef.current = true;
@@ -525,7 +765,7 @@ export function SpectrogramPanel(): React.ReactElement {
 
   useEffect(() => {
     dirtyRef.current = true;
-  }, [activeViewMode, transport?.currentTime, waveformPyramidVersion]);
+  }, [activeViewMode, waveformPyramidVersion]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -552,6 +792,8 @@ export function SpectrogramPanel(): React.ReactElement {
         offscreen.height = spectroH;
         offscreenRef.current = offscreen;
         rowBandMetaRef.current = { height: 0, sampleRate: 0, fftBinCount: 0 };
+        decodedViewRef.current = null;
+        decodedPriorityRangeRef.current = null;
         renderCarryRef.current = 0;
         lastRenderedFrameCountRef.current = -1;
         dirtyRef.current = true;
@@ -562,13 +804,15 @@ export function SpectrogramPanel(): React.ReactElement {
     if (theaterMode) {
       return () => {
         ro.disconnect();
+        cancelDecodedIdlePump();
         if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
       };
     }
 
     const draw = () => {
       rafRef.current = requestAnimationFrame(draw);
-      if (!dirtyRef.current || shouldSkipFrame(canvas)) return;
+      const shouldDrawDecodedFrame = activeViewMode !== 'live' && decodedOverviewAvailable;
+      if ((!dirtyRef.current && !shouldDrawDecodedFrame) || shouldSkipFrame(canvas)) return;
 
       const ctx = canvas.getContext('2d');
       const offscreen = offscreenRef.current;
@@ -590,28 +834,39 @@ export function SpectrogramPanel(): React.ReactElement {
 
       if (activeViewMode !== 'live' && buffer && decodedOverviewAvailable) {
         lastRenderedFrameCountRef.current = -1;
-        const sourceWidth = pickDecodedSpectrogramColumnCount(spectroW);
-        const fftSize = analysisConfig.general.fftSize;
+        const sourceWidth = pickDecodedSpectrogramColumnCount(spectroW, buffer.duration);
+        const sourceHeight = pickDecodedSpectrogramRowCount(spectroH);
+        const fftSize = pickDecodedSpectrogramFftSize(analysisConfig.general.fftSize, buffer.duration, buffer.sampleRate);
         const fftBinCount = fftSize / 2;
-        const rowBands = ensureRowBands(spectroH, buffer.sampleRate, fftBinCount);
-        const cacheKey = [
-          transport?.filename ?? 'decoded',
+        const cacheIdentityKey = [
+          transportSummary?.filename ?? 'decoded',
           buffer.length,
           buffer.sampleRate,
           buffer.numberOfChannels,
           fftSize,
-          sourceWidth,
-          spectroH,
           dbMin,
           dbMax,
         ].join(':');
         let fullHistory = decodedFullHistoryRef.current;
-        if (!fullHistory || fullHistory.key !== cacheKey) {
+        const needsDecodedRebuild = !fullHistory
+          || fullHistory.key !== cacheIdentityKey
+          || fullHistory.width * DECODED_RESIZE_UPGRADE_RATIO < sourceWidth
+          || fullHistory.height * DECODED_RESIZE_UPGRADE_RATIO < sourceHeight;
+        if (needsDecodedRebuild) {
+          cancelDecodedIdlePump();
+          const rowBands = ensureRowBands(sourceHeight, buffer.sampleRate, fftBinCount);
+          const fullCanvas = document.createElement('canvas');
+          fullCanvas.width = sourceWidth;
+          fullCanvas.height = sourceHeight;
+          const fullCanvasCtx = fullCanvas.getContext('2d');
+          if (!fullCanvasCtx) return;
+          fullCanvasCtx.fillStyle = backgroundFill;
+          fullCanvasCtx.fillRect(0, 0, fullCanvas.width, fullCanvas.height);
           fullHistory = {
-            key: cacheKey,
+            key: cacheIdentityKey,
             width: sourceWidth,
-            height: spectroH,
-            history: buildDecodedSpectrogramHistory({
+            height: sourceHeight,
+            builder: createDecodedSpectrogramBuilder({
               buffer,
               fftSize,
               width: sourceWidth,
@@ -619,28 +874,115 @@ export function SpectrogramPanel(): React.ReactElement {
               dbMin,
               dbMax,
             }),
+            canvas: fullCanvas,
+            canvasKey: `${cacheIdentityKey}:${mode}`,
+            paintedColumns: sourceWidth,
+            pendingPaintRanges: [],
           };
           decodedFullHistoryRef.current = fullHistory;
         }
+        fullHistory = decodedFullHistoryRef.current;
+        if (!fullHistory) return;
 
         const viewRange = waveformPyramid.currentViewRange;
         const duration = Math.max(0.001, buffer.duration);
-        const startRatio = activeViewMode === 'window' ? viewRange.start / duration : 0;
-        const endRatio = activeViewMode === 'window' ? viewRange.end / duration : 1;
-        history.set(projectDecodedSpectrogramHistory(
-          fullHistory.history,
-          fullHistory.width,
-          spectroW,
-          spectroH,
+        const rawStartRatio = activeViewMode === 'window' ? viewRange.start / duration : 0;
+        const rawEndRatio = activeViewMode === 'window' ? viewRange.end / duration : 1;
+        const startRatio = Math.max(0, Math.min(1, rawStartRatio));
+        const endRatio = Math.max(startRatio + 0.000001, Math.min(1, rawEndRatio));
+        const priorityRange: DecodedSpectrogramColumnRange | null = activeViewMode === 'window'
+          ? {
+              startColumn: Math.floor(startRatio * fullHistory.width),
+              endColumn: Math.ceil(endRatio * fullHistory.width),
+            }
+          : null;
+        decodedPriorityRangeRef.current = priorityRange;
+        const buildResult = fullHistory.builder.advance(DECODED_ACTIVE_BUILD_BUDGET_MS, priorityRange);
+        fullHistory.pendingPaintRanges.push(...buildResult.builtRanges);
+        if (!fullHistory.builder.done) {
+          scheduleDecodedIdlePump();
+        }
+        const fullCanvasKey = `${fullHistory.key}:${mode}`;
+        if (!fullHistory.canvas || fullHistory.canvasKey !== fullCanvasKey) {
+          const fullCanvas = document.createElement('canvas');
+          fullCanvas.width = fullHistory.width;
+          fullCanvas.height = fullHistory.height;
+          const fullCanvasCtx = fullCanvas.getContext('2d');
+          if (!fullCanvasCtx) return;
+          fullCanvasCtx.fillStyle = backgroundFill;
+          fullCanvasCtx.fillRect(0, 0, fullCanvas.width, fullCanvas.height);
+          fullHistory.canvas = fullCanvas;
+          fullHistory.canvasKey = fullCanvasKey;
+          fullHistory.paintedColumns = 0;
+          fullHistory.pendingPaintRanges = [];
+        }
+
+        const fullCanvasCtx = fullHistory.canvas.getContext('2d');
+        if (!fullCanvasCtx) return;
+        fullCanvasCtx.imageSmoothingEnabled = false;
+        const pendingPaintRanges = fullHistory.pendingPaintRanges.splice(0);
+        for (const range of pendingPaintRanges) {
+          paintHistoryColumnsToCanvas(
+            fullCanvasCtx,
+            fullHistory.builder.history,
+            fullHistory.width,
+            fullHistory.height,
+            mode,
+            range.startColumn,
+            range.endColumn,
+          );
+        }
+        if (fullHistory.paintedColumns < fullHistory.width) {
+          const repaintEnd = Math.min(
+            fullHistory.width,
+            fullHistory.paintedColumns + DECODED_CANVAS_REPAINT_BUDGET_COLUMNS,
+          );
+          paintHistoryColumnsToCanvas(
+            fullCanvasCtx,
+            fullHistory.builder.history,
+            fullHistory.width,
+            fullHistory.height,
+            mode,
+            fullHistory.paintedColumns,
+            repaintEnd,
+          );
+          fullHistory.paintedColumns = repaintEnd;
+        }
+
+        decodedViewRef.current = {
           startRatio,
           endRatio,
-        ));
+          width: fullHistory.width,
+          height: fullHistory.height,
+        };
 
         const offscreenCtx = offscreen.getContext('2d');
         if (!offscreenCtx) return;
-        paintHistoryToCanvas(offscreenCtx, history, offscreen.width, offscreen.height, mode);
+        offscreenCtx.fillStyle = backgroundFill;
+        offscreenCtx.fillRect(0, 0, offscreen.width, offscreen.height);
+        if (fullHistory.canvas) {
+          const cropStart = Math.max(0, Math.min(fullHistory.width - 1, startRatio * fullHistory.width));
+          const cropWidth = Math.max(1, Math.min(fullHistory.width - cropStart, (endRatio - startRatio) * fullHistory.width));
+          offscreenCtx.imageSmoothingEnabled = false;
+          offscreenCtx.drawImage(
+            fullHistory.canvas,
+            cropStart,
+            0,
+            cropWidth,
+            fullHistory.height,
+            0,
+            0,
+            spectroW,
+            spectroH,
+          );
+        }
       } else {
-        decodedFullHistoryRef.current = null;
+        cancelDecodedIdlePump();
+        decodedPriorityRangeRef.current = null;
+        if (!buffer || !decodedOverviewAvailable) {
+          decodedFullHistoryRef.current = null;
+        }
+        decodedViewRef.current = null;
 
         const needsRebuild =
           lastRenderedFrameCountRef.current < 0 ||
@@ -722,6 +1064,7 @@ export function SpectrogramPanel(): React.ReactElement {
 
       ctx.fillStyle = backgroundFill;
       ctx.fillRect(0, 0, W, H);
+      ctx.imageSmoothingEnabled = false;
       ctx.drawImage(offscreen, spectroX, padY);
 
       if (gridDensity === 'major+minor') {
@@ -749,9 +1092,13 @@ export function SpectrogramPanel(): React.ReactElement {
       }
 
       if (activeViewMode !== 'live' && buffer && decodedOverviewAvailable) {
+        const engineTime = audioEngine.currentTime;
+        const playbackTime = Number.isFinite(engineTime)
+          ? engineTime
+          : transportRef.current?.currentTime ?? 0;
         const playbackRatio = resolveDecodedSpectrogramPlaybackRatio(
           activeViewMode,
-          audioEngine.currentTime,
+          playbackTime,
           Math.max(0.001, buffer.duration),
           waveformPyramid.currentViewRange,
         );
@@ -765,6 +1112,24 @@ export function SpectrogramPanel(): React.ReactElement {
             theme.label,
           );
         }
+      }
+
+      const decodedBuild = decodedFullHistoryRef.current;
+      if (
+        activeViewMode !== 'live'
+        && buffer
+        && decodedOverviewAvailable
+        && decodedBuild
+        && !decodedBuild.builder.done
+      ) {
+        drawDecodedBuildStatus(
+          ctx,
+          decodedBuild.builder.completedColumns / decodedBuild.width,
+          spectroX + spectroW,
+          padY,
+          dpr,
+          theme.label,
+        );
       }
 
       ctx.font = `${8 * dpr}px ${FONTS.mono}`;
@@ -793,6 +1158,7 @@ export function SpectrogramPanel(): React.ReactElement {
     rafRef.current = requestAnimationFrame(draw);
     return () => {
       ro.disconnect();
+      cancelDecodedIdlePump();
       if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
     };
   }, [
@@ -802,15 +1168,15 @@ export function SpectrogramPanel(): React.ReactElement {
     analysisConfig.spectrogram.dbMin,
     analysisConfig.spectrogram.gridDensity,
     audioEngine,
+    cancelDecodedIdlePump,
     decodedOverviewAvailable,
     displayMode,
     ensureRowBands,
+    scheduleDecodedIdlePump,
     spectralAnatomy,
     theaterMode,
-    transport?.currentTime,
-    transport?.filename,
+    transportSummary?.filename,
     waveformPyramid,
-    waveformPyramidVersion,
   ]);
 
   return (
@@ -851,10 +1217,18 @@ export function SpectrogramPanel(): React.ReactElement {
       </div>
       <canvas
         ref={canvasRef}
-        style={canvasStyle}
+        style={{
+          ...canvasStyle,
+          cursor: activeViewMode !== 'live' && decodedOverviewAvailable ? 'crosshair' : 'default',
+          touchAction: activeViewMode !== 'live' && decodedOverviewAvailable ? 'none' : 'auto',
+        }}
         onMouseMove={handleMouseMove}
         onMouseLeave={handleMouseLeave}
-        onClick={handleClick}
+        onPointerDown={handleSpectrogramPointerDown}
+        onPointerMove={handleSpectrogramPointerMove}
+        onPointerUp={finishSpectrogramScrub}
+        onPointerCancel={finishSpectrogramScrub}
+        onClick={handleSpectrogramClick}
       />
       <canvas ref={overlayRef} className="panel-cursor-overlay" style={overlayStyle} />
       <div ref={hoverReadoutRef} className="panel-hover-readout" />
