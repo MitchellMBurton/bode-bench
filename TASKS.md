@@ -1,8 +1,8 @@
 # Tasks
 
-## Status: v0.3 Hardening, Toward v0.4 Comparative Bench
+## Status: v0.3 Hardening, Range Lab Next, Then v0.4 Comparative Bench
 
-The repo opened at `v0.2-final` (the trustworthy review-and-export console). Tracks 1 and 2 shipped the reproducible review foundation; Track 3 now hardens the worker/runtime substrate before the v0.4 A-B workspace and null-test work.
+The repo opened at `v0.2-final` (the trustworthy review-and-export console). Tracks 1 and 2 shipped the reproducible review foundation. Track 3 reaches **minimal closure** — the worker substrate is sufficient for two-source work; deeper migrations are deferred until usage pressure earns them. **Track 6 — Range Lab** is the next named direction, sequenced before Track 4: it serves the instrument's current real workflows (spectrogram-guided discovery, keep-and-cut compilation, similarity-based navigation) and surfaces the lived experience that informs the v0.4 layout decision before any engine split.
 
 This file holds the live work order. Phase-level structure lives in `ROADMAP.md`; raw idea pool lives in `FUTURE_PLANS_AND_IDEAS.md`.
 
@@ -36,10 +36,9 @@ Validated end-to-end with a save / refresh / load round trip; "Session restored.
 - [ ] Cross-platform path tolerance — works in browser (no absolute paths), desktop dialog deferred
 - [x] Tests for round-trip integrity and source-match behavior
 
-### Track 3 — Worker-based Analysis Core (v0.3.2) — NEXT
+### Track 3 — Worker-based Analysis Core (v0.3.2) — MINIMAL CLOSURE
 
-Boring infrastructure with payoff in many directions. Best done before A-B so two-source pipelines ride a solid base.
-The live frame feature producer now runs through the worker by default with a main-thread fallback. The live dispatch contract is retained-frame safe. Remaining slices move heavier history/offline analysis work behind the same boundary.
+Boring infrastructure with payoff in many directions. The minimum-viable substrate for two-source work is shipped: live frame feature analysis is worker-backed, the dispatch contract is retained-frame safe, back-pressure and diagnostics are in. The remaining migrations are *deferred until concrete usage pressure justifies them* — Range Lab and A-B will surface the right next move. Resist completing this track for completeness alone.
 
 - [x] Define the v1 worker message protocol, transferables helper, and main-thread-compatible analysis adapter
 - [x] Add worker lifecycle client with response validation, one-frame back-pressure, and diagnostic counters
@@ -50,8 +49,23 @@ The live frame feature producer now runs through the worker by default with a ma
 - [x] PERF LAB toggle: core main / worker for diagnostic comparison
 - [x] Retained frame snapshot contract for async panel subscribers
 - [x] Per-subscriber frame-bus failure isolation with diagnostics
-- [ ] Move waveform pyramid, spectrogram history/bins, and deeper loudness integration to worker
-- [ ] OffscreenCanvas for spectrogram (follow-up, optional in this track)
+
+Deferred (earn on demand, not for completeness):
+
+- [ ] Move waveform pyramid, spectrogram history/bins, and deeper loudness integration to worker — promote when Range Lab spectrogram interaction or A-B dual-rendering exposes felt jank
+- [ ] OffscreenCanvas for spectrogram — promote when the spectrogram surface becomes a primary interaction target rather than a passive readout
+
+### Track 6 — Range Lab (v0.3.4) — NEXT
+
+Single-source range-first workflow polish. Promotes ranges from a navigation aid into the primary discovery and extraction surface. Sequenced before Track 4: rides existing substrate, no engine split required, and the lived experience sharpens v0.4 layout decisions.
+
+- [ ] Spectrogram-driven range creation — commit ranges from the spectrogram surface, not just the timeline.
+- [ ] Multi-range selection + bulk operations — select, invert, reorder, drop.
+- [ ] Keep-and-cut compilation export — single render, multiple kept segments, one output file. New export shape with its own preset and manifest sidecar.
+- [ ] Range similarity search — pick a reference range, surface ranked candidate similar regions on the same source. Lands per `PROCESSING_POLICY.md` suggestion-layer rules.
+- [ ] Spectral bookmark navigation — forward/back through ranked similar-region candidates.
+- [ ] Tests for the compilation export manifest and the similarity-candidate contract.
+- [ ] Paper sketch of the Range Lab surface lands before Track 4 layout sketches begin.
 
 ### Track 4 — Reference / A-B Comparison Workspace (v0.4.0)
 

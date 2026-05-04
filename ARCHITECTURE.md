@@ -105,6 +105,27 @@ Core files:
 - `scripts/`
 - `data/processed/`
 
+### 6. Source Processing / Derived Sources Domain (planned)
+
+Runtime: desktop-first seam plus lightweight frontend state, parallel to the export domain.
+
+Owns:
+
+- derived source lifecycle (recipe → processed media)
+- recipe sidecar schema and persistence
+- source-slot lineage and provenance display
+- ML and FFmpeg processing job lifecycle (cancellation, progress, completion)
+- suggestion-layer candidate generation (silencedetect, scenedetect, diarization, etc.)
+- vetted-tools registry with parameter schemas
+
+Core files (planned):
+
+- `app/src/runtime/derivedSources.ts`
+- `app/src/runtime/processingRecipe.ts`
+- `desktop/src-tauri/src/processing/` (planned)
+
+Permitted operations and the layered measurement / preprocessing / suggestion policy are defined in `PROCESSING_POLICY.md`. This domain is the architectural enabler for the workflows described under "Processing and derived sources" in `FUTURE_PLANS_AND_IDEAS.md`. Currently a v0.5 candidate (see `ROADMAP.md`).
+
 ## Architectural Rule
 
 Signal runtime tells us what is happening.

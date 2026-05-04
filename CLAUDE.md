@@ -8,7 +8,9 @@ A local-first, desktop-grade scientific listening instrument and media analysis 
 
 Legacy Bach-specific sample data and repository history still exist, but they do not define the product. Treat structural overlays as optional, not as the main runtime identity.
 
-Read the full project definition in `PROJECT.md`. Read UX doctrine in `UX_PRINCIPLES.md`. Read runtime contracts in `RUNTIME_CONTRACTS.md`. Read technical structure in `ARCHITECTURE.md`. Read decision logic in `DECISION_RULES.md`. Read current work in `TASKS.md`.
+Read the full project definition in `PROJECT.md`. Read UX doctrine in `UX_PRINCIPLES.md`. Read runtime contracts in `RUNTIME_CONTRACTS.md`. Read technical structure in `ARCHITECTURE.md`. Read processing policy in `PROCESSING_POLICY.md`. Read decision logic in `DECISION_RULES.md`. Read current work in `TASKS.md`.
+
+Before refining any of the above, read `REFINEMENT.md`. The doctrine is living and explicitly designed to be challenged by smarter readers; that doc explains how, what's settled, and what's still open.
 
 ## Stack
 
@@ -105,7 +107,7 @@ Prefer fixes in the shared frontend. Keep the Tauri wrapper thin unless there is
 
 ## Current Milestone
 
-**v0.3/v0.4 Direction.** Forked from `bach-cello-console` at tag `v0.2-final`. Tracks 1 and 2 shipped reproducible review artifacts and reports. Track 3 is hardening the worker-backed analysis core. Tracks 4 and 5 turn the instrument into a two-source comparative bench with defensible null testing. See `ROADMAP.md` for phases, `TASKS.md` for the live work order, `HANDOFF.md` for continuation context.
+**v0.3/v0.4 Direction.** Forked from `bach-cello-console` at tag `v0.2-final`. Tracks 1 and 2 shipped reproducible review artifacts and reports. Track 3 (worker core) is at minimal closure. Track 6 — Range Lab — is next, sequenced before Track 4. Tracks 4 and 5 turn the instrument into a two-source comparative bench with defensible null testing. See `ROADMAP.md` for phases, `TASKS.md` for the live work order, `HANDOFF.md` for continuation context.
 
 ## Style Notes
 

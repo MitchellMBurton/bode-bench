@@ -70,3 +70,9 @@ Current tools are recommended baselines. Replace any tool if the replacement pre
 
 If a change increases flash but decreases trust, reject it.
 If a change increases power while preserving clarity, accept it.
+
+## Refining These Rules
+
+The rules above are current best thinking, not eternal truths. They are written to be challenged by future contributors — human or AI — when evidence, alternative framings, or new capabilities make them wrong, insufficient, or outdated. See `REFINEMENT.md` for how to challenge a rule, propose a new one, or retire one that no longer serves the product.
+
+The doctrine grows by addition more than by replacement. But it is permitted to retire any rule on this page that no longer earns its keep. A retired rule should be acknowledged in `MEMORY.md`, not silently deleted.

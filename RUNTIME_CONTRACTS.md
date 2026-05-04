@@ -109,7 +109,24 @@ High-frequency controls must stay reachable under normal desktop resizing.
 - Volume and rate are primary playback tuning, not optional settings.
 - A tuning popover may provide additional room, but it should not be the only path to `VOL` and `RATE`.
 - Responsive wrapping is preferable to hiding critical controls.
+- Primary control labels never truncate. If a label cannot fit at a viewport width, the control changes form (icon + tooltip, or disclosure popover) — not its label. Only data values may ellipsize, and only with explicit `…`.
 
 Core file:
 
 - `app/src/controls/OverviewTransportStrip.tsx`
+
+## Derived Source Provenance
+
+Derived sources are processed media produced from an original source via a vetted processing tool. They are governed by `PROCESSING_POLICY.md`.
+
+- Every derived source carries a recipe sidecar naming every processing step (tool/model, version, parameters, timestamp).
+- Session artifacts that reference derived sources record their recipes so the derivation can be re-run reproducibly on the same original source.
+- Reports that cite measurements taken from a derived source include the recipe alongside the measurements.
+- The instrument never silently substitutes a processed source for the original; source-slot lineage is always visible to the user.
+- Suggestion-layer outputs (range candidates, transcript alignments, scene candidates) render distinctly from authored state until the user explicitly accepts them.
+- ML in the measurement layer is rejected; ML in the preprocessing and suggestion layers is permitted under the constraints above.
+
+Core files (planned):
+
+- `app/src/runtime/derivedSources.ts`
+- `app/src/runtime/processingRecipe.ts`

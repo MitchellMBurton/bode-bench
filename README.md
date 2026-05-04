@@ -170,9 +170,11 @@ Use the docs in layers. Canonical doctrine changes slowly; live work docs move w
 | `PROJECT.md` | Product definition, scope, and quality bar |
 | `ARCHITECTURE.md` | Current technical seams and system structure |
 | `RUNTIME_CONTRACTS.md` | Runtime, session, worker, dispatch, and export contracts |
+| `PROCESSING_POLICY.md` | Layered policy for ML and FFmpeg processing of sources |
 | `UX_PRINCIPLES.md` | Interface doctrine |
 | `POWER_USER_UX.md` | Expert workflow and workspace direction |
 | `DECISION_RULES.md` | How to choose between valid alternatives |
+| `REFINEMENT.md` | How the doctrine itself evolves; open questions; notes for future contributors (human or AI) |
 
 ### Live Work Docs
 

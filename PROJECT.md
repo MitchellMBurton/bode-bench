@@ -44,13 +44,14 @@ Current accepted reality:
 
 v0.2 (frozen at tag `v0.2-final`) delivered the trustworthy review-and-export console: clinical density, honest streamed-media handling, desktop-first export, multi-mode visual presentation. v0.3 takes the next step — turning the instrument from a single-source review console into a comparative measurement bench.
 
-Five direction-defining moves, in dependency order:
+Six direction-defining moves, in dependency order:
 
 1. **Notes on ranges + session report export** — converts saved ranges from navigation aid into a deliverable artifact a reviewer can hand to someone else.
 2. **Reproducible review session artifact** — externalises session state (ranges, notes, layout, tuning, analysis config) as a transparent, versioned `.review-session.json` file. Foundation for everything that follows.
 3. **Worker-based analysis core** — moves analysis off the main thread. Closes the focus-throttle story structurally, unlocks OffscreenCanvas, satisfies CORE_HARDENING P5, prepares the substrate for two-source pipelines.
-4. **Reference / A-B comparison workspace** — second source slot with locked transport, audible-monitor switch, panel opt-in dual rendering. The feature that defines what the instrument is *for*.
-5. **Differential analysis (null test)** — sample-aligned A−B residual as audible monitor and visualised on every analysis surface. The capability that hardest-defines the product as a scientific instrument rather than a media app with graphs.
+4. **Range Lab — single-source range-first discovery and extraction** — promotes ranges from a navigation aid into the primary discovery and extraction surface: spectrogram-driven range creation, multi-range selection, keep-and-cut compilation export, similarity-based navigation. The single-source rigor that earns the move to two-source comparison.
+5. **Reference / A-B comparison workspace** — second source slot with locked transport, audible-monitor switch, panel opt-in dual rendering. The feature that defines what the instrument is *for*.
+6. **Differential analysis (null test)** — sample-aligned A−B residual as audible monitor and visualised on every analysis surface. The capability that hardest-defines the product as a scientific instrument rather than a media app with graphs.
 
 See `ROADMAP.md` for phase boundaries and graduation criteria, `RUNTIME_CONTRACTS.md` for runtime ownership rules, `FUTURE_PLANS_AND_IDEAS.md` for the broader idea pool, and `TASKS.md` for live work order.
 

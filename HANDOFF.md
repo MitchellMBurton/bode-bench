@@ -59,11 +59,12 @@ Latest hardening added an explicit retained-frame contract for the frame bus, di
 
 Tracks 1 and 2 are shipped (`v0.3.0`). The remaining order:
 
-1. **Track 3 — Worker-based analysis core.** The live frame feature producer now runs through the worker by default with transferable buffer pooling, one-frame back-pressure, a main-thread fallback, and PERF LAB worker/main diagnostics. Next move heavier history/offline analysis work behind the same boundary: waveform pyramid, spectrogram history/bins, and deeper loudness integration.
-2. **Track 4 — A-B comparison workspace.** The defining v0.3 feature. Builds on Tracks 2 and 3.
-3. **Track 5 — Differential null test.** Builds directly on Track 4's alignment machinery.
+1. **Track 3 — Worker-based analysis core (minimal closure).** The live frame feature producer runs through the worker with transferable buffer pooling, one-frame back-pressure, a main-thread fallback, and PERF LAB diagnostics. Treat this track as closed unless Range Lab or A-B work surfaces felt jank.
+2. **Track 6 — Range Lab.** Spectrogram-driven range creation, multi-range bulk operations, keep-and-cut compilation export, range similarity search, spectral bookmark navigation. Rides existing substrate; no engine split required.
+3. **Track 4 — A-B comparison workspace.** The defining v0.4 feature. Builds on Tracks 2 and 3, informed by Track 6 lived experience.
+4. **Track 5 — Differential null test.** Builds directly on Track 4's alignment machinery.
 
-A fresh review of v0.3.0 can usefully precede Track 3. See `REVIEW_BRIEF.md`.
+A fresh review of v0.3.0 can usefully precede Track 6. See `REVIEW_BRIEF.md`.
 
 See `TASKS.md` for per-track checklists and `ROADMAP.md` for phase boundaries.
 

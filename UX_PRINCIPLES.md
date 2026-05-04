@@ -96,6 +96,22 @@ Typography should read like instrumentation, not marketing.
 - long strings must truncate cleanly
 - wrapped titles should be intentional, not accidental
 
+## Source Identity
+
+> **Refinement note.** The current direction below is current best thinking, settled enough to design against but not so settled that bolder layout proposals (unified two-lane timeline, mode-switching A-B view) should be ruled out. See `REFINEMENT.md` for the open layout questions.
+
+When two sources are present (A-B comparison work), source identity is currently encoded by:
+
+- **Position** — A above, B below in any dual-rendered surface; never mixed.
+- **Explicit badging** — every source-specific readout, chip, and panel header carries an `A` or `B` mark in the same rhythm the existing `R1` / `R2` range badges use.
+- **Stroke or fill convention** — solid for A, dashed for B (or filled vs outlined) in overlay surfaces.
+
+Source identity is **not** encoded by repurposing the visual style modes. The user runs the instrument in one style mode at a time; A and B coexist within that single palette. Color within a style mode is reserved for state (saved range, active range, audible source highlight), not for source identity.
+
+The audible-source indicator is load-bearing chrome, not an inline panel hint. When two sources are present, it is its own bordered region in the global chrome — sized larger than telemetry chips, always visible at every viewport width — and tells the user unambiguously whether they are hearing A, B, or the residual. The specific placement and visual treatment depends on the v0.4 layout direction, which remains a tracked open question.
+
+Source-slot lineage is always visible. A derived source (per `PROCESSING_POLICY.md`) reads its recipe in compact form so the user can never mistake a processed source for the original.
+
 ## Anti-Patterns
 
 - consumer media-player chrome
@@ -104,3 +120,5 @@ Typography should read like instrumentation, not marketing.
 - unclear hierarchy
 - control duplication without purpose
 - fake certainty in streamed views
+- truncated primary control labels (only data values may ellipsize)
+- color used to encode source identity within a single style mode
