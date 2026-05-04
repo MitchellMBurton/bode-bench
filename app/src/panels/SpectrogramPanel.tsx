@@ -11,14 +11,16 @@ import {
 } from '../core/session';
 import {
   canBuildDecodedSpectrogramOverview,
-  createDecodedSpectrogramBuilder,
   pickDecodedSpectrogramColumnCount,
   pickDecodedSpectrogramFftSize,
   resolveDecodedSpectrogramPlaybackRatio,
-  type DecodedSpectrogramBuilder,
   type DecodedSpectrogramColumnRange,
   type SpectrogramRowBand,
 } from '../runtime/decodedSpectrogram';
+import {
+  DecodedSpectrogramWorkerClient,
+  type DecodedSpectrogramWorkerJob,
+} from '../runtime/decodedSpectrogramWorkerClient';
 import type { VisualMode } from '../audio/displayMode';
 import { COLORS, FONTS, CANVAS, SPACING } from '../theme';
 import { formatHz, hexToRgb, spectroColor } from '../utils/canvas';
@@ -56,8 +58,7 @@ const EVA_AXIS = CANVAS.eva.spectroAxis;
 const EVA_SPECTRO_PALETTE = CANVAS.eva.spectroPalette;
 const HISTORY_EMPTY = -1;
 const HISTORY_LEVELS = 256;
-const DECODED_ACTIVE_BUILD_BUDGET_MS = 7;
-const DECODED_IDLE_BUILD_BUDGET_MS = 14;
+const DECODED_WORKER_CHUNK_BUDGET_MS = 14;
 const DECODED_CANVAS_REPAINT_BUDGET_COLUMNS = 1536;
 const DECODED_MIN_SOURCE_ROWS = 180;
 const DECODED_RESIZE_UPGRADE_RATIO = 1.18;
@@ -508,7 +509,10 @@ export function SpectrogramPanel(): React.ReactElement {
     key: string;
     width: number;
     height: number;
-    builder: DecodedSpectrogramBuilder;
+    history: Int16Array;
+    completedColumns: number;
+    done: boolean;
+    workerJob: DecodedSpectrogramWorkerJob | null;
     canvas: HTMLCanvasElement | null;
     canvasKey: string | null;
     paintedColumns: number;
@@ -521,7 +525,7 @@ export function SpectrogramPanel(): React.ReactElement {
     height: number;
   } | null>(null);
   const decodedPriorityRangeRef = useRef<DecodedSpectrogramColumnRange | null>(null);
-  const decodedIdlePumpRef = useRef<number | ReturnType<typeof globalThis.setTimeout> | null>(null);
+  const decodedWorkerClientRef = useRef<DecodedSpectrogramWorkerClient | null>(null);
   const scrubGestureRef = useRef<{ pointerId: number; moved: boolean } | null>(null);
   const suppressNextClickRef = useRef(false);
   const dirtyRef = useRef(true);
@@ -542,44 +546,52 @@ export function SpectrogramPanel(): React.ReactElement {
   const decodedOverviewAvailable = transportSummary?.playbackBackend === 'decoded' && canBuildDecodedSpectrogramOverview(audioEngine.audioBuffer);
   const activeViewMode = decodedOverviewAvailable ? analysisConfig.spectrogram.viewMode : 'live';
 
-  const scheduleDecodedIdlePump = useCallback(() => {
-    if (decodedIdlePumpRef.current !== null) return;
+  const ensureDecodedWorkerClient = useCallback((): DecodedSpectrogramWorkerClient => {
+    if (!decodedWorkerClientRef.current) {
+      decodedWorkerClientRef.current = new DecodedSpectrogramWorkerClient({
+        onChunk: (chunk) => {
+          const decodedBuild = decodedFullHistoryRef.current;
+          if (!decodedBuild || chunk.width !== decodedBuild.width || chunk.height !== decodedBuild.height) return;
 
-    const schedule = (callback: () => void): void => {
-      if (typeof window.requestIdleCallback === 'function') {
-        decodedIdlePumpRef.current = window.requestIdleCallback(callback, { timeout: 120 });
-      } else {
-        decodedIdlePumpRef.current = globalThis.setTimeout(callback, 0);
-      }
-    };
+          const start = Math.max(0, Math.min(decodedBuild.width, chunk.startColumn));
+          const end = Math.max(start, Math.min(decodedBuild.width, chunk.endColumn));
+          const columnCount = end - start;
+          if (columnCount <= 0 || chunk.levels.length !== columnCount * decodedBuild.height) return;
 
-    const pump = () => {
-      decodedIdlePumpRef.current = null;
-      const decodedBuild = decodedFullHistoryRef.current;
-      if (!decodedBuild || decodedBuild.builder.done) return;
-
-      const result = decodedBuild.builder.advance(DECODED_IDLE_BUILD_BUDGET_MS, decodedPriorityRangeRef.current);
-      if (result.builtRanges.length > 0) {
-        decodedBuild.pendingPaintRanges.push(...result.builtRanges);
-        dirtyRef.current = true;
-      }
-      if (!decodedBuild.builder.done) {
-        schedule(pump);
-      }
-    };
-
-    schedule(pump);
+          for (let y = 0; y < decodedBuild.height; y++) {
+            const sourceStart = y * columnCount;
+            const targetStart = y * decodedBuild.width + start;
+            decodedBuild.history.set(chunk.levels.subarray(sourceStart, sourceStart + columnCount), targetStart);
+          }
+          decodedBuild.completedColumns = chunk.completedColumns;
+          decodedBuild.done = chunk.done;
+          decodedBuild.pendingPaintRanges.push({ startColumn: start, endColumn: end });
+          dirtyRef.current = true;
+        },
+        onError: (error) => {
+          console.error('decoded spectrogram worker failed', error.message);
+          const decodedBuild = decodedFullHistoryRef.current;
+          if (decodedBuild?.workerJob?.id === error.id) {
+            decodedBuild.workerJob = null;
+            decodedBuild.done = true;
+          }
+          dirtyRef.current = true;
+        },
+      });
+    }
+    return decodedWorkerClientRef.current;
   }, []);
 
-  const cancelDecodedIdlePump = useCallback(() => {
-    const scheduled = decodedIdlePumpRef.current;
-    if (scheduled === null) return;
-    if (typeof window.cancelIdleCallback === 'function') {
-      window.cancelIdleCallback(scheduled as number);
-    } else {
-      globalThis.clearTimeout(scheduled as ReturnType<typeof globalThis.setTimeout>);
-    }
-    decodedIdlePumpRef.current = null;
+  const cancelDecodedWorkerJob = useCallback(() => {
+    const decodedBuild = decodedFullHistoryRef.current;
+    if (!decodedBuild?.workerJob) return;
+    decodedBuild.workerJob.cancel();
+    decodedBuild.workerJob = null;
+  }, []);
+
+  const resetDecodedBuild = useCallback(() => {
+    decodedFullHistoryRef.current?.workerJob?.cancel();
+    decodedFullHistoryRef.current = null;
   }, []);
 
   useEffect(() => audioEngine.onTransport((nextTransport) => {
@@ -639,7 +651,7 @@ export function SpectrogramPanel(): React.ReactElement {
       const sourceRatio = Math.max(0, Math.min(1, decodedView.startRatio + visibleRatio * sourceSpan));
       const col = Math.max(0, Math.min(decodedHistory.width - 1, Math.floor(sourceRatio * decodedHistory.width)));
       const row = Math.max(0, Math.min(decodedHistory.height - 1, Math.floor((devY - padY) * (decodedHistory.height / spectroH))));
-      const level = decodedHistory.builder.history[row * decodedHistory.width + col];
+      const level = decodedHistory.history[row * decodedHistory.width + col];
       if (level >= 0) {
         const { dbMin, dbMax } = dbRangeRef.current;
         db = dbMin + (level / (HISTORY_LEVELS - 1)) * (dbMax - dbMin);
@@ -767,6 +779,11 @@ export function SpectrogramPanel(): React.ReactElement {
     dirtyRef.current = true;
   }, [activeViewMode, waveformPyramidVersion]);
 
+  useEffect(() => () => {
+    decodedWorkerClientRef.current?.dispose();
+    decodedWorkerClientRef.current = null;
+  }, []);
+
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -804,7 +821,7 @@ export function SpectrogramPanel(): React.ReactElement {
     if (theaterMode) {
       return () => {
         ro.disconnect();
-        cancelDecodedIdlePump();
+        resetDecodedBuild();
         if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
       };
     }
@@ -853,7 +870,7 @@ export function SpectrogramPanel(): React.ReactElement {
           || fullHistory.width * DECODED_RESIZE_UPGRADE_RATIO < sourceWidth
           || fullHistory.height * DECODED_RESIZE_UPGRADE_RATIO < sourceHeight;
         if (needsDecodedRebuild) {
-          cancelDecodedIdlePump();
+          resetDecodedBuild();
           const rowBands = ensureRowBands(sourceHeight, buffer.sampleRate, fftBinCount);
           const fullCanvas = document.createElement('canvas');
           fullCanvas.width = sourceWidth;
@@ -866,20 +883,26 @@ export function SpectrogramPanel(): React.ReactElement {
             key: cacheIdentityKey,
             width: sourceWidth,
             height: sourceHeight,
-            builder: createDecodedSpectrogramBuilder({
-              buffer,
-              fftSize,
-              width: sourceWidth,
-              rowBands,
-              dbMin,
-              dbMax,
-            }),
+            history: createHistoryBuffer(sourceWidth, sourceHeight),
+            completedColumns: 0,
+            done: false,
+            workerJob: null,
             canvas: fullCanvas,
             canvasKey: `${cacheIdentityKey}:${mode}`,
             paintedColumns: sourceWidth,
             pendingPaintRanges: [],
           };
           decodedFullHistoryRef.current = fullHistory;
+          fullHistory.workerJob = ensureDecodedWorkerClient().start({
+              buffer,
+              fftSize,
+              width: sourceWidth,
+              rowBands,
+              dbMin,
+              dbMax,
+              priorityRange: decodedPriorityRangeRef.current,
+              chunkBudgetMs: DECODED_WORKER_CHUNK_BUDGET_MS,
+            });
         }
         fullHistory = decodedFullHistoryRef.current;
         if (!fullHistory) return;
@@ -897,11 +920,7 @@ export function SpectrogramPanel(): React.ReactElement {
             }
           : null;
         decodedPriorityRangeRef.current = priorityRange;
-        const buildResult = fullHistory.builder.advance(DECODED_ACTIVE_BUILD_BUDGET_MS, priorityRange);
-        fullHistory.pendingPaintRanges.push(...buildResult.builtRanges);
-        if (!fullHistory.builder.done) {
-          scheduleDecodedIdlePump();
-        }
+        fullHistory.workerJob?.updatePriority(priorityRange);
         const fullCanvasKey = `${fullHistory.key}:${mode}`;
         if (!fullHistory.canvas || fullHistory.canvasKey !== fullCanvasKey) {
           const fullCanvas = document.createElement('canvas');
@@ -910,11 +929,13 @@ export function SpectrogramPanel(): React.ReactElement {
           const fullCanvasCtx = fullCanvas.getContext('2d');
           if (!fullCanvasCtx) return;
           fullCanvasCtx.fillStyle = backgroundFill;
-          fullCanvasCtx.fillRect(0, 0, fullCanvas.width, fullCanvas.height);
+            fullCanvasCtx.fillRect(0, 0, fullCanvas.width, fullCanvas.height);
           fullHistory.canvas = fullCanvas;
           fullHistory.canvasKey = fullCanvasKey;
           fullHistory.paintedColumns = 0;
-          fullHistory.pendingPaintRanges = [];
+          fullHistory.pendingPaintRanges = fullHistory.done
+            ? [{ startColumn: 0, endColumn: fullHistory.width }]
+            : fullHistory.pendingPaintRanges;
         }
 
         const fullCanvasCtx = fullHistory.canvas.getContext('2d');
@@ -924,7 +945,7 @@ export function SpectrogramPanel(): React.ReactElement {
         for (const range of pendingPaintRanges) {
           paintHistoryColumnsToCanvas(
             fullCanvasCtx,
-            fullHistory.builder.history,
+            fullHistory.history,
             fullHistory.width,
             fullHistory.height,
             mode,
@@ -939,7 +960,7 @@ export function SpectrogramPanel(): React.ReactElement {
           );
           paintHistoryColumnsToCanvas(
             fullCanvasCtx,
-            fullHistory.builder.history,
+            fullHistory.history,
             fullHistory.width,
             fullHistory.height,
             mode,
@@ -977,11 +998,12 @@ export function SpectrogramPanel(): React.ReactElement {
           );
         }
       } else {
-        cancelDecodedIdlePump();
-        decodedPriorityRangeRef.current = null;
         if (!buffer || !decodedOverviewAvailable) {
-          decodedFullHistoryRef.current = null;
+          resetDecodedBuild();
+        } else {
+          cancelDecodedWorkerJob();
         }
+        decodedPriorityRangeRef.current = null;
         decodedViewRef.current = null;
 
         const needsRebuild =
@@ -1120,11 +1142,11 @@ export function SpectrogramPanel(): React.ReactElement {
         && buffer
         && decodedOverviewAvailable
         && decodedBuild
-        && !decodedBuild.builder.done
+        && !decodedBuild.done
       ) {
         drawDecodedBuildStatus(
           ctx,
-          decodedBuild.builder.completedColumns / decodedBuild.width,
+          decodedBuild.completedColumns / decodedBuild.width,
           spectroX + spectroW,
           padY,
           dpr,
@@ -1158,7 +1180,7 @@ export function SpectrogramPanel(): React.ReactElement {
     rafRef.current = requestAnimationFrame(draw);
     return () => {
       ro.disconnect();
-      cancelDecodedIdlePump();
+      resetDecodedBuild();
       if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
     };
   }, [
@@ -1168,11 +1190,12 @@ export function SpectrogramPanel(): React.ReactElement {
     analysisConfig.spectrogram.dbMin,
     analysisConfig.spectrogram.gridDensity,
     audioEngine,
-    cancelDecodedIdlePump,
+    cancelDecodedWorkerJob,
     decodedOverviewAvailable,
     displayMode,
     ensureRowBands,
-    scheduleDecodedIdlePump,
+    ensureDecodedWorkerClient,
+    resetDecodedBuild,
     spectralAnatomy,
     theaterMode,
     transportSummary?.filename,

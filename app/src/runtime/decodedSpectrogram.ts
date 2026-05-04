@@ -14,6 +14,23 @@ export interface DecodedSpectrogramInput {
   readonly dbMax: number;
 }
 
+export interface DecodedSpectrogramSource {
+  readonly left: Float32Array;
+  readonly right: Float32Array;
+  readonly length: number;
+  readonly sampleRate: number;
+  readonly numberOfChannels: number;
+}
+
+export interface DecodedSpectrogramSourceInput {
+  readonly source: DecodedSpectrogramSource;
+  readonly fftSize: number;
+  readonly width: number;
+  readonly rowBands: readonly SpectrogramRowBand[];
+  readonly dbMin: number;
+  readonly dbMax: number;
+}
+
 export interface DecodedSpectrogramColumnRange {
   readonly startColumn: number;
   readonly endColumn: number;
@@ -110,12 +127,47 @@ export function buildDecodedSpectrogramHistory(input: DecodedSpectrogramInput): 
 }
 
 export function createDecodedSpectrogramBuilder(input: DecodedSpectrogramInput): DecodedSpectrogramBuilder {
+  return createDecodedSpectrogramSourceBuilder({
+    ...input,
+    source: getDecodedSpectrogramSource(input.buffer),
+  });
+}
+
+export function getDecodedSpectrogramSource(buffer: AudioBuffer): DecodedSpectrogramSource {
+  const left = buffer.getChannelData(0);
+  return {
+    left,
+    right: buffer.numberOfChannels > 1 ? buffer.getChannelData(1) : left,
+    length: buffer.length,
+    sampleRate: buffer.sampleRate,
+    numberOfChannels: buffer.numberOfChannels,
+  };
+}
+
+export function copyDecodedSpectrogramSource(buffer: AudioBuffer): DecodedSpectrogramSource {
+  const left = new Float32Array(buffer.getChannelData(0));
+  return {
+    left,
+    right: buffer.numberOfChannels > 1 ? new Float32Array(buffer.getChannelData(1)) : new Float32Array(left),
+    length: buffer.length,
+    sampleRate: buffer.sampleRate,
+    numberOfChannels: buffer.numberOfChannels,
+  };
+}
+
+export function getDecodedSpectrogramSourceTransferables(source: DecodedSpectrogramSource): Transferable[] {
+  return source.left.buffer === source.right.buffer
+    ? [source.left.buffer]
+    : [source.left.buffer, source.right.buffer];
+}
+
+export function createDecodedSpectrogramSourceBuilder(input: DecodedSpectrogramSourceInput): DecodedSpectrogramBuilder {
   const width = Math.max(1, Math.round(input.width));
   const height = input.rowBands.length;
   const history = new Int16Array(width * height);
   history.fill(HISTORY_EMPTY);
 
-  if (height <= 0 || input.buffer.length <= 0) {
+  if (height <= 0 || input.source.length <= 0) {
     return {
       history,
       width,
@@ -130,8 +182,7 @@ export function createDecodedSpectrogramBuilder(input: DecodedSpectrogramInput):
   const plan = createFftPlan(fftSize);
   const real = new Float64Array(fftSize);
   const imag = new Float64Array(fftSize);
-  const left = input.buffer.getChannelData(0);
-  const right = input.buffer.numberOfChannels > 1 ? input.buffer.getChannelData(1) : left;
+  const { left, right } = input.source;
   const fftBinCount = fftSize / 2;
   let completedColumns = 0;
   let nextSequentialColumn = 0;
@@ -142,12 +193,12 @@ export function createDecodedSpectrogramBuilder(input: DecodedSpectrogramInput):
   const buildColumn = (x: number): void => {
     real.fill(0);
     imag.fill(0);
-    const centerSample = Math.round(((x + 0.5) / width) * input.buffer.length);
+    const centerSample = Math.round(((x + 0.5) / width) * input.source.length);
     const startSample = centerSample - Math.floor(fftSize / 2);
 
     for (let i = 0; i < fftSize; i++) {
       const sampleIndex = startSample + i;
-      if (sampleIndex < 0 || sampleIndex >= input.buffer.length) continue;
+      if (sampleIndex < 0 || sampleIndex >= input.source.length) continue;
       real[i] = ((left[sampleIndex] + right[sampleIndex]) * 0.5) * plan.window[i];
     }
 

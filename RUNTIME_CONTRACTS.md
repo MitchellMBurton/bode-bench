@@ -29,12 +29,19 @@ The worker path exists to keep analysis honest and the UI responsive.
 - Back-pressure should prefer dropping stale work with diagnostics over queuing unbounded frames.
 - The main-thread analysis adapter remains the parity fallback.
 - PERF LAB should keep worker/main visibility available while Track 3 is active.
+- Decoded full-source spectrogram work runs as a chunked worker job.
+- Decoded spectrogram jobs must be cancellable when source, FFT size, dB range, or required resolution changes.
+- Window-view priority may steer worker column order, but late chunks from stale jobs must not mutate the visible cache.
+- The UI thread owns painting and interaction; the worker owns decoded column analysis.
 
 Core files:
 
 - `app/src/audio/analysisWorkerProtocol.ts`
 - `app/src/audio/analysisWorkerClient.ts`
 - `app/src/audio/analysisRuntime.ts`
+- `app/src/runtime/decodedSpectrogramWorkerProtocol.ts`
+- `app/src/runtime/decodedSpectrogramWorkerClient.ts`
+- `app/src/runtime/decodedSpectrogramWorker.ts`
 
 ## Session Source Matching
 
