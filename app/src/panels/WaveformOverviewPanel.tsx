@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useAudioEngine, useDisplayMode, useFrameBus, useTheaterMode, useWaveformPyramidStore } from '../core/session';
+import { useAudioEngine, useDiagnosticsLog, useDisplayMode, useFrameBus, useTheaterMode, useWaveformPyramidStore } from '../core/session';
 import { CANVAS, COLORS, FONTS, SPACING } from '../theme';
 import { shouldSkipFrame } from '../utils/rafGuard';
 import type { Marker, RangeMark, ScrubStyle, TransportState, WaveformLevel } from '../types';
@@ -42,6 +42,7 @@ type TimelineGestureKind =
   | 'range-pan'
   | 'range-resize-start'
   | 'range-resize-end'
+  | 'range-create'
   | 'loop-create'
   | 'loop-pan'
   | 'loop-resize-start'
@@ -146,6 +147,10 @@ function formatSpan(seconds: number): string {
   const secs = Math.floor(seconds % 60);
   if (hours > 0) return `${hours}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
   return `${minutes}:${String(secs).padStart(2, '0')}`;
+}
+
+function formatRangeSourceLabel(timeSpace: 'session' | 'detail' | undefined): string {
+  return timeSpace === 'detail' ? 'detail waveform' : 'overview waveform';
 }
 
 function clampNumber(value: number, min: number, max: number): number {
@@ -256,6 +261,7 @@ interface WaveformOverviewPanelProps {
   onClearMarkers?: () => void;
   onClearRanges?: () => void;
   onSelectRange?: (id: number) => void;
+  onAddRange?: (startS: number, endS: number) => RangeMark;
   onUpdateRange?: (id: number, startS: number, endS: number) => void;
 }
 
@@ -268,10 +274,12 @@ export function WaveformOverviewPanel({
   onClearMarkers,
   onClearRanges,
   onSelectRange,
+  onAddRange,
   onUpdateRange,
 }: WaveformOverviewPanelProps): React.ReactElement {
   const frameBus = useFrameBus();
   const audioEngine = useAudioEngine();
+  const diagnosticsLog = useDiagnosticsLog();
   const waveformPyramid = useWaveformPyramidStore();
   const displayMode = useDisplayMode();
   const amber = displayMode.mode === 'amber';
@@ -295,6 +303,8 @@ export function WaveformOverviewPanel({
   onClearRangesRef.current = onClearRanges;
   const onSelectRangeRef = useRef(onSelectRange);
   onSelectRangeRef.current = onSelectRange;
+  const onAddRangeRef = useRef(onAddRange);
+  onAddRangeRef.current = onAddRange;
   const onUpdateRangeRef = useRef(onUpdateRange);
   onUpdateRangeRef.current = onUpdateRange;
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -641,8 +651,8 @@ export function WaveformOverviewPanel({
       : normalizeViewRange(0, pickDefaultViewSpan(duration), duration, Math.min(MIN_VIEWPORT_SECONDS, duration));
     const detailTime = xToTime(x, detailRange.start, detailRange.end, layout.detail);
     const deltaTime = ((x - gesture.anchorX) / Math.max(1, layout.view.w)) * duration;
-    const rangePointerTime = gesture.timeSpace === 'detail' ? detailTime : fullTime;
-    const rangeDeltaTime = rangePointerTime - gesture.anchorTime;
+      const rangePointerTime = gesture.timeSpace === 'detail' ? detailTime : fullTime;
+      const rangeDeltaTime = rangePointerTime - gesture.anchorTime;
 
     switch (gesture.kind) {
       case 'scrub-session':
@@ -704,6 +714,12 @@ export function WaveformOverviewPanel({
           onUpdateRangeRef.current(gesture.rangeId, gesture.initialRangeStart, end);
         }
         break;
+      case 'range-create':
+        gestureRef.current = {
+          ...gesture,
+          initialRangeEnd: rangePointerTime,
+        };
+        break;
       case 'loop-create': {
         const start = Math.min(gesture.anchorTime, fullTime);
         const end = Math.max(gesture.anchorTime, fullTime);
@@ -756,9 +772,27 @@ export function WaveformOverviewPanel({
       audioEngine.endScrub();
     }
 
+    if (
+      gesture.kind === 'range-create'
+      && gesture.initialRangeEnd !== undefined
+      && gesture.initialRangeEnd !== null
+      && onAddRangeRef.current
+    ) {
+      const startS = Math.min(gesture.anchorTime, gesture.initialRangeEnd);
+      const endS = Math.max(gesture.anchorTime, gesture.initialRangeEnd);
+      if (endS - startS >= MIN_RANGE_EDIT_SECONDS) {
+        const rangeMark = onAddRangeRef.current(startS, endS);
+        diagnosticsLog.push(
+          `range ${rangeMark.label} from ${formatRangeSourceLabel(gesture.timeSpace)} ${formatTransportTime(rangeMark.startS)} -> ${formatTransportTime(rangeMark.endS)}`,
+          'info',
+          'transport',
+        );
+      }
+    }
+
     gestureRef.current = null;
     setCanvasCursor('crosshair');
-  }, [audioEngine, setCanvasCursor, updateGestureFromPointer]);
+  }, [audioEngine, diagnosticsLog, setCanvasCursor, updateGestureFromPointer]);
 
   const onScrubStyleChange = useCallback((nextStyle: ScrubStyle) => {
     setScrubStyle(nextStyle);
@@ -1085,6 +1119,47 @@ export function WaveformOverviewPanel({
             minX: rect.x + dpr,
             maxX: rect.x + rect.w - dpr,
           });
+        }
+
+        const draftGesture = gestureRef.current;
+        if (
+          draftGesture?.kind === 'range-create'
+          && draftGesture.initialRangeEnd !== undefined
+          && draftGesture.initialRangeEnd !== null
+        ) {
+          const draftStart = Math.min(draftGesture.anchorTime, draftGesture.initialRangeEnd);
+          const draftEnd = Math.max(draftGesture.anchorTime, draftGesture.initialRangeEnd);
+          if (draftEnd > start && draftStart < end) {
+            const overlapStart = Math.max(start, draftStart);
+            const overlapEnd = Math.min(end, draftEnd);
+            const x1 = timeToX(overlapStart, start, end, rect);
+            const x2 = timeToX(overlapEnd, start, end, rect);
+            const rangeWidth = Math.max(1, x2 - x1);
+
+            ctx.fillStyle = selectedRangeFill;
+            ctx.globalAlpha = optic ? 0.24 : 0.28;
+            ctx.fillRect(x1, rect.y, rangeWidth, rect.h);
+            ctx.globalAlpha = 0.96;
+            ctx.strokeStyle = selectedRangeStroke;
+            ctx.lineWidth = Math.max(1.5 * dpr, 1);
+            ctx.setLineDash([4 * dpr, 2 * dpr]);
+            ctx.strokeRect(x1 + 0.5 * dpr, rect.y + 0.5 * dpr, Math.max(1, rangeWidth - dpr), Math.max(1, rect.h - dpr));
+            ctx.setLineDash([]);
+            ctx.globalAlpha = 1;
+
+            if (rangeWidth > 18 * dpr) {
+              drawCanvasRangeChip(ctx, {
+                label: formatTransportTime(draftEnd - draftStart),
+                x: x1 + 1.5 * dpr,
+                y: rect.y + Math.max(2 * dpr, rect.h * 0.12),
+                dpr,
+                visualMode: displayMode.mode,
+                selected: true,
+                minX: rect.x + dpr,
+                maxX: rect.x + rect.w - dpr,
+              });
+            }
+          }
         }
 
         if (pendingStart !== null && pendingStart >= start - 0.001 && pendingStart <= end + 0.001) {
@@ -2683,6 +2758,7 @@ export function WaveformOverviewPanel({
       <canvas
         ref={canvasRef}
         style={canvasStyle}
+        title="Drag to scrub or adjust view and ranges. Shift-drag on the session map or detail waveform to save a review range."
         onPointerDown={(event) => {
           const canvas = canvasRef.current;
           if (!canvas) return;
@@ -2703,6 +2779,25 @@ export function WaveformOverviewPanel({
             duration,
             Math.min(MIN_VIEWPORT_SECONDS, duration),
           );
+          const hit = hitTestTimeline(x, y, layout, duration);
+
+          if (event.shiftKey && onAddRangeRef.current && (hit.region === 'session' || hit.region === 'detail')) {
+            event.currentTarget.setPointerCapture(event.pointerId);
+            gestureRef.current = {
+              kind: 'range-create',
+              pointerId: event.pointerId,
+              anchorTime: hit.time,
+              anchorX: x,
+              initialView: currentView,
+              initialLoopStart: transportRef.current.loopStart,
+              initialLoopEnd: transportRef.current.loopEnd,
+              initialRangeStart: hit.time,
+              initialRangeEnd: hit.time,
+              timeSpace: hit.region === 'detail' ? 'detail' : 'session',
+            };
+            setCanvasCursor('crosshair');
+            return;
+          }
 
           const selectedRangeHit = onUpdateRangeRef.current
             ? hitTestRange(x, y, layout, duration, true)
@@ -2752,8 +2847,6 @@ export function WaveformOverviewPanel({
               }
             }
           }
-          const hit = hitTestTimeline(x, y, layout, duration);
-
           event.currentTarget.setPointerCapture(event.pointerId);
 
           switch (hit.region) {

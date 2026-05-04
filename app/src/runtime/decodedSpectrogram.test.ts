@@ -8,6 +8,8 @@ import {
   pickDecodedSpectrogramFftSize,
   projectDecodedSpectrogramHistory,
   resolveDecodedSpectrogramPlaybackRatio,
+  resolveDecodedSpectrogramRange,
+  resolveDecodedSpectrogramTime,
 } from './decodedSpectrogram';
 
 function createBuffer(samples: Float32Array, sampleRate = 1024): AudioBuffer {
@@ -112,5 +114,26 @@ describe('decoded spectrogram overview', () => {
     expect(resolveDecodedSpectrogramPlaybackRatio('window', 25, 100, { start: 20, end: 40 })).toBe(0.25);
     expect(resolveDecodedSpectrogramPlaybackRatio('window', 10, 100, { start: 20, end: 40 })).toBeNull();
     expect(resolveDecodedSpectrogramPlaybackRatio('live', 25, 100, { start: 20, end: 40 })).toBeNull();
+  });
+
+  it('maps decoded spectrogram pointer ratios into source time', () => {
+    expect(resolveDecodedSpectrogramTime('full', 0.25, 100, { start: 20, end: 40 })).toBe(25);
+    expect(resolveDecodedSpectrogramTime('window', 0.25, 100, { start: 20, end: 40 })).toBe(25);
+    expect(resolveDecodedSpectrogramTime('window', -1, 100, { start: 20, end: 40 })).toBe(20);
+    expect(resolveDecodedSpectrogramTime('window', 2, 100, { start: 20, end: 40 })).toBe(40);
+    expect(resolveDecodedSpectrogramTime('live', 0.25, 100, { start: 20, end: 40 })).toBeNull();
+  });
+
+  it('normalizes, clamps, and rejects decoded spectrogram drag ranges', () => {
+    expect(resolveDecodedSpectrogramRange('full', 0.5, 0.25, 100, { start: 20, end: 40 })).toEqual({
+      startS: 25,
+      endS: 50,
+    });
+    expect(resolveDecodedSpectrogramRange('window', -1, 2, 100, { start: 20, end: 40 })).toEqual({
+      startS: 20,
+      endS: 40,
+    });
+    expect(resolveDecodedSpectrogramRange('window', 0.5, 0.50001, 100, { start: 20, end: 40 })).toBeNull();
+    expect(resolveDecodedSpectrogramRange('live', 0.1, 0.9, 100, { start: 20, end: 40 })).toBeNull();
   });
 });

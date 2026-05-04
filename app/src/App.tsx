@@ -314,7 +314,7 @@ export default function App(): React.ReactElement {
               >
                 {topRightPanels.map(({ id, component: Panel }) =>
                   id === 'overview'
-                    ? <WaveformOverviewPanel key={id} markers={markers} rangeMarks={rangeMarks} pendingRangeStartS={pendingRangeStartS} selectedRangeId={selectedRangeId} onDeleteMarker={(id) => derivedMedia.deleteMarker(id)} onClearMarkers={() => derivedMedia.clearMarkers()} onClearRanges={() => derivedMedia.clearRanges()} onSelectRange={(id) => derivedMedia.selectRange(id)} onUpdateRange={(id, startS, endS) => derivedMedia.updateRange(id, startS, endS)} />
+                    ? <WaveformOverviewPanel key={id} markers={markers} rangeMarks={rangeMarks} pendingRangeStartS={pendingRangeStartS} selectedRangeId={selectedRangeId} onDeleteMarker={(id) => derivedMedia.deleteMarker(id)} onClearMarkers={() => derivedMedia.clearMarkers()} onClearRanges={() => derivedMedia.clearRanges()} onSelectRange={(id) => derivedMedia.selectRange(id)} onAddRange={(startS, endS) => derivedMedia.addRange(startS, endS)} onUpdateRange={(id, startS, endS) => derivedMedia.updateRange(id, startS, endS)} />
                     : <Panel key={id} />
                 )}
               </SplitPane>

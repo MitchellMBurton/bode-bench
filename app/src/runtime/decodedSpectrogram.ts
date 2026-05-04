@@ -349,6 +349,44 @@ export function resolveDecodedSpectrogramPlaybackRatio(
   return clamp((currentTimeS - viewRange.start) / span, 0, 1);
 }
 
+export function resolveDecodedSpectrogramTime(
+  viewMode: SpectrogramViewMode,
+  visibleRatio: number,
+  durationS: number,
+  viewRange: DecodedSpectrogramViewRange,
+): number | null {
+  if (viewMode === 'live' || durationS <= 0 || !Number.isFinite(durationS)) return null;
+  const ratio = clamp(visibleRatio, 0, 1);
+
+  if (viewMode === 'full') {
+    return ratio * durationS;
+  }
+
+  const start = clamp(viewRange.start, 0, durationS);
+  const end = clamp(viewRange.end, start, durationS);
+  const span = end - start;
+  if (span <= 0) return null;
+  return clamp(start + ratio * span, 0, durationS);
+}
+
+export function resolveDecodedSpectrogramRange(
+  viewMode: SpectrogramViewMode,
+  startVisibleRatio: number,
+  endVisibleRatio: number,
+  durationS: number,
+  viewRange: DecodedSpectrogramViewRange,
+  minDurationS = 0.01,
+): { readonly startS: number; readonly endS: number } | null {
+  const startTime = resolveDecodedSpectrogramTime(viewMode, startVisibleRatio, durationS, viewRange);
+  const endTime = resolveDecodedSpectrogramTime(viewMode, endVisibleRatio, durationS, viewRange);
+  if (startTime === null || endTime === null) return null;
+
+  const startS = Math.min(startTime, endTime);
+  const endS = Math.max(startTime, endTime);
+  if (endS - startS < minDurationS) return null;
+  return { startS, endS };
+}
+
 function nearestPowerOfTwo(value: number): number {
   const safe = Math.max(2, Math.round(value));
   return 2 ** Math.round(Math.log2(safe));
